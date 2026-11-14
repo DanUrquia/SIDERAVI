@@ -27,6 +27,8 @@ flutter run -d <ipad-device-id>
 
 For a physical iPad, select an Apple Development signing team with access to the Runner bundle identifier in `ios/Runner.xcworkspace`. The existing team can use the project's signing configuration. Other developers can select their own team and bundle ID locally if required by Xcode.
 
+On iPadOS 27, UIKit requires scene-based launch for builds linked against the iOS 27 SDK. The Runner's single scene loads `Main.storyboard` through Flutter 3.35.4's built-in `FlutterSceneDelegate`. The storyboard's Flutter view controller calls `FlutterPluginRegistrant` to register plugins with its engine.
+
 ```sh
 flutter analyze
 flutter test
