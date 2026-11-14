@@ -60,3 +60,6 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+
+# Private diagnostic exports
+sidera-sensor-report-*.json

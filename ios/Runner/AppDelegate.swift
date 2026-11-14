@@ -16,5 +16,8 @@ import UIKit
   /// Registers plugins on the registry from the scene's Flutter view controller.
   func register(with registry: FlutterPluginRegistry) {
     GeneratedPluginRegistrant.register(with: registry)
+    if let registrar = registry.registrar(forPlugin: "SideraSensorDiagnostics") {
+      SensorDiagnostics.register(with: registrar)
+    }
   }
 }

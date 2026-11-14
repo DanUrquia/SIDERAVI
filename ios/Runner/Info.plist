@@ -22,6 +22,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sensor Test measures Earth location on this iPad. SIDERA VI processes the readings locally and does not upload them.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Sensor Test measures device motion and relative orientation locally on this iPad.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

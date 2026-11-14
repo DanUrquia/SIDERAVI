@@ -11,6 +11,7 @@ SIDERA VI is a landscape iPad prototype by team **SIDERA VI** for the [2026 NASA
 - Every dashboard centers on its mission region with [NASA Mars Trek imagery](docs/mars_trek_integration.md), a demo grid, habitat base, three selectable landmarks, and a simulated teammate. The dashboard needs internet access for uncached tiles.
 - Tap a point inside the exploration boundary, tap a landmark or select the demo teammate to set a destination. Pinch and drag the map or use the zoom and reset buttons. Start Navigation moves the astronaut along a straight demo route that can be paused or resumed. Return to Base plans the same kind of route to the habitat.
 - Send Ping places a location, item or danger marker on the iPad. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
+- **Sensor Test** opens a foreground Earth location and iPad orientation diagnostic from the dashboard. It shows reported accuracy, movement uncertainty, relative heading, and sample timing. Optional JSON export uses the iPad share sheet. [Phase 5A procedure and limitations](docs/sensor_feasibility.md).
 - The official SIDERA VI wordmark, S‑VI home-screen icon, and display name.
 
 ## Run on iPad
@@ -34,7 +35,7 @@ flutter analyze
 flutter test
 ```
 
-The tests exercise both astronauts, PIN editing and retry, welcome timing, mission browsing, all five dashboards, map gestures and marker alignment, navigation, pings, demo SOS, session reset, and landscape layout with larger text.
+The tests exercise both astronauts, PIN editing and retry, welcome timing, mission browsing, all five dashboards, map gestures and marker alignment, navigation, pings, demo SOS, session reset, and landscape layout with larger text. Sensor tests use mocked data to cover permissions, filtering, geodesic distance, calibration, arrow rotation, lifecycle, reset and export.
 
 ## Prototype limits
 

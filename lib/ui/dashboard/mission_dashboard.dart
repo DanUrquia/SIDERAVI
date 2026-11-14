@@ -8,6 +8,7 @@ import '../../dashboard/terrain_view_controller.dart';
 import '../../missions/mission.dart';
 import '../../maps/trek_tile_source.dart';
 import '../mission_theme.dart';
+import '../sensors/sensor_test_screen.dart';
 import 'dashboard_actions.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
@@ -290,6 +291,16 @@ class _DashboardHeader extends StatelessWidget {
                 semanticLabel: 'SIDERA VI',
               ),
             Expanded(child: missionLabel),
+            Flexible(
+              child: DashboardButton(
+                label: 'SENSOR TEST',
+                icon: Icons.sensors,
+                height: 52,
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => const SensorTestScreen()),
+                ),
+              ),
+            ),
             Flexible(
               child: Align(
                 alignment: Alignment.centerRight,

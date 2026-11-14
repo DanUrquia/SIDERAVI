@@ -103,6 +103,25 @@ void main() {
     expect(map.view.value.isIdentity(), isTrue);
   });
 
+  testWidgets('Sensor Test returns to the existing Mars scenario', (
+    tester,
+  ) async {
+    final map = await _launch(tester);
+    await _tapTooltip(tester, 'Select Adrian Flores on map');
+    final position = map.navigation.position;
+    final target = map.navigation.target;
+    await tester.tap(find.text('SENSOR TEST'));
+    await tester.pumpAndSettle();
+    expect(find.text('Earth location'), findsOneWidget);
+    await tester.tap(find.text('BACK TO DASHBOARD'));
+    await tester.pumpAndSettle();
+
+    final current = tester.widget<DemoTerrainMap>(find.byType(DemoTerrainMap));
+    expect(current.navigation, same(map.navigation));
+    expect(current.navigation.position, position);
+    expect(current.navigation.target, target);
+  });
+
   testWidgets('Selects a teammate and pauses, resumes, then returns to base', (
     tester,
   ) async {
