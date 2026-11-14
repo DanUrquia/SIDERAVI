@@ -27,7 +27,8 @@ final class DemoPing {
 /// Owns one mission's offline position, route, pings, and demonstration SOS.
 final class DemoNavigation extends ChangeNotifier {
   /// Initializes at the mission's configured astronaut position.
-  DemoNavigation(this.map) : _position = map.start;
+  DemoNavigation(this.map, {bool startAtBase = false})
+    : _position = startAtBase ? map.base : map.start;
 
   final MissionMapConfig map;
   final List<DemoPing> _pings = [];
@@ -38,6 +39,7 @@ final class DemoNavigation extends ChangeNotifier {
   bool _started = false;
   bool _paused = false;
   bool _sos = false;
+  bool _acceptsDemoMovement = true;
 
   Offset get position => _position;
   Offset? get target => _target;
@@ -46,10 +48,15 @@ final class DemoNavigation extends ChangeNotifier {
   bool get sos => _sos;
   double? get heading => _heading;
   List<DemoPing> get pings => List.unmodifiable(_pings);
-  bool get moving => _started && !_paused && !_sos;
+  bool get moving => _acceptsDemoMovement && _started && !_paused && !_sos;
   bool get arrived => _target != null && _position == _target;
   bool get canNavigate =>
-      _target != null && !arrived && !moving && !_paused && !_sos;
+      _acceptsDemoMovement &&
+      _target != null &&
+      !arrived &&
+      !moving &&
+      !_paused &&
+      !_sos;
   bool get atBase => _position == map.base;
 
   /// Describes the current route independently from the exploration status.
@@ -103,12 +110,28 @@ final class DemoNavigation extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cancels an active demo leg when live sensors own the position.
+  void enableDemoMovement(bool enabled) {
+    if (_acceptsDemoMovement == enabled) return;
+    _acceptsDemoMovement = enabled;
+    _started = false;
+    notifyListeners();
+  }
+
+  /// Updates the shared simulated coordinate without restarting a demo leg.
+  void setTrackedPosition(Offset point) {
+    if (_position == point) return;
+    _position = point;
+    _started = false;
+    notifyListeners();
+  }
+
   /// Selects base and starts a fresh return route.
   void returnToBase({bool instant = false}) {
     if (_sos) return;
-    _paused = false;
+    if (_acceptsDemoMovement) _paused = false;
     _setTarget(map.base, 'Habitat base');
-    _startRoute(instant);
+    if (_acceptsDemoMovement) _startRoute(instant);
     notifyListeners();
   }
 

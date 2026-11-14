@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../missions/mission.dart';
+import '../../tracking/astronaut_tracking.dart';
+import '../../tracking/mission_presence.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
 
@@ -15,10 +17,12 @@ class PositionPanel extends StatelessWidget {
     super.key,
     required this.astronaut,
     required this.navigation,
+    required this.tracking,
   });
 
   final Astronaut astronaut;
   final DemoNavigation navigation;
+  final AstronautTracking tracking;
 
   @override
   Widget build(BuildContext context) => DashboardPanel(
@@ -26,12 +30,16 @@ class PositionPanel extends StatelessWidget {
     icon: Icons.my_location,
     children: [
       Text(astronaut.fullName, style: MissionTheme.display(18)),
-      _Readout(label: 'Demo grid', value: navigation.gridPosition),
       _Readout(
-        label: 'Heading',
-        value: navigation.heading == null
-            ? '—'
-            : '${(navigation.heading!.round() % 360).toString().padLeft(3, '0')}° demo north',
+        label: 'Simulated Mars',
+        value: _marsPosition(tracking.pose.mars),
+      ),
+      ValueListenableBuilder<double?>(
+        valueListenable: tracking.heading,
+        builder: (context, heading, _) => _Readout(
+          label: 'Relative heading',
+          value: heading == null ? 'Unavailable' : '${heading.round()}°',
+        ),
       ),
       _Readout(
         label: 'Exploration',
@@ -45,23 +53,35 @@ class PositionPanel extends StatelessWidget {
   );
 }
 
+/// Formats the simulated geographic position without identifying an Earth fix.
+String _marsPosition(Offset point) =>
+    '${point.dy.toStringAsFixed(4)}°, ${point.dx.toStringAsFixed(4)}° E';
+
 /// Shows the route status and actions for destination or base travel.
 class NavigationPanel extends StatelessWidget {
   /// Receives route readouts and actions owned by the dashboard.
   const NavigationPanel({
     super.key,
     required this.navigation,
+    required this.tracking,
     required this.onNavigate,
     required this.onReturn,
   });
 
   final DemoNavigation navigation;
+  final AstronautTracking tracking;
   final VoidCallback onNavigate;
   final VoidCallback onReturn;
 
   @override
   Widget build(BuildContext context) {
     final target = navigation.target;
+    final live = tracking.mode == TrackingMode.live;
+    String distance(Offset point) => formatDemoDistance(
+      live
+          ? tracking.coordinates.distance(navigation.position, point)
+          : navigation.distanceTo(point),
+    );
     final start = DashboardButton(
       label: 'START NAVIGATION',
       icon: Icons.navigation_outlined,
@@ -83,16 +103,13 @@ class NavigationPanel extends StatelessWidget {
         ),
         _Readout(
           label: 'To destination',
-          value: target == null
-              ? '—'
-              : formatDemoDistance(navigation.distanceTo(target)),
+          value: target == null ? '—' : distance(target),
         ),
-        _Readout(
-          label: 'To base',
-          value: formatDemoDistance(navigation.distanceTo(navigation.map.base)),
-        ),
+        _Readout(label: 'To base', value: distance(navigation.map.base)),
         Text(
-          navigation.status,
+          live && !navigation.paused
+              ? tracking.quality.label
+              : navigation.status,
           style: const TextStyle(
             color: DashboardStyle.warm,
             fontWeight: FontWeight.w700,
@@ -187,16 +204,18 @@ class AstronautListPanel extends StatelessWidget {
     super.key,
     required this.astronaut,
     required this.teammate,
+    required this.teammateStatus,
     required this.onSelect,
   });
 
   final Astronaut astronaut;
   final Astronaut teammate;
+  final String teammateStatus;
   final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) => DashboardPanel(
-    title: 'ASTRONAUTS — DEMO',
+    title: 'ASTRONAUTS',
     icon: Icons.people_outline,
     children: [
       _CrewRow(
@@ -206,7 +225,7 @@ class AstronautListPanel extends StatelessWidget {
       ),
       _CrewRow(
         astronaut: teammate,
-        status: 'Simulated teammate',
+        status: teammateStatus,
         color: DashboardStyle.cyan,
         onTap: onSelect,
       ),

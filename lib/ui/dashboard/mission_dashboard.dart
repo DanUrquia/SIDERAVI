@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -7,12 +9,18 @@ import '../../dashboard/mission_map_config.dart';
 import '../../dashboard/terrain_view_controller.dart';
 import '../../missions/mission.dart';
 import '../../maps/trek_tile_source.dart';
+import '../../sensors/sensor_service.dart';
+import '../../tracking/astronaut_tracking.dart';
+import '../../tracking/firebase_presence.dart';
+import '../../tracking/mission_presence.dart';
+import '../../tracking/tracking_geometry.dart';
 import '../mission_theme.dart';
 import '../sensors/sensor_test_screen.dart';
 import 'dashboard_actions.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
 import 'demo_terrain_map.dart';
+import 'tracking_controls.dart';
 
 /// Hosts one astronaut's interactive offline mission scenario.
 class MissionDashboard extends StatefulWidget {
@@ -22,11 +30,13 @@ class MissionDashboard extends StatefulWidget {
     required this.astronaut,
     required this.mission,
     required this.tileSource,
+    this.sensors = const IpadSensorService(),
   });
 
   final Astronaut astronaut;
   final MarsMission mission;
   final TrekTileSource tileSource;
+  final SensorService sensors;
 
   @override
   State<MissionDashboard> createState() => _MissionDashboardState();
@@ -34,13 +44,19 @@ class MissionDashboard extends StatefulWidget {
 
 /// Coordinates the dashboard's local navigation and foreground animation.
 class _MissionDashboardState extends State<MissionDashboard>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final _view = TerrainViewController();
   final _messages = GlobalKey<ScaffoldMessengerState>();
   late final MissionMapConfig _map;
   late final DemoNavigation _navigation;
   late final Astronaut _teammate;
   late final Ticker _movement;
+  late final AstronautTracking _tracking;
+  late final MissionPresence _presence;
+  final _firebase = FirebasePresenceConfig.fromBuild();
+  ConnectPresence? _connect;
+  bool _showingDiagnostics = false;
+  bool _foreground = true;
   Duration _lastFrame = Duration.zero;
 
   @override
@@ -51,7 +67,25 @@ class _MissionDashboardState extends State<MissionDashboard>
       (astronaut) => astronaut.id != widget.astronaut.id,
     );
     _movement = createTicker(_tick);
-    _navigation = DemoNavigation(_map)..addListener(_syncMovement);
+    _navigation = DemoNavigation(_map, startAtBase: true)
+      ..addListener(_syncMovement);
+    _tracking = AstronautTracking(
+      navigation: _navigation,
+      coordinates: MissionCoordinates(widget.mission),
+      sensors: widget.sensors,
+    );
+    _presence = MissionPresence(
+      key: (
+        mission: widget.mission.id,
+        session: _firebase?.session ?? 'local',
+        astronaut: widget.astronaut.id,
+      ),
+      pose: () => _tracking.pose,
+      restore: _tracking.restore,
+    );
+    _navigation.addListener(_presence.pulse);
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_tracking.resume());
   }
 
   /// Runs the ticker only while a route is actively moving.
@@ -128,8 +162,59 @@ class _MissionDashboardState extends State<MissionDashboard>
     );
   }
 
+  /// Hands the native bridge to Sensor Test until its route is closed.
+  Future<void> _openDiagnostics() async {
+    if (_showingDiagnostics) return;
+    _showingDiagnostics = true;
+    await _tracking.suspend();
+    if (!mounted) return;
+    final route = MaterialPageRoute<void>(
+      builder: (_) => SensorTestScreen(service: widget.sensors),
+    );
+    await Navigator.of(context).push(route);
+    await route.completed;
+    if (!mounted) return;
+    _showingDiagnostics = false;
+    if (_foreground) unawaited(_tracking.resume());
+  }
+
+  /// Authenticates sharing independently of the offline astronaut PIN.
+  Future<void> _joinCrew() async {
+    final setup = _firebase;
+    if (setup == null) return;
+    if (_presence.status != ConnectionStatus.offline) {
+      _connect = null;
+      _presence.suspend();
+      return;
+    }
+    final connect = await showCrewSignIn(context, setup);
+    if (!mounted || connect == null) return;
+    _connect = connect;
+    if (_foreground) _presence.open(connect);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      if (!_foreground) return;
+      _foreground = false;
+      unawaited(_tracking.suspend());
+      _presence.suspend();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_foreground) return;
+      _foreground = true;
+      if (!_showingDiagnostics) unawaited(_tracking.resume());
+      if (_connect case final connect?) _presence.open(connect);
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _navigation.removeListener(_presence.pulse);
+    _presence.dispose();
+    _tracking.dispose();
     _navigation.dispose();
     _movement.dispose();
     _view.dispose();
@@ -148,20 +233,38 @@ class _MissionDashboardState extends State<MissionDashboard>
         body: SafeArea(
           minimum: const EdgeInsets.all(16),
           child: ListenableBuilder(
-            listenable: _navigation,
+            listenable: Listenable.merge([_navigation, _tracking, _presence]),
             builder: (context, _) {
+              final member = _presence.crew[_teammate.id];
+              final fresh = member != null && _presence.isFresh(member);
+              final demoPeer =
+                  member == null &&
+                  _presence.status == ConnectionStatus.offline &&
+                  _tracking.mode == TrackingMode.demo;
+              final peerPoint = member != null
+                  ? _tracking.coordinates.toGrid(member.pose.mars)
+                  : demoPeer
+                  ? _map.teammate
+                  : null;
               final rightPanel = _DashboardSidebar(
                 astronaut: astronaut,
                 teammate: _teammate,
                 mission: mission,
                 navigation: _navigation,
+                tracking: _tracking,
+                teammateStatus: member != null
+                    ? fresh
+                          ? member.pose.mode.label
+                          : 'Last known · offline'
+                    : demoPeer
+                    ? 'Simulated teammate'
+                    : 'Not in session',
                 onNavigate: () => _navigation.start(instant: reducedMotion),
                 onReturn: () =>
                     _navigation.returnToBase(instant: reducedMotion),
-                onTeammate: _navigation.sos
+                onTeammate: _navigation.sos || peerPoint == null
                     ? null
-                    : () =>
-                          _selectDestination(_map.teammate, _teammate.fullName),
+                    : () => _selectDestination(peerPoint, _teammate.fullName),
               );
               final map = Stack(
                 fit: StackFit.expand,
@@ -171,8 +274,12 @@ class _MissionDashboardState extends State<MissionDashboard>
                     view: _view,
                     mission: mission,
                     tileSource: widget.tileSource,
-                    astronautInitials: astronaut.initials,
-                    teammateInitials: _teammate.initials,
+                    tracking: _tracking,
+                    astronautId: astronaut.id,
+                    teammateId: _teammate.id,
+                    peerPoint: peerPoint,
+                    peer: member,
+                    peerFresh: fresh,
                     teammateName: _teammate.fullName,
                     onSelect: _selectDestination,
                   ),
@@ -194,6 +301,12 @@ class _MissionDashboardState extends State<MissionDashboard>
                     mission: mission,
                     navigation: _navigation,
                     onBack: () => Navigator.of(context).maybePop(),
+                    onDiagnostics: _openDiagnostics,
+                  ),
+                  TrackingControls(
+                    tracking: _tracking,
+                    presence: _presence,
+                    onJoin: _firebase == null ? null : _joinCrew,
                   ),
                   Expanded(
                     child: LayoutBuilder(
@@ -236,12 +349,14 @@ class _DashboardHeader extends StatelessWidget {
     required this.mission,
     required this.navigation,
     required this.onBack,
+    required this.onDiagnostics,
   });
 
   final Astronaut astronaut;
   final MarsMission mission;
   final DemoNavigation navigation;
   final VoidCallback onBack;
+  final VoidCallback onDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -296,9 +411,7 @@ class _DashboardHeader extends StatelessWidget {
                 label: 'SENSOR TEST',
                 icon: Icons.sensors,
                 height: 52,
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(builder: (_) => const SensorTestScreen()),
-                ),
+                onPressed: onDiagnostics,
               ),
             ),
             Flexible(
@@ -321,7 +434,7 @@ class _DashboardHeader extends StatelessWidget {
                           style: MissionTheme.display(15),
                         ),
                         Text(
-                          '$label · ${DemoCrew.roster.length} DEMO ASTRONAUTS',
+                          label,
                           style: MissionTheme.display(
                             11,
                             tracking: .5,
@@ -347,6 +460,8 @@ class _DashboardSidebar extends StatelessWidget {
     required this.teammate,
     required this.mission,
     required this.navigation,
+    required this.tracking,
+    required this.teammateStatus,
     required this.onNavigate,
     required this.onReturn,
     required this.onTeammate,
@@ -356,6 +471,8 @@ class _DashboardSidebar extends StatelessWidget {
   final Astronaut teammate;
   final MarsMission mission;
   final DemoNavigation navigation;
+  final AstronautTracking tracking;
+  final String teammateStatus;
   final VoidCallback onNavigate;
   final VoidCallback onReturn;
   final VoidCallback? onTeammate;
@@ -368,17 +485,23 @@ class _DashboardSidebar extends StatelessWidget {
       children: [
         NavigationPanel(
           navigation: navigation,
+          tracking: tracking,
           onNavigate: onNavigate,
           onReturn: onReturn,
         ),
         const SizedBox(height: 10),
-        PositionPanel(astronaut: astronaut, navigation: navigation),
+        PositionPanel(
+          astronaut: astronaut,
+          navigation: navigation,
+          tracking: tracking,
+        ),
         const SizedBox(height: 10),
         PlanetaryConditionsPanel(mission: mission, navigation: navigation),
         const SizedBox(height: 10),
         AstronautListPanel(
           astronaut: astronaut,
           teammate: teammate,
+          teammateStatus: teammateStatus,
           onSelect: onTeammate,
         ),
         const SizedBox(height: 10),

@@ -6,12 +6,15 @@ import '../../maps/mars_projection.dart';
 import '../../maps/mars_trek_layers.dart';
 import '../../maps/trek_tile_source.dart';
 import '../../missions/mission.dart';
+import '../../sensors/sensor_measurements.dart';
+import '../../tracking/astronaut_tracking.dart';
+import '../../tracking/mission_presence.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
 import 'trek_tile_view.dart';
 
 /// Offers pinch, pan and destination selection on a north-up demo grid.
-class DemoTerrainMap extends StatelessWidget {
+class DemoTerrainMap extends StatefulWidget {
   /// Composes the interchangeable terrain and local navigation layers.
   const DemoTerrainMap({
     super.key,
@@ -19,8 +22,12 @@ class DemoTerrainMap extends StatelessWidget {
     required this.view,
     required this.mission,
     required this.tileSource,
-    required this.astronautInitials,
-    required this.teammateInitials,
+    required this.tracking,
+    required this.astronautId,
+    required this.teammateId,
+    required this.peerPoint,
+    required this.peer,
+    required this.peerFresh,
     required this.teammateName,
     required this.onSelect,
   });
@@ -29,10 +36,80 @@ class DemoTerrainMap extends StatelessWidget {
   final TerrainViewController view;
   final MarsMission mission;
   final TrekTileSource tileSource;
-  final String astronautInitials;
-  final String teammateInitials;
+  final AstronautTracking tracking;
+  final String astronautId;
+  final String teammateId;
+  final Offset? peerPoint;
+  final CrewPresence? peer;
+  final bool peerFresh;
   final String teammateName;
   final void Function(Offset point, String label) onSelect;
+
+  @override
+  State<DemoTerrainMap> createState() => _DemoTerrainMapState();
+}
+
+/// Reuses the map transform for georeferenced markers and camera follow.
+class _DemoTerrainMapState extends State<DemoTerrainMap>
+    with SingleTickerProviderStateMixin {
+  DemoNavigation get navigation => widget.navigation;
+  TerrainViewController get view => widget.view;
+  AstronautTracking get tracking => widget.tracking;
+
+  late final AnimationController _camera;
+
+  @override
+  void initState() {
+    super.initState();
+    _camera = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    )..addListener(_panFrame);
+  }
+
+  Offset? _followTarget;
+  Offset _panStart = Offset.zero;
+  Offset _panEnd = Offset.zero;
+
+  /// Applies only translation so camera follow preserves the current zoom.
+  void _panFrame() {
+    final position = Offset.lerp(
+      _panStart,
+      _panEnd,
+      Curves.easeOut.transform(_camera.value),
+    )!;
+    view.value = Matrix4.copy(view.value)
+      ..setTranslationRaw(position.dx, position.dy, 0);
+  }
+
+  /// Reframes only after the position or follow state changes.
+  void _follow(Size viewport, Offset pixel) {
+    if (!tracking.follow) {
+      if (_followTarget != null) _camera.stop();
+      _followTarget = null;
+      return;
+    }
+    if (_followTarget == pixel) return;
+    _followTarget = pixel;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !tracking.follow || _followTarget != pixel) return;
+      final scale = view.value.getMaxScaleOnAxis();
+      final translation = view.value.getTranslation();
+      _panStart = Offset(translation.x, translation.y);
+      _panEnd = viewport.center(Offset.zero) - pixel * scale;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _camera.value = 1;
+      } else {
+        _camera.forward(from: 0);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _camera.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,12 +127,22 @@ class DemoTerrainMap extends StatelessWidget {
           );
           final config = navigation.map;
           final palette = Theme.of(context).textTheme;
+          final mission = widget.mission;
           final trek = missionTrekMaps[mission.id]!;
           final scene = trek.scene(mission, viewport);
+          _follow(viewport, _project(world, navigation.position));
+          final peerPoint = widget.peerPoint;
+          final peer = widget.peer;
+          final peerOverlap =
+              peerPoint != null &&
+              (_project(world, peerPoint) -
+                          _project(world, navigation.position))
+                      .distance <
+                  22;
           return TrekTileView(
             scene: scene,
             view: view,
-            source: tileSource,
+            source: widget.tileSource,
             detail: trek.detail,
             child: Stack(
               fit: StackFit.expand,
@@ -66,13 +153,25 @@ class DemoTerrainMap extends StatelessWidget {
                   onTapUp: (details) {
                     final scene =
                         view.toScene(details.localPosition) - world.topLeft;
-                    onSelect(scene / side, 'Map waypoint');
+                    widget.onSelect(scene / side, 'Map waypoint');
                   },
                   child: InteractiveViewer(
                     transformationController: view,
                     minScale: 1,
                     boundaryMargin: view.panMargin(viewport),
                     maxScale: TerrainViewController.maxZoom,
+                    onInteractionStart: (_) {
+                      if (tracking.follow && _camera.isAnimating) {
+                        _camera.stop();
+                      }
+                    },
+                    onInteractionUpdate: (details) {
+                      if (tracking.follow &&
+                          details.pointerCount == 1 &&
+                          details.focalPointDelta.distanceSquared > 0) {
+                        tracking.setFollow(false);
+                      }
+                    },
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -88,7 +187,8 @@ class DemoTerrainMap extends StatelessWidget {
                           'Habitat base',
                           Icons.home_filled,
                           DashboardStyle.text,
-                          onTap: () => onSelect(config.base, 'Habitat base'),
+                          onTap: () =>
+                              widget.onSelect(config.base, 'Habitat base'),
                         ),
                         for (final landmark in config.landmarks)
                           _marker(
@@ -97,19 +197,39 @@ class DemoTerrainMap extends StatelessWidget {
                             landmark.name,
                             Icons.terrain,
                             DashboardStyle.warm,
-                            onTap: () =>
-                                onSelect(landmark.position, landmark.name),
+                            onTap: () => widget.onSelect(
+                              landmark.position,
+                              landmark.name,
+                            ),
                             small: true,
                           ),
-                        _marker(
-                          world,
-                          config.teammate,
-                          teammateInitials,
-                          Icons.person,
-                          DashboardStyle.cyan,
-                          description: 'Select $teammateName on map',
-                          onTap: () => onSelect(config.teammate, teammateName),
-                        ),
+                        if (peerPoint != null)
+                          _marker(
+                            world,
+                            peerPoint,
+                            peer == null
+                                ? '${widget.teammateId} · DEMO'
+                                : widget.peerFresh
+                                ? widget.teammateId
+                                : '${widget.teammateId} · OFFLINE',
+                            peer == null
+                                ? Icons.person
+                                : Icons.navigation_rounded,
+                            peer == null
+                                ? DashboardStyle.cyan
+                                : widget.peerFresh
+                                ? DashboardStyle.amber
+                                : DashboardStyle.muted,
+                            key: ValueKey(widget.teammateId),
+                            heading: peer?.pose.heading,
+                            animate: peer != null,
+                            shift: peerOverlap
+                                ? const Offset(25, 20)
+                                : Offset.zero,
+                            description: 'Select ${widget.teammateName} on map',
+                            onTap: () =>
+                                widget.onSelect(peerPoint, widget.teammateName),
+                          ),
                         for (final ping in navigation.pings)
                           _pingMarker(world, ping),
                         if (navigation.target case final target?)
@@ -124,7 +244,7 @@ class DemoTerrainMap extends StatelessWidget {
                         _marker(
                           world,
                           navigation.position,
-                          '$astronautInitials · YOU',
+                          '${widget.astronautId} · YOU',
                           navigation.sos
                               ? Icons.warning_amber_rounded
                               : Icons.navigation_rounded,
@@ -132,16 +252,21 @@ class DemoTerrainMap extends StatelessWidget {
                               ? DashboardStyle.danger
                               : DashboardStyle.cyan,
                           above: true,
+                          key: ValueKey(widget.astronautId),
+                          liveHeading: navigation.sos ? null : tracking.heading,
+                          animate: tracking.mode == TrackingMode.live,
                         ),
                       ],
                     ),
                   ),
                 ),
-                const Positioned(
+                Positioned(
                   left: 15,
                   top: 15,
                   child: _MapChip(
-                    text: 'DEMO OVERLAY',
+                    text: tracking.mode == TrackingMode.live
+                        ? 'SIMULATED MARS'
+                        : 'DEMO OVERLAY',
                     icon: Icons.layers_outlined,
                     color: DashboardStyle.warm,
                   ),
@@ -181,7 +306,10 @@ class DemoTerrainMap extends StatelessWidget {
                           _mapButton(
                             'Reset view',
                             Icons.center_focus_strong,
-                            view.reset,
+                            () {
+                              tracking.setFollow(false);
+                              view.reset();
+                            },
                           ),
                         ],
                       );
@@ -240,12 +368,20 @@ class DemoTerrainMap extends StatelessWidget {
     String label,
     IconData icon,
     Color color, {
+    Key? key,
+    double? heading,
+    ValueNotifier<double?>? liveHeading,
+    bool animate = false,
+    Offset shift = Offset.zero,
     String? description,
     VoidCallback? onTap,
     bool small = false,
     bool above = false,
   }) {
-    final center = _project(world, local);
+    final center = _project(world, local) + shift;
+    final duration = animate && !MediaQuery.disableAnimationsOf(context)
+        ? const Duration(milliseconds: 220)
+        : Duration.zero;
     final buttonSize = small && onTap == null ? 30.0 : 48.0;
     final labelWidth = small ? 110.0 : 146.0;
     final chip = _MarkerChip(
@@ -255,16 +391,23 @@ class DemoTerrainMap extends StatelessWidget {
       description: description ?? label,
       onTap: onTap,
       small: small,
+      heading: heading,
+      liveHeading: liveHeading,
     );
     return Stack(
+      key: key,
       children: [
-        Positioned(
+        AnimatedPositioned(
+          duration: duration,
+          curve: Curves.easeOut,
           left: center.dx - buttonSize / 2,
           top: center.dy - buttonSize / 2,
           child: chip,
         ),
         if (!small)
-          Positioned(
+          AnimatedPositioned(
+            duration: duration,
+            curve: Curves.easeOut,
             width: labelWidth,
             left: center.dx - labelWidth / 2,
             top: above ? center.dy - 51 : center.dy + 22,
@@ -472,6 +615,8 @@ class _MarkerChip extends StatelessWidget {
     required this.description,
     this.onTap,
     this.small = false,
+    this.heading,
+    this.liveHeading,
   });
 
   final IconData icon;
@@ -480,6 +625,14 @@ class _MarkerChip extends StatelessWidget {
   final String description;
   final VoidCallback? onTap;
   final bool small;
+  final double? heading;
+  final ValueNotifier<double?>? liveHeading;
+
+  Widget _arrow(double? value) {
+    final glyph = Icon(icon, color: color, size: small ? 15 : 23);
+    if (icon != Icons.navigation_rounded) return glyph;
+    return RelativeMarkerArrow(heading: value, child: glyph);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -492,7 +645,12 @@ class _MarkerChip extends StatelessWidget {
           color: DashboardStyle.inset,
           border: Border.all(color: color, width: small ? 1.4 : 2),
         ),
-        child: Icon(icon, color: color, size: small ? 15 : 23),
+        child: liveHeading == null
+            ? _arrow(heading)
+            : ValueListenableBuilder<double?>(
+                valueListenable: liveHeading!,
+                builder: (context, value, _) => _arrow(value),
+              ),
       ),
     );
     return SizedBox.square(
@@ -549,5 +707,44 @@ class _MarsScaleBar extends StatelessWidget {
         ],
       );
     },
+  );
+}
+
+/// Animates only the glyph, unwrapping angles along the shortest arc.
+class RelativeMarkerArrow extends StatefulWidget {
+  const RelativeMarkerArrow({
+    super.key,
+    required this.heading,
+    required this.child,
+  });
+
+  final double? heading;
+  final Widget child;
+
+  @override
+  State<RelativeMarkerArrow> createState() => _RelativeMarkerArrowState();
+}
+
+class _RelativeMarkerArrowState extends State<RelativeMarkerArrow> {
+  late double _angle = widget.heading ?? 0;
+
+  @override
+  void didUpdateWidget(RelativeMarkerArrow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.heading case final next?) {
+      _angle += signedTurn(next - _angle);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Opacity(
+    opacity: widget.heading == null ? .55 : 1,
+    child: AnimatedRotation(
+      turns: _angle / 360,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
+      child: widget.child,
+    ),
   );
 }

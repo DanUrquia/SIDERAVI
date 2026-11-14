@@ -260,7 +260,7 @@ void main() {
       final demo = tester
           .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
           .navigation;
-      expect(demo.position, demo.map.start);
+      expect(demo.position, demo.map.base);
       expect(demo.target, isNull);
       expect(demo.pings, isEmpty);
       await tester.tap(find.text('BACK TO MISSIONS'));
@@ -314,7 +314,7 @@ void main() {
         find.byType(DemoTerrainMap),
       );
       expect(secondMap.navigation.pings, isEmpty);
-      expect(secondMap.navigation.position, secondMap.navigation.map.start);
+      expect(secondMap.navigation.position, secondMap.navigation.map.base);
     },
   );
 }

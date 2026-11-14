@@ -9,6 +9,7 @@ private final class DiagnosticLocation: NSObject, CLLocationManagerDelegate {
   private(set) var running = false
   private var locations: [[String: Any]] = []
   private var heading: CLHeading?
+  private var includesHeading = false
 
   override init() {
     super.init()
@@ -19,7 +20,8 @@ private final class DiagnosticLocation: NSObject, CLLocationManagerDelegate {
   }
 
   /// Requests foreground permission from the explicit Start Test action.
-  func start() {
+  func start(includesHeading: Bool) {
+    self.includesHeading = includesHeading
     running = true
     clear()
     if manager.authorizationStatus == .notDetermined {
@@ -89,7 +91,7 @@ private final class DiagnosticLocation: NSObject, CLLocationManagerDelegate {
     switch manager.authorizationStatus {
     case .authorizedAlways, .authorizedWhenInUse:
       manager.startUpdatingLocation()
-      if CLLocationManager.headingAvailable() { manager.startUpdatingHeading() }
+      if includesHeading && CLLocationManager.headingAvailable() { manager.startUpdatingHeading() }
     default:
       manager.stopUpdatingLocation()
       manager.stopUpdatingHeading()
@@ -174,34 +176,46 @@ private final class DiagnosticMotion {
   /// Converts device axes to the screen top vector using the attitude matrix.
   private func record(_ motion: CMDeviceMotion) {
     guard manager.isDeviceMotionActive else { return }
-    let matrix = motion.attitude.rotationMatrix
-    let frame: String
-    let horizontalX: Double
-    let horizontalY: Double
-    switch presentation {
-    case .landscapeLeft: (frame, horizontalX, horizontalY) = ("Landscape left", -matrix.m11, -matrix.m12)
-    case .landscapeRight: (frame, horizontalX, horizontalY) = ("Landscape right", matrix.m11, matrix.m12)
-    case .portraitUpsideDown: (frame, horizontalX, horizontalY) = ("Portrait upside down", -matrix.m21, -matrix.m22)
-    case .portrait: (frame, horizontalX, horizontalY) = ("Portrait", matrix.m21, matrix.m22)
-    default: return
-    }
+    guard let screen = ScreenTopAttitude.project(
+      motion.attitude.rotationMatrix, orientation: presentation
+    ) else { return }
     let degrees = 180 / Double.pi
     let rate = motion.rotationRate
     let sampleTime = bootEpoch + motion.timestamp
     var sample: [String: Any] = [
       "time": sampleTime,
       "received": Date().timeIntervalSince1970,
-      "frame": frame,
+      "frame": screen.frame,
       "pitch": motion.attitude.pitch * degrees,
       "roll": motion.attitude.roll * degrees,
       "rotationRate": sqrt(rate.x * rate.x + rate.y * rate.y + rate.z * rate.z) * degrees
     ]
-    // When the screen top points skyward its horizontal bearing is undefined.
-    if hypot(horizontalX, horizontalY) >= 0.25 {
-      sample["yaw"] = atan2(-horizontalY, horizontalX) * degrees
-    }
+    if let yaw = screen.yaw { sample["yaw"] = yaw }
     samples.append(sample)
     if samples.count > 48 { samples.removeFirst(samples.count - 48) }
+  }
+}
+
+/// Converts the UI's current physical top edge into a clockwise relative azimuth.
+enum ScreenTopAttitude {
+  static func project(
+    _ matrix: CMRotationMatrix, orientation: UIInterfaceOrientation
+  ) -> (frame: String, yaw: Double?)? {
+    let frame: String
+    let x: Double
+    let y: Double
+    // The rows of Core Motion's reference-to-device matrix express the device
+    // axes in the reference frame. UIKit landscape senses are screen-relative.
+    switch orientation {
+    case .landscapeLeft: (frame, x, y) = ("Landscape left", -matrix.m11, -matrix.m12)
+    case .landscapeRight: (frame, x, y) = ("Landscape right", matrix.m11, matrix.m12)
+    case .portraitUpsideDown: (frame, x, y) = ("Portrait upside down", -matrix.m21, -matrix.m22)
+    case .portrait: (frame, x, y) = ("Portrait", matrix.m21, matrix.m22)
+    default: return nil
+    }
+    // The horizontal azimuth vanishes if the top edge points nearly vertically.
+    let yaw = hypot(x, y) >= 0.25 ? atan2(-y, x) * 180 / Double.pi : nil
+    return (frame, yaw)
   }
 }
 
@@ -227,14 +241,21 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     if location == nil { location = DiagnosticLocation() }
     let orientation = window?.windowScene?.interfaceOrientation ?? .unknown
     switch call.method {
-    case "start":
+    case "start", "startMotion", "startLocation":
       guard UIApplication.shared.applicationState != .background else {
         result(FlutterError(code: "background", message: "Open the app to start the test.", details: nil))
         return
       }
       location?.orient(orientation)
-      location?.start()
-      motion.start(orientation: orientation)
+      if call.method != "startMotion" {
+        location?.start(includesHeading: call.method == "start")
+      }
+      if call.method != "startLocation" {
+        motion.start(orientation: orientation)
+      }
+      result(nil)
+    case "stopLocation":
+      location?.stop()
       result(nil)
     case "stop":
       stop()

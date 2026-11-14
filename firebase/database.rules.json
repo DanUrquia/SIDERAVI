@@ -1,0 +1,32 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "missions": {
+      "$mission": {
+        "sessions": {
+          "$session": {
+            "metadata": {
+              ".read": "auth != null && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid)"
+            },
+            "presence": {
+              ".read": "auth != null && data.parent().child('metadata/state').val() == 'active' && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid)",
+              "$slot": {
+                ".write": "auth != null && ($slot == 'ARES-01' || $slot == 'ARES-02') && root.child('missions').child($mission).child('sessions').child($session).child('metadata/state').val() == 'active' && root.child('missions').child($mission).child('sessions').child($session).child('members').child($slot).val() == auth.uid && newData.exists()",
+                ".validate": "newData.hasChildren(['marsLon', 'marsLat', 'mode', 'quality', 'online', 'updated'])",
+                "marsLon": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() < 180" },
+                "marsLat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+                "relativeHeading": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+                "mode": { ".validate": "newData.val() == 'demo' || newData.val() == 'live'" },
+                "quality": { ".validate": "newData.val() == 'simulated' || newData.val() == 'waiting' || newData.val() == 'unavailable' || newData.val() == 'uncertain' || newData.val() == 'accepted' || newData.val() == 'paused'" },
+                "online": { ".validate": "newData.isBoolean()" },
+                "updated": { ".validate": "newData.isNumber() && newData.val() == now" },
+                "$other": { ".validate": false }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

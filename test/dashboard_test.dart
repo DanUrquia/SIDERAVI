@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sidera_vi/auth/astronaut.dart';
 import 'package:sidera_vi/dashboard/demo_navigation.dart';
@@ -106,11 +107,21 @@ void main() {
   testWidgets('Sensor Test returns to the existing Mars scenario', (
     tester,
   ) async {
+    const channel = MethodChannel('sidera_vi/sensor_diagnostics');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      channel,
+      (call) async => call.method == 'snapshot' ? <String, Object?>{} : null,
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final map = await _launch(tester);
     await _tapTooltip(tester, 'Select Adrian Flores on map');
     final position = map.navigation.position;
     final target = map.navigation.target;
     await tester.tap(find.text('SENSOR TEST'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
     expect(find.text('Earth location'), findsOneWidget);
     await tester.tap(find.text('BACK TO DASHBOARD'));
@@ -121,6 +132,43 @@ void main() {
     expect(current.navigation.position, position);
     expect(current.navigation.target, target);
   });
+
+  testWidgets(
+    'Follow recenters the marker, preserves zoom and releases on pan',
+    (tester) async {
+      final map = await _launch(tester);
+      final marker = find.descendant(
+        of: find.byKey(const ValueKey('ARES-01')),
+        matching: find.byType(RelativeMarkerArrow),
+      );
+      final viewport = find.byKey(const ValueKey('demo-map-viewport'));
+      final rect = tester.getRect(viewport);
+      await _tapTooltip(tester, 'Zoom in');
+      final zoom = map.view.value.getMaxScaleOnAxis();
+      final before = tester.getCenter(marker);
+      expect((before - rect.center).distance, greaterThan(5));
+
+      await tester.tap(find.text('FOLLOW ASTRONAUT'));
+      await tester.pumpAndSettle();
+      expect(map.view.value.getMaxScaleOnAxis(), zoom);
+      expect((tester.getCenter(marker) - rect.center).distance, lessThan(1));
+
+      map.navigation.setTrackedPosition(
+        map.navigation.map.base + const Offset(.05, -.04),
+      );
+      await tester.pumpAndSettle();
+      expect((tester.getCenter(marker) - rect.center).distance, lessThan(1));
+      await tester.dragFrom(
+        rect.center + const Offset(20, -70),
+        const Offset(-50, -25),
+      );
+      await tester.pumpAndSettle();
+      expect(map.tracking.follow, isFalse);
+      expect((tester.getCenter(marker) - rect.center).distance, greaterThan(5));
+      await _tapTooltip(tester, 'Reset view');
+      expect(map.view.value.isIdentity(), isTrue);
+    },
+  );
 
   testWidgets('Selects a teammate and pauses, resumes, then returns to base', (
     tester,

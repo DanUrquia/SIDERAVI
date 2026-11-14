@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'earth_fix.dart';
+
 typedef Sample = Map<String, Object?>;
 
 /// Calculates great-circle distance using the mean Earth radius.
@@ -22,7 +24,7 @@ double signedTurn(double degrees) => (degrees + 180) % 360 - 180;
 /// Stores bounded raw samples and conservative movement estimates for one test.
 final class SensorMeasurements {
   static const maxSamples = 900;
-  static const maxLocationAge = 15.0;
+  static const maxLocationAge = EarthFix.maximumAge;
   static const maxAccuracy = 100.0;
 
   Sample capabilities = {};
@@ -100,18 +102,8 @@ final class SensorMeasurements {
     }
     received++;
     _append(rawLocations, sample);
-    final lat = reading(sample, 'latitude');
-    final lon = reading(sample, 'longitude');
-    final accuracy = reading(sample, 'accuracy');
-    if (lat == null ||
-        lat.abs() > 90 ||
-        lon == null ||
-        lon.abs() > 180 ||
-        accuracy == null ||
-        accuracy < 0 ||
-        measurementTime == null ||
-        now - measurementTime > maxLocationAge ||
-        measurementTime > now + 1) {
+    final fix = EarthFix.read(sample, now);
+    if (fix == null || measurementTime == null) {
       rejected++;
       sample['decision'] = 'Invalid or stale';
       return;
@@ -123,6 +115,7 @@ final class SensorMeasurements {
       return;
     }
     latestLocation = sample;
+    final accuracy = fix.accuracy;
     if (accuracy > maxAccuracy) {
       rejected++;
       sample['decision'] = 'Coarse';
@@ -244,10 +237,8 @@ final class SensorMeasurements {
   }
 
   /// Extracts only finite numeric sensor readings.
-  static double? reading(Sample? sample, String key) {
-    final value = sample?[key];
-    return value is num && value.isFinite ? value.toDouble() : null;
-  }
+  static double? reading(Sample? sample, String key) =>
+      finiteReading(sample, key);
 
   /// Retains the latest samples under a fixed memory budget.
   void _append(List<Sample> samples, Sample sample) {
