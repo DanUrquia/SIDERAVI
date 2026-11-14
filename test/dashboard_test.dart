@@ -8,6 +8,8 @@ import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
 
+import 'fake_trek_tiles.dart';
+
 /// Exercises native dashboard interactions in a landscape iPad viewport.
 void main() {
   test('All five missions have a unique, internally consistent demo map', () {
@@ -217,6 +219,7 @@ Future<DemoTerrainMap> _launch(
       theme: MissionTheme.dark,
       home: MissionDashboard(
         astronaut: DemoCrew.dan,
+        tileSource: FakeTrekTiles(),
         mission: marsMissions.first,
       ),
     ),

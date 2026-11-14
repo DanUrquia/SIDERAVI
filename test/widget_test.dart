@@ -3,14 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sidera_vi/auth/mission_session.dart';
 import 'package:sidera_vi/auth/prototype_auth.dart';
 import 'package:sidera_vi/dashboard/demo_navigation.dart';
-import 'package:sidera_vi/dashboard/mission_map_config.dart';
 import 'package:sidera_vi/mission_app.dart';
 import 'package:sidera_vi/missions/mission.dart';
 import 'package:sidera_vi/missions/mission_catalog.dart';
 import 'package:sidera_vi/ui/mission_login.dart';
+import 'package:sidera_vi/ui/dashboard/trek_tile_view.dart';
 import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/missions/mission_photo_panel.dart';
+
+import 'fake_trek_tiles.dart';
 
 /// Exercises the Phase 1 flow through the same controls as the iPad.
 void main() {
@@ -245,10 +247,16 @@ void main() {
         find.byType(MissionDashboard),
       );
       expect(dashboard.mission, same(mission));
-      final terrain = tester.widget<OrbitalPhotoBackdrop>(
-        find.byType(OrbitalPhotoBackdrop),
+      final terrain = tester.widget<TrekTileView>(find.byType(TrekTileView));
+      expect(terrain.scene.center.dy, mission.coordinates.latitude);
+      expect(
+        terrain.scene.center.dx,
+        closeTo((mission.coordinates.eastLongitude + 180) % 360 - 180, .000001),
       );
-      expect(terrain.asset, missionMaps[mission.id]!.asset);
+      expect(
+        find.textContaining('Map imagery: NASA Mars Trek'),
+        findsOneWidget,
+      );
       final demo = tester
           .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
           .navigation;
@@ -337,7 +345,7 @@ Future<void> _openLogin(
   tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
-  await tester.pumpWidget(const MissionApp());
+  await tester.pumpWidget(MissionApp(tileSource: FakeTrekTiles()));
 }
 
 /// Enters digits solely through the on-screen keypad.

@@ -8,7 +8,7 @@ SIDERA VI is a landscape iPad prototype by team **SIDERA VI** for the [2026 NASA
 - Dan Urquía (ARES-01) and Adrian Flores (ARES-02) each have a demonstration PIN. A valid PIN starts a personalized 5.5-second welcome with simulated dashboard initialization and support for Reduce Motion.
 - Five offline Mars mission briefings with authentic rover or orbital imagery, regional coordinates and educational objectives. Browse with the arrows or a horizontal swipe.
 - Start Mission opens the interactive dashboard. Back to Missions restores the selected briefing. Back from Select Mission clears the session and returns to login.
-- Every mission has a distinct offline NASA orbital backdrop, a demo grid, a habitat base, three selectable landmarks and a simulated teammate.
+- Every dashboard centers on its mission region with [NASA Mars Trek imagery](docs/mars_trek_integration.md), a demo grid, habitat base, three selectable landmarks, and a simulated teammate. The dashboard needs internet access for uncached tiles.
 - Tap a point inside the exploration boundary, tap a landmark or select the demo teammate to set a destination. Pinch and drag the map or use the zoom and reset buttons. Start Navigation moves the astronaut along a straight demo route that can be paused or resumed. Return to Base plans the same kind of route to the habitat.
 - Send Ping places a location, item or danger marker on the iPad. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
 - The official SIDERA VI wordmark, S‑VI home-screen icon, and display name.
@@ -40,13 +40,13 @@ The tests exercise both astronauts, PIN editing and retry, welcome timing, missi
 
 The two demo PINs are bundled in the offline prototype authentication service and can be recovered from the app or source. Ask the team for a demo PIN. Entered PINs are held only for the current attempt and never written to persistent storage or logs. The current astronaut identity is held in memory. Use only demo codes with this prototype.
 
-The app runs offline. Calibration, mission objectives, difficulty, exploration boundaries, movement, teammate position, pings and SOS are simulated. Starting a dashboard opens a fresh local scenario. Demo markers and straight-line distances use a separate north-up grid with no geographic registration, terrain routing, GPS, or device-to-device communication. Pings and SOS only affect the local interface.
+Login, mission briefings, and demo interactions run offline. Mars Trek tiles are cached in memory for the current run. Calibration, mission objectives, difficulty, exploration boundaries, movement, teammate position, pings and SOS are simulated. Starting a dashboard opens a fresh local scenario. Demo markers and straight-line distances use a separate north-up grid with no geographic registration, terrain routing, GPS, or device-to-device communication. Pings and SOS only affect the local interface.
 
 The Earth clock reads the device time in Tegucigalpa (UTC−6). Mars local solar time and temperature are illustrative. Elevation displays published regional relief when available. Image credits and geographic references are in the [Mars mission sources](docs/mars_mission_sources.md).
 
 ## Planned work
 
-Future phases will explore georeferenced terrain and real navigation. The team plans to evaluate [NASA Mars Trek](https://trek.nasa.gov/mars/) and NASA Planetary Data System products for terrain, elevation, and imagery overlays. Integrating those sources, adding scientific context, synchronizing astronaut sessions, and developing rescue workflows are future work.
+Future phases will explore scientific navigation, NASA Planetary Data System elevation products, astronaut synchronization, and rescue workflows.
 
 ## Credits
 

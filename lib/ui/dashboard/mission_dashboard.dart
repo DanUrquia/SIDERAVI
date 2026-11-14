@@ -6,6 +6,7 @@ import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
 import '../../dashboard/terrain_view_controller.dart';
 import '../../missions/mission.dart';
+import '../../maps/trek_tile_source.dart';
 import '../mission_theme.dart';
 import 'dashboard_actions.dart';
 import 'dashboard_panels.dart';
@@ -19,10 +20,12 @@ class MissionDashboard extends StatefulWidget {
     super.key,
     required this.astronaut,
     required this.mission,
+    required this.tileSource,
   });
 
   final Astronaut astronaut;
   final MarsMission mission;
+  final TrekTileSource tileSource;
 
   @override
   State<MissionDashboard> createState() => _MissionDashboardState();
@@ -165,7 +168,8 @@ class _MissionDashboardState extends State<MissionDashboard>
                   DemoTerrainMap(
                     navigation: _navigation,
                     view: _view,
-                    backdrop: OrbitalPhotoBackdrop(_map.asset),
+                    mission: mission,
+                    tileSource: widget.tileSource,
                     astronautInitials: astronaut.initials,
                     teammateInitials: _teammate.initials,
                     teammateName: _teammate.fullName,

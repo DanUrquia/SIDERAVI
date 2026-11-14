@@ -36,7 +36,7 @@ The JPEGs are available offline. The bundled copies retain the original image pr
 
 ## Phase 3 orbital backdrops
 
-The dashboard uses these separate offline images. Scene crops fill the available map viewport. Markers, north, headings, distances and the exploration circle belong to the square demonstration grid. They have no spatial registration with the imagery. The app uses credited orbital imagery for educational reference. [NASA media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+Phase 3 used these separate offline images. Phase 4 dashboards use [live Mars Trek tile layers](mars_trek_integration.md). Scene crops fill the available map viewport. Markers, north, headings, distances and the exploration circle belong to the square demonstration grid. They have no spatial registration with the imagery. The app uses credited orbital imagery for educational reference. [NASA media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
 
 | Mission | Orbital product and credit | Original image |
 | --- | --- | --- |

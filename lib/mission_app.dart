@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'auth/astronaut.dart';
 import 'auth/mission_session.dart';
 import 'missions/mission.dart';
+import 'maps/trek_tile_source.dart';
 import 'ui/mission_login.dart';
 import 'ui/mission_theme.dart';
 import 'ui/mission_welcome.dart';
@@ -12,7 +13,10 @@ import 'ui/missions/mission_selection.dart';
 /// Hosts the mission theme and owns the astronaut session.
 class MissionApp extends StatefulWidget {
   /// Creates the SIDERA VI application.
-  const MissionApp({super.key});
+  const MissionApp({super.key, this.tileSource});
+
+  /// Allows an offline tile provider in tests.
+  final TrekTileSource? tileSource;
 
   @override
   State<MissionApp> createState() => _MissionAppState();
@@ -21,6 +25,7 @@ class MissionApp extends StatefulWidget {
 /// Keeps the session alive across welcome, mission browsing and the dashboard.
 class _MissionAppState extends State<MissionApp> {
   final _session = MissionSession();
+  late final _tiles = widget.tileSource ?? HttpTrekTileSource();
 
   /// Opens one authenticated route and clears its session only on logout.
   Future<void> _openMission(BuildContext context, Astronaut astronaut) async {
@@ -32,7 +37,11 @@ class _MissionAppState extends State<MissionApp> {
           duration: reducedMotion
               ? Duration.zero
               : MissionWelcome.loginFadeDuration,
-          child: _MissionFlow(astronaut: astronaut, session: _session),
+          child: _MissionFlow(
+            astronaut: astronaut,
+            session: _session,
+            tileSource: _tiles,
+          ),
         ),
       );
     } finally {
@@ -43,6 +52,7 @@ class _MissionAppState extends State<MissionApp> {
   @override
   void dispose() {
     _session.dispose();
+    if (widget.tileSource == null) _tiles.close();
     super.dispose();
   }
 
@@ -79,10 +89,15 @@ Route<void> _fadeRoute({
 
 /// Replaces welcome with mission selection in the same authenticated route.
 class _MissionFlow extends StatefulWidget {
-  const _MissionFlow({required this.astronaut, required this.session});
+  const _MissionFlow({
+    required this.astronaut,
+    required this.session,
+    required this.tileSource,
+  });
 
   final Astronaut astronaut;
   final MissionSession session;
+  final TrekTileSource tileSource;
 
   @override
   State<_MissionFlow> createState() => _MissionFlowState();
@@ -113,6 +128,7 @@ class _MissionFlowState extends State<_MissionFlow> {
           child: MissionDashboard(
             astronaut: widget.astronaut,
             mission: mission,
+            tileSource: widget.tileSource,
           ),
         ),
       );

@@ -2,30 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/terrain_view_controller.dart';
+import '../../maps/mars_projection.dart';
+import '../../maps/mars_trek_layers.dart';
+import '../../maps/trek_tile_source.dart';
+import '../../missions/mission.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
-
-/// A renderer boundary for replacing the bundled backdrop with future tiles.
-abstract class TerrainBackdrop extends StatelessWidget {
-  /// Gives the renderer the same scene extent as the local overlays.
-  const TerrainBackdrop({super.key});
-}
-
-/// Paints an unregistered orbital image underneath the demonstration grid.
-class OrbitalPhotoBackdrop extends TerrainBackdrop {
-  /// Loads a bundled official image without making a network request.
-  const OrbitalPhotoBackdrop(this.asset, {super.key});
-
-  final String asset;
-
-  @override
-  Widget build(BuildContext context) => Image.asset(
-    asset,
-    fit: BoxFit.cover,
-    excludeFromSemantics: true,
-    alignment: const Alignment(.12, 0),
-  );
-}
+import 'trek_tile_view.dart';
 
 /// Offers pinch, pan and destination selection on a north-up demo grid.
 class DemoTerrainMap extends StatelessWidget {
@@ -34,7 +17,8 @@ class DemoTerrainMap extends StatelessWidget {
     super.key,
     required this.navigation,
     required this.view,
-    required this.backdrop,
+    required this.mission,
+    required this.tileSource,
     required this.astronautInitials,
     required this.teammateInitials,
     required this.teammateName,
@@ -43,7 +27,8 @@ class DemoTerrainMap extends StatelessWidget {
 
   final DemoNavigation navigation;
   final TerrainViewController view;
-  final TerrainBackdrop backdrop;
+  final MarsMission mission;
+  final TrekTileSource tileSource;
   final String astronautInitials;
   final String teammateInitials;
   final String teammateName;
@@ -65,179 +50,183 @@ class DemoTerrainMap extends StatelessWidget {
           );
           final config = navigation.map;
           final palette = Theme.of(context).textTheme;
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              GestureDetector(
-                key: const ValueKey('demo-map-viewport'),
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (details) {
-                  final scene =
-                      view.toScene(details.localPosition) - world.topLeft;
-                  onSelect(scene / side, 'Map waypoint');
-                },
-                child: InteractiveViewer(
-                  transformationController: view,
-                  minScale: 1,
-                  maxScale: TerrainViewController.maxZoom,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      backdrop,
-                      const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Color(0xA017171E),
-                              Color(0x3827130A),
-                              Color(0xA90B121E),
-                            ],
-                            stops: [0, .47, 1],
+          final trek = missionTrekMaps[mission.id]!;
+          final scene = trek.scene(mission, viewport);
+          return TrekTileView(
+            scene: scene,
+            view: view,
+            source: tileSource,
+            detail: trek.detail,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                GestureDetector(
+                  key: const ValueKey('demo-map-viewport'),
+                  behavior: HitTestBehavior.opaque,
+                  onTapUp: (details) {
+                    final scene =
+                        view.toScene(details.localPosition) - world.topLeft;
+                    onSelect(scene / side, 'Map waypoint');
+                  },
+                  child: InteractiveViewer(
+                    transformationController: view,
+                    minScale: 1,
+                    boundaryMargin: view.panMargin(viewport),
+                    maxScale: TerrainViewController.maxZoom,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CustomPaint(
+                          painter: _DemoGrid(
+                            world: world,
+                            navigation: navigation,
                           ),
                         ),
-                      ),
-                      CustomPaint(
-                        painter: _DemoGrid(
-                          world: world,
-                          navigation: navigation,
-                        ),
-                      ),
-                      _marker(
-                        world,
-                        config.base,
-                        'Habitat base',
-                        Icons.home_filled,
-                        DashboardStyle.text,
-                        onTap: () => onSelect(config.base, 'Habitat base'),
-                      ),
-                      for (final landmark in config.landmarks)
                         _marker(
                           world,
-                          landmark.position,
-                          landmark.name,
-                          Icons.terrain,
-                          DashboardStyle.warm,
-                          onTap: () =>
-                              onSelect(landmark.position, landmark.name),
-                          small: true,
+                          config.base,
+                          'Habitat base',
+                          Icons.home_filled,
+                          DashboardStyle.text,
+                          onTap: () => onSelect(config.base, 'Habitat base'),
                         ),
-                      _marker(
-                        world,
-                        config.teammate,
-                        teammateInitials,
-                        Icons.person,
-                        DashboardStyle.cyan,
-                        description: 'Select $teammateName on map',
-                        onTap: () => onSelect(config.teammate, teammateName),
-                      ),
-                      for (final ping in navigation.pings)
-                        _pingMarker(world, ping),
-                      if (navigation.target case final target?)
+                        for (final landmark in config.landmarks)
+                          _marker(
+                            world,
+                            landmark.position,
+                            landmark.name,
+                            Icons.terrain,
+                            DashboardStyle.warm,
+                            onTap: () =>
+                                onSelect(landmark.position, landmark.name),
+                            small: true,
+                          ),
                         _marker(
                           world,
-                          target,
-                          'Destination',
-                          Icons.flag,
-                          DashboardStyle.orange,
+                          config.teammate,
+                          teammateInitials,
+                          Icons.person,
+                          DashboardStyle.cyan,
+                          description: 'Select $teammateName on map',
+                          onTap: () => onSelect(config.teammate, teammateName),
+                        ),
+                        for (final ping in navigation.pings)
+                          _pingMarker(world, ping),
+                        if (navigation.target case final target?)
+                          _marker(
+                            world,
+                            target,
+                            'Destination',
+                            Icons.flag,
+                            DashboardStyle.orange,
+                            above: true,
+                          ),
+                        _marker(
+                          world,
+                          navigation.position,
+                          '$astronautInitials · YOU',
+                          navigation.sos
+                              ? Icons.warning_amber_rounded
+                              : Icons.navigation_rounded,
+                          navigation.sos
+                              ? DashboardStyle.danger
+                              : DashboardStyle.cyan,
                           above: true,
                         ),
-                      _marker(
-                        world,
-                        navigation.position,
-                        '$astronautInitials · YOU',
-                        navigation.sos
-                            ? Icons.warning_amber_rounded
-                            : Icons.navigation_rounded,
-                        navigation.sos
-                            ? DashboardStyle.danger
-                            : DashboardStyle.cyan,
-                        above: true,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const Positioned(
-                left: 15,
-                top: 15,
-                child: _MapChip(
-                  text: 'DEMO GRID · ORBITAL IMAGERY',
-                  icon: Icons.layers_outlined,
-                  color: DashboardStyle.warm,
-                ),
-              ),
-              Positioned(
-                right: 14,
-                top: 14,
-                child: const _MapChip(
-                  text: 'N',
-                  icon: Icons.navigation_rounded,
-                ),
-              ),
-              Positioned(
-                right: 14,
-                bottom: 16,
-                child: ValueListenableBuilder(
-                  valueListenable: view,
-                  builder: (context, transform, _) {
-                    final zoom = transform.getMaxScaleOnAxis();
-                    return Column(
-                      spacing: 8,
-                      children: [
-                        _mapButton(
-                          'Zoom in',
-                          Icons.add,
-                          zoom < TerrainViewController.maxZoom
-                              ? () => view.zoomBy(1.4, viewport)
-                              : null,
-                        ),
-                        _mapButton(
-                          'Zoom out',
-                          Icons.remove,
-                          zoom > 1
-                              ? () => view.zoomBy(1 / 1.4, viewport)
-                              : null,
-                        ),
-                        _mapButton(
-                          'Reset view',
-                          Icons.center_focus_strong,
-                          view.reset,
-                        ),
                       ],
-                    );
-                  },
-                ),
-              ),
-              Positioned(
-                left: 14,
-                right: 82,
-                bottom: 15,
-                child: Align(
-                  alignment: Alignment.bottomLeft,
-                  child: DecoratedBox(
-                    decoration: DashboardStyle.surface(
-                      color: const Color(0xEE0B1320),
-                      radius: 10,
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 8,
+                  ),
+                ),
+                const Positioned(
+                  left: 15,
+                  top: 15,
+                  child: _MapChip(
+                    text: 'DEMO OVERLAY',
+                    icon: Icons.layers_outlined,
+                    color: DashboardStyle.warm,
+                  ),
+                ),
+                Positioned(
+                  right: 14,
+                  top: 14,
+                  child: const _MapChip(
+                    text: 'N',
+                    icon: Icons.navigation_rounded,
+                  ),
+                ),
+                Positioned(
+                  right: 14,
+                  bottom: 16,
+                  child: ValueListenableBuilder(
+                    valueListenable: view,
+                    builder: (context, transform, _) {
+                      final zoom = transform.getMaxScaleOnAxis();
+                      return Column(
+                        spacing: 8,
+                        children: [
+                          _mapButton(
+                            'Zoom in',
+                            Icons.add,
+                            zoom < TerrainViewController.maxZoom
+                                ? () => view.zoomBy(1.4, viewport)
+                                : null,
+                          ),
+                          _mapButton(
+                            'Zoom out',
+                            Icons.remove,
+                            zoom > 1
+                                ? () => view.zoomBy(1 / 1.4, viewport)
+                                : null,
+                          ),
+                          _mapButton(
+                            'Reset view',
+                            Icons.center_focus_strong,
+                            view.reset,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                Positioned(
+                  left: 14,
+                  right: 82,
+                  bottom: 15,
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: DecoratedBox(
+                      decoration: DashboardStyle.surface(
+                        color: const Color(0xEE0B1320),
+                        radius: 10,
                       ),
-                      child: Text(
-                        config.credit,
-                        style: palette.bodySmall?.copyWith(
-                          color: DashboardStyle.text,
-                          fontSize: 11,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 8,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          spacing: 4,
+                          children: [
+                            _MarsScaleBar(scene: scene, view: view),
+                            Text(
+                              'Map imagery: NASA Mars Trek\n'
+                              '${trek.detail?.product ?? globalTrekLayer.product}'
+                              '${trek.detail == null ? '' : ' / Global CTX'}',
+                              style: palette.bodySmall?.copyWith(
+                                color: DashboardStyle.text,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -526,4 +515,39 @@ class _MarkerChip extends StatelessWidget {
             ),
     );
   }
+}
+
+/// Shows approximate horizontal scale at the latitude of the view center.
+class _MarsScaleBar extends StatelessWidget {
+  const _MarsScaleBar({required this.scene, required this.view});
+
+  final MarsScene scene;
+  final TerrainViewController view;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: view,
+    builder: (context, transform, _) {
+      final center = view.toScene(scene.viewport.center(Offset.zero));
+      final latitude = scene.toGeographic(center).dy;
+      final metersPerPixel =
+          MarsProjection.metersPerLongitudeDegree(latitude) *
+          scene.degreesPerPixel /
+          transform.getMaxScaleOnAxis();
+      final meters = metersPerPixel * 50;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 7,
+        children: [
+          Container(width: 50, height: 2, color: DashboardStyle.warm),
+          Text(
+            meters >= 1000
+                ? '≈ ${(meters / 1000).toStringAsPrecision(2)} km'
+                : '≈ ${((meters / 10).round() * 10).toString()} m',
+            style: const TextStyle(color: DashboardStyle.text, fontSize: 11),
+          ),
+        ],
+      );
+    },
+  );
 }
