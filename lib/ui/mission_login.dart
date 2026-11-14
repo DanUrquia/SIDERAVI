@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/astronaut.dart';
 import '../auth/prototype_auth.dart';
+import 'cockpit_grid.dart';
 import 'mission_theme.dart';
 import 'pin_keypad.dart';
 
@@ -116,7 +117,7 @@ class _MissionLoginState extends State<MissionLogin>
           ),
         ),
         child: CustomPaint(
-          painter: const _CockpitGrid(),
+          painter: const CockpitGrid(),
           child: SafeArea(
             minimum: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
             child: LayoutBuilder(
@@ -381,25 +382,4 @@ class _PinStatus extends StatelessWidget {
           : null,
     );
   }
-}
-
-/// Renders the reference cockpit grid with native drawing primitives.
-class _CockpitGrid extends CustomPainter {
-  const _CockpitGrid();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final line = Paint()
-      ..color = const Color(0x07FFFFFF)
-      ..strokeWidth = 1;
-    for (var x = size.width / 2 % 40; x < size.width; x += 40) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), line);
-    }
-    for (double y = 0; y < size.height; y += 40) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_CockpitGrid oldDelegate) => false;
 }

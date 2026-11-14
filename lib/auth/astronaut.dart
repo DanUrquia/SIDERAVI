@@ -5,4 +5,11 @@ final class Astronaut {
 
   final String id;
   final String fullName;
+
+  /// Initials for the mission header avatar, derived from the roster name.
+  String get initials => fullName
+      .split(' ')
+      .where((part) => part.isNotEmpty)
+      .map((part) => part[0])
+      .join();
 }

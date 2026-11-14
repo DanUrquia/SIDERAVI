@@ -2,11 +2,12 @@
 
 SIDERA VI is a landscape iPad prototype by team **SIDERA VI** for the [2026 NASA Space Apps Challenge](https://www.spaceappschallenge.org/2026/). The project explores how astronauts on Mars could navigate terrain, consult scientific information, and coordinate with their crew.
 
-## Phase 1 · Astronaut login
+## Login and mission selection
 
 - An offline, four-digit PIN login with a glove-friendly keypad, masked entry, and clear, backspace, and retry controls.
-- Two demonstration astronaut identities. A valid PIN starts a personalized 5.5-second welcome with simulated dashboard initialization and support for Reduce Motion.
-- A final mission-ready screen with a Return to Login button that clears the session.
+- Dan Urquía (ARES-01) and Adrian Flores (ARES-02) each have a demonstration PIN. A valid PIN starts a personalized 5.5-second welcome with simulated dashboard initialization and support for Reduce Motion.
+- Five offline Mars mission briefings with authentic rover or orbital imagery, regional coordinates and educational objectives. Browse with the arrows or a horizontal swipe.
+- Start Mission opens **Dashboard soon.** Back to Missions restores the selected briefing. Back from Select Mission clears the session and returns to login.
 - The official SIDERA VI wordmark, S‑VI home-screen icon, and display name.
 
 ## Run on iPad
@@ -28,17 +29,17 @@ flutter analyze
 flutter test
 ```
 
-The tests exercise both astronaut identities, PIN editing and retry, welcome timing, session reset, and landscape layout with larger text.
+The tests exercise both astronauts, PIN editing and retry, welcome timing, mission browsing, the dashboard placeholder, session reset, and landscape layout with larger text.
 
 ## Prototype limits
 
 The two demo PINs are bundled in the offline prototype authentication service and can be recovered from the app or source. Ask the team for a demo PIN. Entered PINs are held only for the current attempt and never written to persistent storage or logs. The current astronaut identity is held in memory. Use only demo codes with this prototype.
 
-The calibration sequence is simulated user interface progress. Phase 1 ends on the welcome screen and runs without a server, database, or network connection.
+The app runs offline. Calibration, mission objectives, difficulty levels and exploration radii are simulated. Regional reference points and measured relief are documented with original NASA imagery and credits in the [Mars mission sources](docs/mars_mission_sources.md).
 
 ## Planned work
 
-Phase 2 will introduce the Mission Dashboard and Martian navigation. The team plans to evaluate [NASA Mars Trek](https://trek.nasa.gov/mars/) and NASA Planetary Data System products for terrain, elevation, and imagery overlays. Integrating those sources, adding scientific context, synchronizing astronaut sessions, and developing rescue workflows are future work.
+Future phases will introduce the Mission Dashboard and Martian navigation. The team plans to evaluate [NASA Mars Trek](https://trek.nasa.gov/mars/) and NASA Planetary Data System products for terrain, elevation, and imagery overlays. Integrating those sources, adding scientific context, synchronizing astronaut sessions, and developing rescue workflows are future work.
 
 ## Credits
 

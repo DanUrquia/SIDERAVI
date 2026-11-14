@@ -3,15 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sidera_vi/auth/mission_session.dart';
 import 'package:sidera_vi/auth/prototype_auth.dart';
 import 'package:sidera_vi/mission_app.dart';
+import 'package:sidera_vi/missions/mission.dart';
+import 'package:sidera_vi/missions/mission_catalog.dart';
 import 'package:sidera_vi/ui/mission_login.dart';
+import 'package:sidera_vi/ui/missions/mission_photo_panel.dart';
 
 /// Exercises the Phase 1 flow through the same controls as the iPad.
 void main() {
-  for (final (pin, name) in [
-    ('0107', 'Dan Urquía'),
-    ('1412', 'Adrian Flowers'),
+  for (final (pin, name, id, initials) in [
+    ('0107', 'Dan Urquía', 'ARES-01', 'DU'),
+    ('1412', 'Adrian Flores', 'ARES-02', 'AF'),
   ]) {
-    testWidgets('Recognizes $name and completes the mission welcome', (
+    testWidgets('Recognizes $name and opens Mission Selection after welcome', (
       tester,
     ) async {
       await _openLogin(tester);
@@ -41,8 +44,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.bySemanticsLabel('MISSION INTERFACE READY'), findsNothing);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 1500));
       expect(find.text('MISSION INTERFACE READY'), findsOneWidget);
+      expect(find.text('SELECT MISSION'), findsNothing);
       expect(
         tester
             .widget<LinearProgressIndicator>(
@@ -52,7 +56,15 @@ void main() {
         1,
       );
 
-      await tester.tap(find.text('RETURN TO LOGIN'));
+      await tester.pumpAndSettle();
+      expect(find.text('SELECT MISSION'), findsOneWidget);
+      expect(find.text(name), findsOneWidget);
+      expect(find.text(id), findsOneWidget);
+      expect(find.text(initials), findsOneWidget);
+      expect(find.text('Jezero Crater'), findsOneWidget);
+      expect(find.bySemanticsLabel('Welcome Astronaut $name'), findsNothing);
+
+      await tester.tap(find.text('BACK'));
       await tester.pumpAndSettle();
       expect(find.text('ENTER MISSION PIN'), findsOneWidget);
       expect(
@@ -61,10 +73,8 @@ void main() {
       );
       expect(_submitButton(tester).onPressed, isNull);
 
-      await _enterDigits(tester, pin);
-      await tester.tap(find.text('ENTER MISSION'));
-      await tester.pumpAndSettle();
-      expect(find.bySemanticsLabel('Welcome Astronaut $name'), findsOneWidget);
+      await _signIn(tester, pin);
+      expect(find.text(name), findsOneWidget);
     });
   }
 
@@ -106,10 +116,7 @@ void main() {
     expect(find.text('ACCESS DENIED — INVALID PIN'), findsNothing);
     await tester.tap(find.text('ENTER MISSION'));
     await tester.pumpAndSettle();
-    expect(
-      find.bySemanticsLabel('Welcome Astronaut Dan Urquía'),
-      findsOneWidget,
-    );
+    expect(find.text('Dan Urquía'), findsOneWidget);
   });
 
   testWidgets('Reduced motion makes the completion state available at once', (
@@ -122,7 +129,10 @@ void main() {
     await _enterDigits(tester, '1412');
     await tester.tap(find.text('ENTER MISSION'));
     await tester.pump();
-    expect(find.text('MISSION INTERFACE READY'), findsOneWidget);
+    await tester.pump();
+    expect(find.text('SELECT MISSION'), findsOneWidget);
+    expect(find.text('Adrian Flores'), findsOneWidget);
+    expect(find.text('START MISSION').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -140,8 +150,7 @@ void main() {
     await _enterDigits(tester, '1412');
     await tester.tap(find.text('ENTER MISSION'));
     await tester.pumpAndSettle();
-    expect(find.text('RETURN TO LOGIN').hitTestable(), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    expect(find.text('START MISSION').hitTestable(), findsOneWidget);
   });
 
   test('Stores exactly one authenticated identity until session end', () {
@@ -152,16 +161,146 @@ void main() {
     final adrian = auth.authenticate('1412')!;
     expect(dan.id, 'ARES-01');
     expect(adrian.id, 'ARES-02');
+    expect(adrian.fullName, 'Adrian Flores');
 
     final session = MissionSession();
     addTearDown(session.dispose);
     expect(session.begin(dan), isTrue);
     expect(session.begin(adrian), isFalse);
     expect(session.astronaut, same(dan));
+    session.selectMission(marsMissions.last);
+    expect(session.mission, same(marsMissions.last));
     session.end();
     expect(session.astronaut, isNull);
+    expect(session.mission, isNull);
+    session.selectMission(marsMissions.first);
+    expect(session.mission, isNull);
     expect(session.begin(adrian), isTrue);
   });
+
+  test('The catalog has five distinct missions, images, and difficulties', () {
+    expect(marsMissions.map((mission) => mission.id).toSet(), hasLength(5));
+    expect(
+      marsMissions.map((mission) => mission.imagery.asset).toSet(),
+      hasLength(5),
+    );
+    expect(
+      marsMissions.map((mission) => mission.difficulty).toSet(),
+      MissionDifficulty.values.toSet(),
+    );
+  });
+
+  testWidgets(
+    'Arrows and swipes update image and briefing together within the catalog',
+    (tester) async {
+      await _openLogin(tester);
+      await _signIn(tester, '0107');
+      final previous = find.byTooltip('Previous mission');
+      final next = find.byTooltip('Next mission');
+      final photo = find.byType(MissionPhotoPanel);
+      _expectMission(0);
+      await tester.tap(previous);
+      await tester.pumpAndSettle();
+      _expectMission(0);
+
+      await tester.tap(next);
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      _expectMission(1);
+
+      await tester.fling(photo, const Offset(-240, 0), 600);
+      await tester.pumpAndSettle();
+      _expectMission(2);
+      await tester.tap(previous);
+      await tester.pumpAndSettle();
+      _expectMission(1);
+      for (var index = 2; index < 5; index++) {
+        await tester.tap(next);
+        await tester.pumpAndSettle();
+        _expectMission(index);
+      }
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      _expectMission(4);
+      await tester.fling(photo, const Offset(-240, 0), 600);
+      await tester.pumpAndSettle();
+      _expectMission(4);
+      await tester.fling(photo, const Offset(240, 0), 600);
+      await tester.pumpAndSettle();
+      _expectMission(3);
+    },
+  );
+
+  testWidgets('Every briefing can start its mission', (tester) async {
+    await _openLogin(tester);
+    await _signIn(tester, '1412');
+    for (final mission in marsMissions) {
+      await tester.tap(find.text('START MISSION'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dashboard soon.'), findsOneWidget);
+      expect(find.text('Mission: ${mission.title}'), findsOneWidget);
+      await tester.tap(find.text('BACK TO MISSIONS'));
+      await tester.pumpAndSettle();
+      expect(find.text(mission.title), findsOneWidget);
+      if (mission != marsMissions.last) {
+        await tester.tap(find.byTooltip('Next mission'));
+        await tester.pumpAndSettle();
+      }
+    }
+  });
+
+  testWidgets(
+    'Dashboard Soon preserves selection and logout resets it for another astronaut',
+    (tester) async {
+      await _openLogin(tester);
+      await _signIn(tester, '0107');
+      await tester.tap(find.byTooltip('Next mission'));
+      await tester.pumpAndSettle();
+      _expectMission(1);
+
+      await tester.tap(find.text('START MISSION'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dashboard soon.'), findsOneWidget);
+      expect(find.text('Mission: Gale Crater'), findsOneWidget);
+      expect(find.text('Astronaut: Dan Urquía'), findsOneWidget);
+
+      await tester.tap(find.text('BACK TO MISSIONS'));
+      await tester.pumpAndSettle();
+      _expectMission(1);
+      expect(find.text('Dan Urquía'), findsOneWidget);
+      expect(find.text('Welcome Astronaut'), findsNothing);
+
+      await tester.tap(find.text('BACK'));
+      await tester.pumpAndSettle();
+      await _signIn(tester, '1412');
+      _expectMission(0);
+      expect(find.text('Adrian Flores'), findsOneWidget);
+      expect(find.text('ARES-02'), findsOneWidget);
+      expect(find.text('Dan Urquía'), findsNothing);
+
+      await tester.tap(find.text('START MISSION'));
+      await tester.pumpAndSettle();
+      expect(find.text('Astronaut: Adrian Flores'), findsOneWidget);
+      expect(find.text('Mission: Jezero Crater'), findsOneWidget);
+    },
+  );
+}
+
+/// Signs in through the keypad and lets the mission selector appear.
+Future<void> _signIn(WidgetTester tester, String pin) async {
+  await _enterDigits(tester, pin);
+  await tester.tap(find.text('ENTER MISSION'));
+  await tester.pumpAndSettle();
+}
+
+/// Verifies the selected mission's index, briefing, and attributed photo.
+void _expectMission(int index) {
+  final mission = marsMissions[index];
+  expect(find.text(mission.title), findsOneWidget);
+  expect(find.text(mission.objective), findsOneWidget);
+  expect(find.text(mission.imagery.credit), findsOneWidget);
+  expect(find.byKey(ValueKey(mission.imagery.asset)), findsOneWidget);
+  expect(find.text('0${index + 1} / 05'), findsOneWidget);
 }
 
 /// Opens the app using an iPad-size logical viewport.

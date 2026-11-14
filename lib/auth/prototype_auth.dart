@@ -7,7 +7,7 @@ final class PrototypeAuth {
 
   static const _roster = {
     '0107': Astronaut(id: 'ARES-01', fullName: 'Dan Urquía'),
-    '1412': Astronaut(id: 'ARES-02', fullName: 'Adrian Flowers'),
+    '1412': Astronaut(id: 'ARES-02', fullName: 'Adrian Flores'),
   };
 
   /// Returns an astronaut for an exact match, preserving leading zeroes.

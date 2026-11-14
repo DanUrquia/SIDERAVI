@@ -5,18 +5,18 @@ import 'mission_theme.dart';
 
 /// Plays the Phase 1 welcome and simulated dashboard initialization.
 class MissionWelcome extends StatefulWidget {
-  /// Presents the authenticated astronaut and returns control to login on demand.
+  /// Presents the authenticated astronaut and notifies the app after the final stage.
   const MissionWelcome({
     super.key,
     required this.astronaut,
-    required this.onReturn,
+    required this.onComplete,
   });
 
   /// Time reserved at the start of the sequence for the login fade.
   static const loginFadeDuration = Duration(milliseconds: 800);
 
   final Astronaut astronaut;
-  final VoidCallback onReturn;
+  final VoidCallback onComplete;
 
   @override
   State<MissionWelcome> createState() => _MissionWelcomeState();
@@ -30,7 +30,7 @@ class _MissionWelcomeState extends State<MissionWelcome>
   static const _readyStarts = 4500;
   static const _finished = 5500;
   late final AnimationController _timeline;
-  bool _returning = false;
+  bool _finishedSequence = false;
 
   @override
   void initState() {
@@ -38,7 +38,7 @@ class _MissionWelcomeState extends State<MissionWelcome>
     _timeline = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: _finished),
-    );
+    )..addStatusListener(_handleStatus);
   }
 
   @override
@@ -51,11 +51,14 @@ class _MissionWelcomeState extends State<MissionWelcome>
     }
   }
 
-  /// Runs the return action only once, even during rapid taps.
-  void _returnToLogin() {
-    if (_returning) return;
-    _returning = true;
-    widget.onReturn();
+  /// Advances after the ready message, including when Reduce Motion skips motion.
+  void _handleStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _finishedSequence) return;
+    _finishedSequence = true;
+    // Reduced motion can complete the timeline during the first build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onComplete();
+    });
   }
 
   /// Converts a time window within the timeline to a smooth 0–1 reveal.
@@ -90,7 +93,6 @@ class _MissionWelcomeState extends State<MissionWelcome>
                     _readyStarts,
                   );
                   final ready = _reveal(elapsed, _readyStarts, 5200);
-                  final done = _timeline.isCompleted;
                   return ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 760),
                     child: Column(
@@ -181,32 +183,8 @@ class _MissionWelcomeState extends State<MissionWelcome>
                             ),
                           ),
                         ),
-                        SizedBox(height: 39 * scale),
-                        _stage(
-                          _reveal(elapsed, 5000, _finished),
-                          SizedBox(
-                            width: 340 * scale,
-                            height: 76 * scale,
-                            child: FilledButton(
-                              onPressed: done ? _returnToLogin : null,
-                              style: MissionTheme.control(
-                                fill: const Color(0xFF231713),
-                                border: const Color(0xFFAA5F46),
-                                elevation: 0,
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  'RETURN TO LOGIN',
-                                  style: MissionTheme.display(
-                                    20 * scale,
-                                    tracking: 1.2,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
+                        // Preserve the welcome's original vertical alignment.
+                        SizedBox(height: 115 * scale),
                       ],
                     ),
                   );
