@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sidera_vi/auth/mission_session.dart';
 import 'package:sidera_vi/auth/prototype_auth.dart';
+import 'package:sidera_vi/dashboard/demo_navigation.dart';
+import 'package:sidera_vi/dashboard/mission_map_config.dart';
 import 'package:sidera_vi/mission_app.dart';
 import 'package:sidera_vi/missions/mission.dart';
 import 'package:sidera_vi/missions/mission_catalog.dart';
 import 'package:sidera_vi/ui/mission_login.dart';
+import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
+import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/missions/mission_photo_panel.dart';
 
 /// Exercises the Phase 1 flow through the same controls as the iPad.
@@ -237,8 +241,20 @@ void main() {
     for (final mission in marsMissions) {
       await tester.tap(find.text('START MISSION'));
       await tester.pumpAndSettle();
-      expect(find.text('Dashboard soon.'), findsOneWidget);
-      expect(find.text('Mission: ${mission.title}'), findsOneWidget);
+      final dashboard = tester.widget<MissionDashboard>(
+        find.byType(MissionDashboard),
+      );
+      expect(dashboard.mission, same(mission));
+      final terrain = tester.widget<OrbitalPhotoBackdrop>(
+        find.byType(OrbitalPhotoBackdrop),
+      );
+      expect(terrain.asset, missionMaps[mission.id]!.asset);
+      final demo = tester
+          .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
+          .navigation;
+      expect(demo.position, demo.map.start);
+      expect(demo.target, isNull);
+      expect(demo.pings, isEmpty);
       await tester.tap(find.text('BACK TO MISSIONS'));
       await tester.pumpAndSettle();
       expect(find.text(mission.title), findsOneWidget);
@@ -250,7 +266,7 @@ void main() {
   });
 
   testWidgets(
-    'Dashboard Soon preserves selection and logout resets it for another astronaut',
+    'The dashboard preserves selection and logout resets it for another astronaut',
     (tester) async {
       await _openLogin(tester);
       await _signIn(tester, '0107');
@@ -260,9 +276,13 @@ void main() {
 
       await tester.tap(find.text('START MISSION'));
       await tester.pumpAndSettle();
-      expect(find.text('Dashboard soon.'), findsOneWidget);
-      expect(find.text('Mission: Gale Crater'), findsOneWidget);
-      expect(find.text('Astronaut: Dan Urquía'), findsOneWidget);
+      expect(find.text('Gale Crater'), findsOneWidget);
+      expect(find.text('Dan Urquía — ARES-01'), findsOneWidget);
+      final firstMap = tester.widget<DemoTerrainMap>(
+        find.byType(DemoTerrainMap),
+      );
+      firstMap.navigation.addPing(DemoPingType.item);
+      await tester.pump();
 
       await tester.tap(find.text('BACK TO MISSIONS'));
       await tester.pumpAndSettle();
@@ -280,8 +300,13 @@ void main() {
 
       await tester.tap(find.text('START MISSION'));
       await tester.pumpAndSettle();
-      expect(find.text('Astronaut: Adrian Flores'), findsOneWidget);
-      expect(find.text('Mission: Jezero Crater'), findsOneWidget);
+      expect(find.text('Adrian Flores — ARES-02'), findsOneWidget);
+      expect(find.text('Jezero Crater'), findsOneWidget);
+      final secondMap = tester.widget<DemoTerrainMap>(
+        find.byType(DemoTerrainMap),
+      );
+      expect(secondMap.navigation.pings, isEmpty);
+      expect(secondMap.navigation.position, secondMap.navigation.map.start);
     },
   );
 }

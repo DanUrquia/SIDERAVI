@@ -33,3 +33,15 @@ The JPEGs are available offline. The bundled copies retain the original image pr
 - **Image** — The globe mosaic uses Viking Orbiter 1 imagery and shows the canyon system across the center. Credit NASA/JPL-Caltech. [NASA Science PIA04304](https://science.nasa.gov/resource/valles-marineris-the-grand-canyon-of-mars/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia04/pia04304/PIA04304.jpg)
 - **Geography** — The displayed center is 13.74° S, 300.80° E. The published maximum depth of about 9.3 km describes the canyon system as a whole. [USGS Gazetteer](https://planetarynames.wr.usgs.gov/Feature/6288) · [NASA canyon dimensions](https://science.nasa.gov/resource/valles-marineris-the-grand-canyon-of-mars/)
 - **Simulation** — A 50.0 km planning radius for interpreting orbital imagery and finding a survey corridor among steep canyon walls and fractured terrain.
+
+## Phase 3 orbital backdrops
+
+The dashboard uses these separate offline images. Scene crops fill the available map viewport. Markers, north, headings, distances and the exploration circle belong to the square demonstration grid. They have no spatial registration with the imagery. The app uses credited orbital imagery for educational reference. [NASA media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+
+| Mission | Orbital product and credit | Original image |
+| --- | --- | --- |
+| Jezero Crater | [PIA19303 · Mars Reconnaissance Orbiter HiRISE](https://science.nasa.gov/photojournal/a-possible-landing-site-for-the-2020-mission-jezero-crater/) · NASA/JPL-Caltech/University of Arizona | [JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia19/pia19303/PIA19303.jpg) |
+| Gale Crater | [PIA14290 · Mars Odyssey THEMIS mosaic](https://science.nasa.gov/photojournal/gale-crater-future-home-of-mars-rover-curiosity/) · NASA/JPL-Caltech/ASU | [Unannotated TIFF](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia14/pia14290/tiff/PIA14290_fig1.tif) |
+| Endeavour Crater | [PIA11837 · Mars Reconnaissance Orbiter Context Camera mosaic](https://science.nasa.gov/photojournal/endeavour-crater-in-context/) · NASA/JPL-Caltech/MSSS | [JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia11/pia11837/PIA11837.jpg) |
+| Columbia Hills | [PIA03253 · Mars Global Surveyor Mars Orbiter Camera](https://science.nasa.gov/photojournal/spirit-rover-on-husband-hill/) · NASA/JPL-Caltech/MSSS | [JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia03/pia03253/PIA03253.jpg) |
+| Valles Marineris | [PIA00422 · Viking orbital mosaic](https://science.nasa.gov/photojournal/valles-marineris/) · NASA/JPL/USGS | [JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia00/pia00422/PIA00422.jpg) |

@@ -6,7 +6,7 @@ import 'missions/mission.dart';
 import 'ui/mission_login.dart';
 import 'ui/mission_theme.dart';
 import 'ui/mission_welcome.dart';
-import 'ui/missions/dashboard_soon.dart';
+import 'ui/dashboard/mission_dashboard.dart';
 import 'ui/missions/mission_selection.dart';
 
 /// Hosts the mission theme and owns the astronaut session.
@@ -18,7 +18,7 @@ class MissionApp extends StatefulWidget {
   State<MissionApp> createState() => _MissionAppState();
 }
 
-/// Keeps the session alive across welcome, mission browsing and the placeholder.
+/// Keeps the session alive across welcome, mission browsing and the dashboard.
 class _MissionAppState extends State<MissionApp> {
   final _session = MissionSession();
 
@@ -88,7 +88,7 @@ class _MissionFlow extends StatefulWidget {
   State<_MissionFlow> createState() => _MissionFlowState();
 }
 
-/// Keeps mission browsing mounted while Dashboard Soon covers it.
+/// Keeps mission browsing mounted while the dashboard covers it.
 class _MissionFlowState extends State<_MissionFlow> {
   bool _welcomeComplete = false;
   bool _openingDashboard = false;
@@ -99,7 +99,7 @@ class _MissionFlowState extends State<_MissionFlow> {
     setState(() => _welcomeComplete = true);
   }
 
-  /// Records the chosen mission and opens its Phase 2 placeholder once.
+  /// Records the chosen mission and opens its dashboard once.
   Future<void> _startMission(MarsMission mission) async {
     if (_openingDashboard || !ModalRoute.of(context)!.isCurrent) return;
     _openingDashboard = true;
@@ -110,7 +110,10 @@ class _MissionFlowState extends State<_MissionFlow> {
         _fadeRoute(
           duration: duration,
           reverseDuration: duration,
-          child: DashboardSoon(astronaut: widget.astronaut, mission: mission),
+          child: MissionDashboard(
+            astronaut: widget.astronaut,
+            mission: mission,
+          ),
         ),
       );
     } finally {

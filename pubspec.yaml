@@ -1,5 +1,5 @@
 name: sidera_vi
-description: Offline astronaut mission initialization for SIDERA VI.
+description: Offline Mars exploration prototype for SIDERA VI.
 publish_to: none
 version: 1.0.0+1
 
@@ -20,6 +20,7 @@ flutter:
   assets:
     - assets/branding/sidera_vi_logo.png
     - assets/missions/
+    - assets/maps/
   fonts:
     - family: Space Grotesk
       fonts:
