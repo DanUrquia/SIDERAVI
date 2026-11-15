@@ -2234,6 +2234,18 @@ void main() {
     session.updateSignals();
     await tester.pumpAndSettle();
     expect(find.text('PIN · ARES-02'), findsOneWidget);
+    for (final (id, color) in [
+      ('ARES-01', DashboardStyle.cyan),
+      ('ARES-02', DashboardStyle.amber),
+    ]) {
+      final marker = find.byKey(ValueKey('crew-pin-$id'));
+      final glyph = find.descendant(
+        of: marker,
+        matching: find.byIcon(Icons.location_on_rounded),
+      );
+      expect(tester.widget<Icon>(glyph).color, color);
+      expect(tester.widget<Text>(find.text('PIN · $id')).style?.color, color);
+    }
     expect(nav.target, target);
 
     final next = nav.map.landmarks[1].position;

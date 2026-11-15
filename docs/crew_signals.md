@@ -4,7 +4,7 @@ Open the same mission on two enrolled iPhones. The field build uses the mission'
 
 ## Destination PIN
 
-**Send PIN** shares the selected destination's Mars coordinates with the current mission's Crew. A tap without a valid selection shows **Select a destination on the map first.** The sender sees **Destination shared with Crew** after Firebase accepts the write. The cyan marker identifies its sender by ARES ID. When close to a flag or crew marker, a short line connects the PIN symbol to its geographic point.
+**Send PIN** shares the selected destination's Mars coordinates with the current mission's Crew. A tap without a valid selection shows **Select a destination on the map first.** The sender sees **Destination shared with Crew** after Firebase accepts the write. Each marker identifies its sender by ARES ID. ARES-01 PINs are cyan and ARES-02 PINs are amber on both maps. When close to a flag or crew marker, a short line connects the PIN symbol to its geographic point.
 
 Receiving a PIN leaves the current route in place. Tap the teammate's PIN to select the point, then use **Start Navigation** when ready. A new PIN replaces the sender's prior PIN. The marker expires 60 seconds after its server timestamp and the selected destination and route remain available. Reconnect restores unexpired PINs. An offline tap with a valid selection displays the connection requirement.
 
@@ -43,7 +43,7 @@ See [device enrollment](live_astronaut_tracking.md) for the field phones. Dan an
 
 Flutter tests exercise the destination requirement, acknowledged delivery, the compact anchored marker, a teammate's explicit tap, pan, zoom, both heading modes and expiry while guidance remains active. The Firebase emulator verifies that destination coordinates differ from the stored sender pose and reach the teammate stream, with writes scoped to the sender's slot and mission. The existing SOS capture and resolution tests still pass.
 
-The DEV build was installed and launched in place on Dan's iPhone 16 and the iPhone 18 Pro simulator. The simulator showed the destination prompt in Endeavour as ARES-02. Keren's iPhone 14 Plus was unavailable for installation and paired field testing.
+The DEV build was installed and launched in place on Dan's iPhone 16 and the iPhone 18 Pro simulator. The simulator showed the destination prompt in Endeavour as ARES-02. Both devices then connected to the previously enrolled isolated session. Firebase recorded a destination distinct from ARES-01's position. The simulator displayed both astronauts' PINs, kept its current destination on receipt and selected ARES-01's point when tapped. Keren's iPhone 14 Plus was unavailable for installation and paired physical-phone testing.
 
 ## Phase 6F verification
 

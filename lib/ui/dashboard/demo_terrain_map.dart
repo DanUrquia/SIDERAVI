@@ -567,7 +567,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                               pin.value,
                               'PIN · ${pin.key}',
                               Icons.location_on_rounded,
-                              DashboardStyle.cyan,
+                              pin.key == 'ARES-02'
+                                  ? DashboardStyle.amber
+                                  : DashboardStyle.cyan,
                               key: ValueKey('crew-pin-${pin.key}'),
                               small: true,
                               showCompactLabel: true,
