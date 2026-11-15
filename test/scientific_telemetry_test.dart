@@ -14,8 +14,10 @@ import 'package:sidera_vi/missions/mola_elevations.dart';
 import 'package:sidera_vi/sensors/sensor_service.dart';
 import 'package:sidera_vi/tracking/astronaut_tracking.dart';
 import 'package:sidera_vi/tracking/tracking_geometry.dart';
+import 'package:sidera_vi/ui/dashboard/dashboard_panels.dart';
 import 'package:sidera_vi/ui/dashboard/mobile_map_controls.dart';
-import 'package:sidera_vi/ui/dashboard/mobile_mission_sheets.dart';
+import 'package:sidera_vi/ui/dashboard/mobile_astronaut_content.dart';
+import 'package:sidera_vi/ui/dashboard/solar_cycle_card.dart';
 
 void main() {
   test('Mars24 reference clocks match the published local mean times', () {
@@ -294,7 +296,7 @@ void main() {
   });
 
   testWidgets(
-    'The Astronaut sheet exposes the maximum within its mission radius',
+    'Astronaut telemetry and topography use each mission’s verified data',
     (tester) async {
       for (final mission in marsMissions) {
         final map = missionMaps[mission.id]!;
@@ -305,14 +307,17 @@ void main() {
           sensors: const NativeSensorService(),
         );
         final cycle = ValueNotifier(
-          _atBase(mission, DateTime.utc(2026, 11, 15)),
+          _atBase(mission, DateTime.parse('2026-11-16T01:45:00+05:00')),
         );
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
               body: SingleChildScrollView(
                 child: MobileAstronautContent(
-                  astronaut: DemoCrew.dan,
+                  astronaut: const Astronaut(
+                    id: 'OVIS-07',
+                    fullName: 'Astronaut Test Identity',
+                  ),
                   mission: mission,
                   navigation: navigation,
                   tracking: tracking,
@@ -324,13 +329,81 @@ void main() {
             ),
           ),
         );
-        await tester.scrollUntilVisible(find.text('MOLA TOPOGRAPHY'), 200);
-        expect(find.text('Max. gridded elevation'), findsOneWidget);
+        expect(find.text('OVIS-07'), findsOneWidget);
+        expect(find.text('Astronaut Test Identity'), findsOneWidget);
+        final identity = find
+            .ancestor(
+              of: find.text('Astronaut Test Identity'),
+              matching: find.byType(Column),
+            )
+            .first;
+        expect(_inside(identity, mission.title), findsOneWidget);
+        expect(find.text(tracking.stepStatus), findsOneWidget);
+
+        final telemetry = _panel('MISSION TELEMETRY');
+        for (final heading in [
+          'MARS TIME',
+          'TEMPERATURE',
+          'ELEVATION',
+          'EARTH TIME',
+        ]) {
+          expect(_inside(telemetry, heading), findsOneWidget);
+        }
+        final solar = cycle.value;
+        expect(_inside(telemetry, solar.localTime), findsOneWidget);
+        final climate = marsClimateCelsius(
+          mission.id,
+          solar,
+          eastLongitude: mission.elevation!.location.eastLongitude,
+        );
+        expect(_inside(telemetry, formatMarsClimate(climate)), findsOneWidget);
+        expect(_inside(telemetry, 'Climate estimate'), findsOneWidget);
+        expect(_inside(telemetry, mission.elevationLabel), findsOneWidget);
+        expect(_inside(telemetry, 'Tegucigalpa · UTC−6'), findsOneWidget);
+        expect(_inside(telemetry, '14:45'), findsOneWidget);
+
+        final solarCard = find.byType(SolarCycleCard);
+        for (final value in {
+          solar.localTime,
+          solar.sunrise,
+          solar.sunset,
+          solar.daylight,
+          solar.skyState,
+        }) {
+          expect(_inside(solarCard, value), findsWidgets);
+        }
+        cycle.value = _atBase(
+          mission,
+          solar.timestamp.add(const Duration(minutes: 2)),
+        );
+        await tester.pump();
+        expect(_inside(telemetry, '14:47'), findsOneWidget);
+        expect(_inside(telemetry, '14:45'), findsNothing);
+        expect(_inside(telemetry, cycle.value.localTime), findsOneWidget);
+
+        await tester.scrollUntilVisible(find.text('MARS TOPOGRAPHY'), 200);
+        final topography = _panel('MARS TOPOGRAPHY');
         expect(
-          find.text(
-            formatMarsElevation(missionMaximumGridElevationMeters[mission.id]!),
-          ),
+          _inside(topography, 'Maximum gridded elevation'),
           findsOneWidget,
+        );
+        expect(_inside(topography, mission.region), findsOneWidget);
+        expect(_inside(topography, MarsBaseElevation.source), findsOneWidget);
+        expect(_inside(topography, MarsBaseElevation.datum), findsOneWidget);
+        expect(_inside(topography, mission.radiusLabel), findsOneWidget);
+        final maximum = tester.widget<DashboardReadout>(
+          find.descendant(
+            of: topography,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is DashboardReadout &&
+                  widget.label == 'Maximum gridded elevation',
+            ),
+          ),
+        );
+        expect(
+          maximum.value,
+          formatMarsElevation(missionMaximumGridElevationMeters[mission.id]!),
         );
         expect(
           find.textContaining('within ${mission.radiusLabel} of Habitat Base'),
@@ -354,3 +427,10 @@ MarsSolarCycle _atBase(MarsMission mission, DateTime timestamp) {
     eastLongitude: site.eastLongitude,
   );
 }
+
+Finder _panel(String title) => find.byWidgetPredicate(
+  (widget) => widget is DashboardPanel && widget.title == title,
+);
+
+Finder _inside(Finder scope, String text) =>
+    find.descendant(of: scope, matching: find.text(text));

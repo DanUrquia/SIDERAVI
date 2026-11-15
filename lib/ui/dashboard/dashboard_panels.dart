@@ -403,16 +403,19 @@ class _TegucigalpaClockState extends State<TegucigalpaClock> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final local = _now.subtract(const Duration(hours: 6));
-    final time =
-        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-    return _Condition(
-      label: 'EARTH TIME',
-      value: time,
-      note: 'Tegucigalpa · UTC−6',
-    );
-  }
+  Widget build(BuildContext context) => _Condition(
+    label: 'EARTH TIME',
+    value: formatTegucigalpaTime(_now),
+    note: 'Tegucigalpa · UTC−6',
+  );
+}
+
+/// Formats the Tegucigalpa clock in fixed UTC−6.
+String formatTegucigalpaTime(DateTime timestamp) {
+  final local = timestamp.toUtc().subtract(const Duration(hours: 6));
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 /// Presents a full-width crew row with a glove-sized hit target.

@@ -17,6 +17,7 @@ import 'package:sidera_vi/tracking/mission_presence.dart';
 import 'package:sidera_vi/tracking/crew_signals.dart';
 import 'package:sidera_vi/tracking/astronaut_tracking.dart';
 import 'package:sidera_vi/tracking/tracking_geometry.dart';
+import 'package:sidera_vi/tracking/pedometer_monitor.dart';
 import 'package:sidera_vi/sensors/sensor_service.dart';
 import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/dashboard_style.dart';
@@ -1025,7 +1026,14 @@ void main() {
       expectCluster();
       await tester.tap(self);
       await tester.pumpAndSettle();
-      expect(find.text('Position status'), findsOneWidget);
+      expect(find.text('Position quality'), findsOneWidget);
+      expect(
+        _within(
+          find.byKey(const ValueKey('mobile-mission-sheet')),
+          map.tracking.stepStatus,
+        ),
+        findsOneWidget,
+      );
       await _tapTooltip(tester, 'Close Astronaut');
       await tester.tap(peer);
       await tester.pumpAndSettle();
@@ -1284,9 +1292,12 @@ void main() {
     await _mobileTab(tester, 'astronaut');
     expect(surface, findsOneWidget);
     expect(find.byTooltip('Close Missions'), findsNothing);
-    expect(find.text('Total steps'), findsOneWidget);
+    expect(find.text('TOTAL STEPS'), findsOneWidget);
     _expectExpandedSheet(tester, surface, safeTop: 57);
-    await _tapPhoneAction(tester, find.text('SENSOR TEST'), tap: false);
+    final sensorTest = find.text('SENSOR TEST');
+    await tester.ensureVisible(sensorTest);
+    await tester.pumpAndSettle();
+    await _tapPhoneAction(tester, sensorTest, tap: false);
     await _mobileTab(tester, 'crew');
     expect(surface, findsOneWidget);
     expect(find.byTooltip('Close Astronaut'), findsNothing);
@@ -1423,6 +1434,131 @@ void main() {
       );
       expect(find.text('NASA Mars Trek').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
+    'Astronaut diagnostics distinguish unavailable and applied steps',
+    (tester) async {
+      final map = await _launch(
+        tester,
+        size: const Size(393, 852),
+        mission: marsMissionById['endeavour'],
+        astronaut: DemoCrew.adrian,
+        platform: TargetPlatform.iOS,
+      );
+      final tracking = map.tracking;
+      tracking.pedometer.state = PedometerState.unsupported;
+      tracking.measuredSteps = 0;
+      tracking.quality = PositionQuality.unavailable;
+      await _mobileTab(tester, 'astronaut');
+      final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
+      expect(_within(sheet, 'Adrian Flores'), findsOneWidget);
+      expect(_within(sheet, 'ARES-02'), findsOneWidget);
+      expect(_within(sheet, 'Endeavour Crater'), findsOneWidget);
+      expect(_within(sheet, 'UNAVAILABLE'), findsWidgets);
+      expect(_within(sheet, 'ACTIVE'), findsNothing);
+      expect(_within(sheet, 'STEP SENSORS UNAVAILABLE'), findsOneWidget);
+      expect(_within(sheet, '—'), findsOneWidget);
+      final exploration = find.byWidgetPredicate(
+        (widget) =>
+            widget is DashboardPanel && widget.title == 'EXPLORATION STATUS',
+      );
+      expect(_within(exploration, '0'), findsOneWidget); // Applied steps only.
+
+      await _mobileTab(tester, 'astronaut');
+      tracking.pedometer.state = PedometerState.fresh;
+      tracking.measuredSteps = 17;
+      tracking.appliedSteps = 14;
+      tracking.quality = PositionQuality.accepted;
+      await _mobileTab(tester, 'astronaut');
+      expect(_within(sheet, 'ACTIVE'), findsOneWidget);
+      expect(_within(sheet, '17'), findsOneWidget);
+      expect(_within(sheet, '14'), findsOneWidget);
+      expect(_within(sheet, '0.0 m'), findsOneWidget);
+      expect(
+        _within(sheet, formatMarsPosition(tracking.pose.mars)),
+        findsOneWidget,
+      );
+      expect(_within(sheet, 'ESTIMATED POSITION'), findsOneWidget);
+
+      for (final action in [
+        'CALIBRATE WALKING DIRECTION',
+        'SET STRIDE LENGTH',
+        'SENSOR TEST',
+        'MOVEMENT LOG',
+      ]) {
+        expect(_within(sheet, action), findsOneWidget);
+      }
+    },
+  );
+
+  testWidgets('Astronaut panels scroll above the fixed dock at phone sizes', (
+    tester,
+  ) async {
+    for (final (size, scale) in [
+      (const Size(393, 852), 1.0),
+      (const Size(428, 926), 1.0),
+      (const Size(320, 568), 1.0),
+      (const Size(320, 568), 2.0),
+      (const Size(852, 393), 1.0),
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _launch(
+        tester,
+        size: size,
+        textScale: scale,
+        platform: TargetPlatform.iOS,
+      );
+      final dock = find.byKey(const ValueKey('mobile-navigation-dock'));
+      final dockRect = tester.getRect(dock);
+      await _mobileTab(tester, 'astronaut');
+      final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
+      final walker = find.descendant(
+        of: sheet,
+        matching: find.byType(Scrollable),
+      );
+      final telemetry = [
+        for (final label in [
+          'MARS TIME',
+          'TEMPERATURE',
+          'ELEVATION',
+          'EARTH TIME',
+        ])
+          tester.getRect(_within(sheet, label)),
+      ];
+      if (scale == 1) {
+        expect(telemetry[0].top, telemetry[1].top);
+        expect(telemetry[2].top, telemetry[3].top);
+        expect(telemetry[0].left, lessThan(telemetry[1].left));
+      } else {
+        expect(telemetry[0].bottom, lessThan(telemetry[1].top));
+      }
+      final sections = [
+        'Dan Urquía',
+        'MISSION TELEMETRY',
+        'SOLAR CYCLE',
+        'EXPLORATION STATUS',
+        'MISSION CONTROLS',
+        'MARS TOPOGRAPHY',
+        'DEVICE SENSORS',
+        'MOVEMENT LOG',
+      ];
+      var previousTop = double.negativeInfinity;
+      for (final label in sections) {
+        final top = tester.getTopLeft(_within(sheet, label)).dy;
+        expect(top, greaterThan(previousTop), reason: label);
+        previousTop = top;
+      }
+      for (final label in sections) {
+        final item = _within(sheet, label);
+        await tester.scrollUntilVisible(item, 160, scrollable: walker);
+        await tester.pumpAndSettle();
+        expect(item.hitTestable(), findsOneWidget, reason: '$label at $size');
+        expect(tester.getRect(item).top, lessThan(dockRect.top));
+        expect(tester.getRect(dock), dockRect);
+        expect(tester.takeException(), isNull);
+      }
     }
   });
 
@@ -2102,6 +2238,8 @@ void main() {
       expect(nav.canReturnToBase, isTrue);
       await _mobileTab(tester, 'astronaut');
       final pause = find.text('PAUSE MISSION');
+      await tester.ensureVisible(pause);
+      await tester.pumpAndSettle();
       await _tapPhoneAction(tester, pause);
       await tester.pumpAndSettle();
       expect(nav.paused, isTrue);
@@ -2803,10 +2941,16 @@ void main() {
         expect(_within(sheet, 'EARTH TIME'), findsOneWidget);
         expect(_within(sheet, 'Tegucigalpa · UTC−6'), findsOneWidget);
         for (final label in [
-          'PLANETARY CONDITIONS',
+          'MISSION TELEMETRY',
           'MARS TIME',
-          'TEMP',
+          'TEMPERATURE',
           'ELEVATION',
+        ]) {
+          expect(_within(sheet, label), findsOneWidget);
+        }
+        for (final label in [
+          'PLANETARY CONDITIONS',
+          'TEMP',
           'START NAVIGATION',
           'RETURN TO BASE',
         ]) {

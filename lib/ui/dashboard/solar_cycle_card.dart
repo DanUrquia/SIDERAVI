@@ -57,10 +57,52 @@ class SolarCycleCard extends StatelessWidget {
             title: 'SOLAR CYCLE',
             icon: solar.isDaylight ? Icons.light_mode : Icons.dark_mode,
             children: [
-              _SolarTrack(solar: solar, compact: false),
-              DashboardReadout(
-                label: 'Mars time at Base (LMST)',
-                value: solar.localTime,
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 6,
+                children: [
+                  Column(
+                    spacing: 3,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Mars time at Base (LMST)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: DashboardStyle.muted,
+                        ),
+                      ),
+                      Text(
+                        solar.localTime,
+                        style: MissionTheme.display(
+                          25,
+                        ).copyWith(color: DashboardStyle.cyan),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    solar.skyState,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: solar.isDaylight
+                          ? DashboardStyle.amber
+                          : DashboardStyle.muted,
+                    ),
+                  ),
+                ],
+              ),
+              DecoratedBox(
+                decoration: DashboardStyle.surface(
+                  color: DashboardStyle.inset,
+                  radius: 11,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: _SolarTrack(solar: solar, compact: false),
+                ),
               ),
               DashboardReadout(
                 label: 'Daylight duration',
@@ -70,7 +112,6 @@ class SolarCycleCard extends StatelessWidget {
                 label: 'Solar elevation',
                 value: '${solar.elevationDegrees.toStringAsFixed(1)}°',
               ),
-              DashboardReadout(label: 'Sky', value: solar.skyState),
               const Text(
                 'Geometric horizon at Habitat Base. Local terrain may delay sunrise or advance sunset.',
                 style: TextStyle(fontSize: 12, color: DashboardStyle.muted),
@@ -104,7 +145,7 @@ class _SolarTrack extends StatelessWidget {
       children: [
         SizedBox(
           width: double.infinity,
-          height: compact ? 23 : 94,
+          height: compact ? 23 : 104,
           child: CustomPaint(
             key: ValueKey(solar.isDaylight ? 'daylight-arc' : 'night-arc'),
             painter: _SolarArc(progress: solar.progress, compact: compact),
@@ -125,14 +166,6 @@ class _SolarTrack extends StatelessWidget {
                 ],
               ),
             ),
-            if (!compact)
-              Expanded(
-                child: Text(
-                  'LMST',
-                  style: labelStyle,
-                  textAlign: TextAlign.center,
-                ),
-              ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -162,8 +195,8 @@ class _SolarArc extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final daylight = progress != null;
     final radius = compact ? 4.5 : 8.0;
-    final inset = radius + 1;
-    final baseline = size.height - 1.5;
+    final inset = radius + (compact ? 1 : 3);
+    final baseline = size.height - (compact ? 1.5 : inset);
     final width = size.width - 2 * inset;
     if (width <= 0) return;
     final height = baseline - inset;

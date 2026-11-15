@@ -1,23 +1,17 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
 import '../../maps/mars_projection.dart';
-import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
-import '../../missions/mola_elevations.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/crew_signals.dart';
 import '../../tracking/mission_presence.dart';
-import '../../tracking/pedometer_monitor.dart';
 import '../../tracking/tracking_geometry.dart';
 import '../mission_theme.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
-import 'solar_cycle_card.dart';
-import 'walking_calibration.dart';
 
 /// Displays the mission briefing and device-local progress.
 class MobileMissionsContent extends StatelessWidget {
@@ -182,202 +176,6 @@ class _ObjectiveCard extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Presents the local pose, diagnostics, and the Earth clock.
-class MobileAstronautContent extends StatelessWidget {
-  const MobileAstronautContent({
-    super.key,
-    required this.astronaut,
-    required this.mission,
-    required this.navigation,
-    required this.tracking,
-    required this.solarCycle,
-    required this.onSensorTest,
-    required this.onMovementLog,
-  });
-
-  final Astronaut astronaut;
-  final MarsMission mission;
-  final DemoNavigation navigation;
-  final AstronautTracking tracking;
-  final ValueListenable<MarsSolarCycle> solarCycle;
-  final VoidCallback onSensorTest;
-  final VoidCallback onMovementLog;
-
-  @override
-  Widget build(BuildContext context) {
-    final maximumElevation = missionMaximumGridElevationMeters[mission.id];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      spacing: 10,
-      children: [
-        DashboardPanel(
-          icon: Icons.person_outline,
-          title: astronaut.id,
-          children: [
-            Text(astronaut.fullName, style: MissionTheme.display(22)),
-            DashboardReadout(
-              label: 'Position status',
-              value: tracking.stepStatus,
-            ),
-            if (tracking.pedometer.state == PedometerState.denied)
-              Text(
-                Theme.of(context).platform == TargetPlatform.iOS
-                    ? 'Allow Motion & Fitness for SIDERA VI in Settings to count steps.'
-                    : 'Allow motion access for SIDERA VI in Settings to count steps.',
-              ),
-            DashboardReadout(
-              label: 'Estimated Mars position',
-              value: formatMarsPosition(tracking.pose.mars),
-            ),
-            DashboardReadout(
-              label: 'Estimated distance traveled',
-              value: '${tracking.distanceTraveled.toStringAsFixed(1)} m',
-            ),
-            DashboardReadout(
-              label: 'To base',
-              value: formatNavigationDistance(
-                navigation.baseDistanceMeters,
-                live: true,
-              ),
-            ),
-            DashboardReadout(
-              label: 'Total steps',
-              value: tracking.measuredSteps?.toString() ?? '—',
-            ),
-            DashboardReadout(
-              label: 'Applied steps',
-              value: tracking.appliedSteps.toString(),
-            ),
-            const SizedBox(height: 2),
-            DashboardButton(
-              label: navigation.paused ? 'RESUME MISSION' : 'PAUSE MISSION',
-              height: 48,
-              icon: navigation.paused ? Icons.play_arrow : Icons.pause,
-              onPressed: navigation.sos ? null : navigation.togglePause,
-            ),
-            if (Theme.of(context).platform == TargetPlatform.iOS)
-              DashboardButton(
-                label: 'START NEW EXPEDITION',
-                height: 48,
-                icon: Icons.restart_alt,
-                onPressed: navigation.sos
-                    ? null
-                    : () => _confirmNewExpedition(context),
-              ),
-          ],
-        ),
-        SolarCycleCard(cycle: solarCycle),
-        const TegucigalpaClock(),
-        DashboardPanel(
-          title: 'DEVICE SENSORS',
-          icon: Icons.sensors,
-          children: [
-            DashboardReadout(label: 'Step sensor', value: tracking.stepSource),
-            ValueListenableBuilder<double?>(
-              valueListenable: tracking.heading,
-              builder: (_, _, _) {
-                final bearing = tracking.walkingBearing;
-                return DashboardReadout(
-                  label: 'Walking direction',
-                  value: bearing == null
-                      ? 'Unavailable'
-                      : '${bearing.round() % 360}° relative to map north',
-                );
-              },
-            ),
-            const Text(
-              'The direction the phone first points sets local map north.',
-              style: TextStyle(color: DashboardStyle.muted, fontSize: 12),
-            ),
-            DashboardReadout(
-              label: 'Stride length',
-              value: '${tracking.stride.toStringAsFixed(2)} m per step',
-            ),
-            DashboardButton(
-              label: 'CALIBRATE WALKING DIRECTION',
-              height: 48,
-              icon: Icons.navigation_outlined,
-              onPressed: tracking.canCalibrateWalking
-                  ? () => confirmWalkingDirection(context, tracking)
-                  : null,
-            ),
-            DashboardButton(
-              label: 'SET STRIDE LENGTH',
-              height: 48,
-              icon: Icons.straighten,
-              onPressed: () => configureStride(context, tracking),
-            ),
-            DashboardButton(
-              label: 'SENSOR TEST',
-              height: 48,
-              icon: Icons.monitor_heart_outlined,
-              onPressed: onSensorTest,
-            ),
-            DashboardButton(
-              label: 'MOVEMENT LOG',
-              height: 48,
-              icon: Icons.receipt_long_outlined,
-              onPressed: onMovementLog,
-            ),
-          ],
-        ),
-        DashboardPanel(
-          title: 'MOLA TOPOGRAPHY',
-          icon: Icons.terrain,
-          children: [
-            DashboardReadout(
-              label: 'Max. gridded elevation',
-              value: maximumElevation == null
-                  ? 'Unavailable'
-                  : formatMarsElevation(maximumElevation),
-            ),
-            Text(
-              'Cell centers within ${mission.radiusLabel} of Habitat Base. '
-              '${MarsBaseElevation.datum} · 128 cells per degree.',
-              style: const TextStyle(color: DashboardStyle.muted, fontSize: 12),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Future<void> _confirmNewExpedition(BuildContext context) async {
-    final start = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Start a new expedition?'),
-        content: const Text(
-          'Your position returns to Habitat Base and your route and walking '
-          'totals restart. Your teammate and mission checklist stay as they are.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Continue expedition'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Start at Habitat Base'),
-          ),
-        ],
-      ),
-    );
-    if (start != true || !context.mounted) return;
-    final started = await tracking.startNewExpedition();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          started
-              ? 'New expedition started at Habitat Base.'
-              : 'Could not save a new expedition. Your position was kept.',
         ),
       ),
     );

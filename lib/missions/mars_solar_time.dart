@@ -43,6 +43,7 @@ double _julianDateTt(DateTime timestamp) {
 /// All clock fields use LMST. A Mars hour is one twenty-fourth of a mean sol.
 final class MarsSolarCycle {
   MarsSolarCycle._({
+    required this.timestamp,
     required this.localMeanHours,
     required this.solarLongitude,
     required this.equationOfTimeDegrees,
@@ -92,6 +93,7 @@ final class MarsSolarCycle {
         continuousDay ||
         (crossesHorizon && hourAngleHours.abs() <= halfDay + 1e-10);
     return MarsSolarCycle._(
+      timestamp: timestamp.toUtc(),
       localMeanHours: localMean,
       solarLongitude: orbit.solarLongitude,
       equationOfTimeDegrees: orbit.equationOfTime,
@@ -106,6 +108,7 @@ final class MarsSolarCycle {
     );
   }
 
+  final DateTime timestamp;
   final double localMeanHours;
   final double solarLongitude;
   final double equationOfTimeDegrees;

@@ -12,12 +12,14 @@ class MissionActionButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.appearance = MissionActionAppearance.launch,
+    this.wrapLabel = false,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
   final MissionActionAppearance appearance;
+  final bool wrapLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -53,9 +55,12 @@ class MissionActionButton extends StatelessWidget {
           if (enabled && glow != null) BoxShadow(color: glow, blurRadius: 22),
         ],
       ),
-      child: SizedBox(
-        width: double.infinity,
-        height: 72,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minWidth: double.infinity,
+          minHeight: 72,
+          maxHeight: wrapLabel ? double.infinity : 72,
+        ),
         child: FilledButton(
           onPressed: onPressed,
           style: MissionTheme.control(
@@ -67,16 +72,37 @@ class MissionActionButton extends StatelessWidget {
             elevation: 0,
             radius: radius,
           ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              spacing: 12,
-              children: [
-                Icon(icon, size: 27),
-                Text(label, style: MissionTheme.display(21, tracking: 1.1)),
-              ],
-            ),
-          ),
+          child: wrapLabel
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    spacing: 10,
+                    children: [
+                      Icon(icon, size: 24),
+                      Flexible(
+                        child: Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: MissionTheme.display(16, tracking: .55),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    spacing: 12,
+                    children: [
+                      Icon(icon, size: 27),
+                      Text(
+                        label,
+                        style: MissionTheme.display(21, tracking: 1.1),
+                      ),
+                    ],
+                  ),
+                ),
         ),
       ),
     );

@@ -16,6 +16,7 @@ import '../../tracking/mission_presence.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
 import 'mobile_map_controls.dart';
+import 'mobile_astronaut_content.dart';
 import 'mobile_mission_sheets.dart';
 import 'sos_emergency_dialog.dart';
 
