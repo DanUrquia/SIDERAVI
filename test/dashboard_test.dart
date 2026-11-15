@@ -648,24 +648,28 @@ void main() {
 
     await _mobileTab(tester, 'missions');
     expect(surface, findsOneWidget);
+    _expectExpandedSheet(tester, surface, safeTop: 57);
     final openHeight = tester.getSize(surface).height;
     await _tapTooltip(tester, 'Expand or collapse Missions');
-    expect(tester.getSize(surface).height, greaterThan(openHeight));
-    _expectExpandedSheet(tester, surface, safeTop: 57);
-    await _tapTooltip(tester, 'Expand or collapse Missions');
     expect(tester.getSize(surface).height, lessThan(openHeight));
+    expect(
+      tester.getRect(surface).bottom,
+      tester.getRect(find.byKey(const ValueKey('mobile-navigation-dock'))).top,
+    );
 
     await _mobileTab(tester, 'astronaut');
     expect(surface, findsOneWidget);
     expect(find.byTooltip('Close Missions'), findsNothing);
     expect(find.text('Total steps'), findsOneWidget);
-    await _tapTooltip(tester, 'Expand or collapse Astronaut');
     _expectExpandedSheet(tester, surface, safeTop: 57);
     await _tapPhoneAction(tester, find.text('SENSOR TEST'), tap: false);
     await _mobileTab(tester, 'crew');
     expect(surface, findsOneWidget);
     expect(find.byTooltip('Close Astronaut'), findsNothing);
     expect(find.text('Adrian Flores'), findsOneWidget);
+    _expectExpandedSheet(tester, surface, safeTop: 57);
+    await _tapTooltip(tester, 'Expand or collapse Crew');
+    expect(tester.getSize(surface).height, lessThan(openHeight));
     await tester.dragFrom(
       tester.getTopLeft(surface) + const Offset(65, 38),
       const Offset(0, -500),
@@ -680,7 +684,7 @@ void main() {
     await _mobileTab(tester, 'missions');
     await tester.dragFrom(
       tester.getTopLeft(surface) + const Offset(75, 33),
-      const Offset(0, 470),
+      Offset(0, openHeight * .94),
     );
     await tester.pumpAndSettle();
     expect(surface, findsNothing);
@@ -720,7 +724,6 @@ void main() {
 
     final map = await _launch(tester, size: const Size(390, 844));
     await _mobileTab(tester, 'missions');
-    await _tapTooltip(tester, 'Expand or collapse Missions');
     final survey = find.byKey(const ValueKey('objective-ancient-liquid-water'));
     expect(_within(survey, 'Pending'), findsOneWidget);
     expect(_objectiveColor(tester, survey), DashboardStyle.panel);
@@ -743,7 +746,6 @@ void main() {
     await tester.pumpAndSettle();
     await _mobileTab(tester, 'astronaut');
     await _mobileTab(tester, 'missions');
-    await _tapTooltip(tester, 'Expand or collapse Missions');
     expect(_within(survey, 'Completed'), findsOneWidget);
     final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
     await tester.tap(
@@ -760,6 +762,100 @@ void main() {
     await _mobileTab(tester, 'missions');
     expect(_within(survey, 'Completed'), findsOneWidget);
     expect(_objectiveColor(tester, survey), const Color(0xFF145341));
+  });
+
+  testWidgets('Phone tile status has its own space above the compact scale', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      sensorDiagnosticsChannel,
+      (call) async => call.method == 'readMissionChecklist' ? <String>[] : null,
+    );
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    addTearDown(tester.view.resetViewPadding);
+    final status = find.byKey(const ValueKey('map-tile-status'));
+    final footer = find.byKey(const ValueKey('map-scale-panel'));
+    final fit = find.text('Fit area · 500 m radius');
+    final scale = find.textContaining('≈ ');
+    final credit = find.text('NASA Mars Trek');
+    final retry = find.text('Retry');
+    final rail = find.byKey(const ValueKey('mobile-map-controls'));
+    final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
+    for (final (size, safeArea, textScale) in [
+      (const Size(390, 844), const FakeViewPadding(top: 59, bottom: 34), 1.0),
+      (const Size(360, 806), const FakeViewPadding(top: 28, bottom: 38), 1.5),
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      tester.view.viewPadding = safeArea;
+      final tiles = FakeTrekTiles();
+      await _launch(tester, size: size, tiles: tiles, textScale: textScale);
+      final footerRect = tester.getRect(footer);
+      final errorRect = tester.getRect(status);
+      expect(find.text('Map connection unavailable'), findsOneWidget);
+      expect(footerRect.top - errorRect.bottom, closeTo(6, .001));
+      expect(errorRect.overlaps(tester.getRect(rail)), isFalse);
+      expect(footerRect.overlaps(tester.getRect(rail)), isFalse);
+      expect(
+        tester.getRect(scale).top - tester.getRect(fit).bottom,
+        inInclusiveRange(0, 8),
+      );
+      expect(
+        tester.getRect(credit).top - tester.getRect(scale).bottom,
+        inInclusiveRange(0, 6),
+      );
+      expect(retry.hitTestable(), findsOneWidget);
+      final requests = tiles.requested.length;
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(tiles.requested.length, greaterThan(requests));
+      expect(tester.getRect(footer), footerRect);
+
+      for (final tab in ['missions', 'astronaut', 'crew']) {
+        await _mobileTab(tester, tab);
+        _expectExpandedSheet(tester, sheet, safeTop: safeArea.top);
+        expect(status, findsNothing);
+        expect(footer, findsNothing);
+      }
+      await _mobileTab(tester, 'crew');
+      expect(retry.hitTestable(), findsOneWidget);
+      expect(tester.getRect(footer), footerRect);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('Phone camera controls recenter and follow from the same rail', (
+    tester,
+  ) async {
+    final map = await _launch(tester, size: const Size(390, 844));
+    final view = map.view;
+    final local = find.descendant(
+      of: find.byKey(const ValueKey('ARES-01')),
+      matching: find.byType(RelativeMarkerArrow),
+    );
+    final center = tester.getCenter(
+      find.byKey(const ValueKey('demo-map-viewport')),
+    );
+    await tester.tap(find.text('Fit area · 500 m radius'));
+    await tester.pumpAndSettle();
+    final zoom = view.value.getMaxScaleOnAxis();
+    await tester.dragFrom(center - const Offset(40, 65), const Offset(-25, 37));
+    await tester.pumpAndSettle();
+    expect((tester.getCenter(local) - center).distance, greaterThan(10));
+    await _tapTooltip(tester, 'Recenter on astronaut');
+    expect((tester.getCenter(local) - center).distance, lessThan(.01));
+    expect(view.value.getMaxScaleOnAxis(), closeTo(zoom, .001));
+    await _tapTooltip(tester, 'Follow astronaut');
+    expect(map.tracking.follow, isTrue);
+    map.navigation.setTrackedPosition(
+      map.navigation.map.landmarks.first.position,
+    );
+    await tester.pumpAndSettle();
+    expect((tester.getCenter(local) - center).distance, lessThan(.01));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Gale phone keeps the shared marker clear of the base label', (
@@ -818,7 +914,6 @@ void main() {
             findsOneWidget,
           );
           await _mobileTab(tester, 'missions');
-          await _tapTooltip(tester, 'Expand or collapse Missions');
           expect(find.text('0 of 3 complete · On this device'), findsOneWidget);
           for (final objective in mission.objectives) {
             final tile = find.byKey(ValueKey('objective-${objective.id}'));
@@ -860,7 +955,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(nav.position, nav.map.teammate);
     await _mobileTab(tester, 'astronaut');
-    await _tapTooltip(tester, 'Expand or collapse Astronaut');
     final pause = find.text('PAUSE MISSION');
     await _tapPhoneAction(tester, pause);
     await tester.pumpAndSettle();
@@ -993,7 +1087,7 @@ void main() {
           expect(style.foregroundColor!.resolve({}), MissionTheme.black);
           final rect = tester.getRect(find.byKey(button.key!));
           expect(rect.width, closeTo(rect.height, .001));
-          expect(rect.width, greaterThanOrEqualTo(48));
+          expect(rect.width, greaterThanOrEqualTo(44));
           expect(rect.right, closeTo(size.width - 12, .001));
           expect(
             rect.top,
@@ -1006,6 +1100,28 @@ void main() {
           );
           previous = rect;
         }
+        final recenter = find.byTooltip('Recenter on astronaut');
+        final follow = find.byTooltip('Follow astronaut');
+        expect(recenter, findsOneWidget);
+        expect(follow, findsOneWidget);
+        final sosRect = tester.getRect(
+          find.byKey(const ValueKey('mobile-action-sos')),
+        );
+        final recenterRect = tester.getRect(recenter);
+        final followRect = tester.getRect(follow);
+        expect(recenterRect.center.dx, closeTo(sosRect.center.dx, .001));
+        expect(followRect.center.dx, closeTo(sosRect.center.dx, .001));
+        expect(recenterRect.top, greaterThan(sosRect.bottom));
+        expect(followRect.top, greaterThan(recenterRect.bottom));
+        expect(
+          followRect.top - recenterRect.bottom,
+          closeTo(recenterRect.top - sosRect.bottom, .001),
+        );
+        if (size.height > 600) {
+          expect(recenter.hitTestable(), findsOneWidget);
+          expect(follow.hitTestable(), findsOneWidget);
+          expect(followRect.bottom, lessThan(tester.getTopLeft(dock).dy));
+        }
         map.navigation.select(
           map.navigation.map.teammate,
           'A long destination label for the terrain survey',
@@ -1016,6 +1132,8 @@ void main() {
         expect(find.text('Destination: —'), findsNothing);
         await _mobileTab(tester, 'astronaut');
         expect(actions, findsNothing);
+        expect(recenter, findsNothing);
+        expect(follow, findsNothing);
         final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
         expect(_within(sheet, 'EARTH TIME'), findsOneWidget);
         expect(_within(sheet, 'Tegucigalpa · UTC−6'), findsOneWidget);
@@ -1049,6 +1167,8 @@ Future<DemoTerrainMap> _launch(
   Size size = const Size(1366, 1024),
   MarsMission? mission,
   Astronaut astronaut = DemoCrew.dan,
+  FakeTrekTiles? tiles,
+  double textScale = 1,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1057,9 +1177,15 @@ Future<DemoTerrainMap> _launch(
   await tester.pumpWidget(
     MaterialApp(
       theme: MissionTheme.dark,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       home: MissionDashboard(
         astronaut: astronaut,
-        tileSource: FakeTrekTiles(),
+        tileSource: tiles ?? FakeTrekTiles(),
         mission: mission ?? marsMissions.first,
       ),
     ),
@@ -1107,8 +1233,17 @@ void _expectExpandedSheet(
     border.borderRadius.resolve(TextDirection.ltr),
     const BorderRadius.vertical(top: Radius.circular(23)),
   );
-  final tab = find.byKey(const ValueKey('mobile-tab-crew'));
-  expect(tester.getTopLeft(tab).dy - rect.bottom, inInclusiveRange(0, 12));
+  final dock = tester.getRect(
+    find.byKey(const ValueKey('mobile-navigation-dock')),
+  );
+  expect(rect.bottom, closeTo(dock.top, .001));
+  expect(rect.left, dock.left);
+  expect(rect.right, dock.right);
+  expect(dock.height, 64);
+  expect(
+    dock.bottom,
+    tester.view.physicalSize.height - tester.view.viewPadding.bottom - 10,
+  );
 }
 
 Future<void> _tapPhoneAction(

@@ -5,15 +5,18 @@ import '../../missions/mission.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
 
-/// Places the four primary mission actions in a single phone-side column.
-class MobileMapActions extends StatelessWidget {
-  const MobileMapActions({
+/// Stacks the mission actions and camera controls on the right of the map.
+class MobileMapControls extends StatelessWidget {
+  const MobileMapControls({
     super.key,
     required this.navigation,
     required this.onNavigate,
     required this.onReturn,
     required this.onPing,
     required this.onSos,
+    required this.following,
+    required this.onRecenter,
+    required this.onFollow,
   });
 
   final DemoNavigation navigation;
@@ -21,52 +24,73 @@ class MobileMapActions extends StatelessWidget {
   final VoidCallback onReturn;
   final VoidCallback onPing;
   final VoidCallback onSos;
+  final bool following;
+  final VoidCallback onRecenter;
+  final VoidCallback onFollow;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      const gap = 8.0;
-      final diameter = ((constraints.maxHeight - 3 * gap) / 4).clamp(
-        48.0,
-        52.0,
-      );
+      final height = constraints.maxHeight;
+      final gap = ((height - 6 * 44) / 5).clamp(3.0, 8.0);
+      final diameter = ((height - 5 * gap) / 6).clamp(44.0, 52.0);
       final column = Column(
-        key: const ValueKey('mobile-map-actions'),
+        key: const ValueKey('mobile-map-controls'),
         mainAxisSize: MainAxisSize.min,
         spacing: gap,
         children: [
-          _button(
-            'start',
-            'Start Navigation',
-            Icons.navigation_rounded,
-            diameter,
-            navigation.canNavigate ? onNavigate : null,
+          Column(
+            key: const ValueKey('mobile-map-actions'),
+            mainAxisSize: MainAxisSize.min,
+            spacing: gap,
+            children: [
+              _button(
+                'start',
+                'Start Navigation',
+                Icons.navigation_rounded,
+                diameter,
+                navigation.canNavigate ? onNavigate : null,
+              ),
+              _button(
+                'return',
+                'Return to Base',
+                Icons.home_rounded,
+                diameter,
+                navigation.sos || navigation.atBase ? null : onReturn,
+              ),
+              _button(
+                'ping',
+                'Send Ping',
+                Icons.radar,
+                diameter,
+                navigation.sos ? null : onPing,
+              ),
+              _button(
+                'sos',
+                navigation.sos ? 'Cancel demo SOS' : 'SOS',
+                Icons.warning_amber_rounded,
+                diameter,
+                onSos,
+              ),
+            ],
           ),
-          _button(
-            'return',
-            'Return to Base',
-            Icons.home_rounded,
-            diameter,
-            navigation.sos || navigation.atBase ? null : onReturn,
+          _cameraButton(
+            label: 'Recenter on astronaut',
+            icon: Icons.my_location,
+            size: diameter,
+            onPressed: onRecenter,
           ),
-          _button(
-            'ping',
-            'Send Ping',
-            Icons.radar,
-            diameter,
-            navigation.sos ? null : onPing,
-          ),
-          _button(
-            'sos',
-            navigation.sos ? 'Cancel demo SOS' : 'SOS',
-            Icons.warning_amber_rounded,
-            diameter,
-            onSos,
+          _cameraButton(
+            label: 'Follow astronaut',
+            icon: Icons.navigation_outlined,
+            size: diameter,
+            onPressed: onFollow,
+            selected: following,
           ),
         ],
       );
-      if (4 * diameter + 3 * gap > constraints.maxHeight) {
-        return SingleChildScrollView(child: column);
+      if (6 * diameter + 5 * gap > height + .01) {
+        return SingleChildScrollView(primary: false, child: column);
       }
       return column;
     },
@@ -107,6 +131,31 @@ class MobileMapActions extends StatelessWidget {
         icon: Icon(icon, size: 23),
       ),
     ),
+  );
+
+  Widget _cameraButton({
+    required String label,
+    required IconData icon,
+    required double size,
+    required VoidCallback onPressed,
+    bool selected = false,
+  }) => IconButton.filled(
+    tooltip: label,
+    isSelected: selected,
+    onPressed: onPressed,
+    style: IconButton.styleFrom(
+      padding: EdgeInsets.zero,
+      fixedSize: Size.square(size),
+      minimumSize: Size.square(size),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      backgroundColor: selected ? DashboardStyle.cyan : DashboardStyle.inset,
+      foregroundColor: selected ? DashboardStyle.inset : DashboardStyle.cyan,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: DashboardStyle.outline),
+      ),
+    ),
+    icon: Icon(icon, size: 21, semanticLabel: label),
   );
 }
 

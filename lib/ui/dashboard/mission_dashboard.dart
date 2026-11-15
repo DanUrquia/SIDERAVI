@@ -283,7 +283,7 @@ class _MissionDashboardState extends State<MissionDashboard>
         void movementLog() =>
             showMovementDiagnostics(context, _tracking, mission.id);
         final insets = MediaQuery.viewPaddingOf(context);
-        final terrain = DemoTerrainMap(
+        Widget terrain(bool showMapHud) => DemoTerrainMap(
           navigation: _navigation,
           view: _view,
           mission: mission,
@@ -297,6 +297,7 @@ class _MissionDashboardState extends State<MissionDashboard>
           teammateName: _teammate.fullName,
           onSelect: _selectDestination,
           fullScreen: mobile,
+          showMapHud: showMapHud,
           overlayInsets: mobile
               ? EdgeInsets.fromLTRB(
                   insets.left,
@@ -308,7 +309,7 @@ class _MissionDashboardState extends State<MissionDashboard>
         );
         if (mobile) {
           return MobileNavigation(
-            map: terrain,
+            mapBuilder: terrain,
             view: _view,
             astronaut: astronaut,
             teammate: _teammate,
@@ -334,7 +335,7 @@ class _MissionDashboardState extends State<MissionDashboard>
         final map = Stack(
           fit: StackFit.expand,
           children: [
-            terrain,
+            terrain(true),
             if (_navigation.sos)
               Positioned(
                 top: 63,

@@ -22,6 +22,9 @@ class TrekTileView extends StatefulWidget {
     this.detail,
     this.statusBottom = 79,
     this.statusLeft = 15,
+    this.statusRight = 15,
+    this.statusFooter,
+    this.showStatus = true,
   });
 
   final MarsScene scene;
@@ -30,6 +33,9 @@ class TrekTileView extends StatefulWidget {
   final TrekLayer? detail;
   final double statusBottom;
   final double statusLeft;
+  final double statusRight;
+  final Widget? statusFooter;
+  final bool showStatus;
   final Widget child;
 
   @override
@@ -224,19 +230,35 @@ class _TrekTileViewState extends State<TrekTileView> {
           ),
         ),
         widget.child,
-        if (loading || hasError || _resolutionLimit)
+        if (widget.showStatus &&
+            (loading ||
+                hasError ||
+                _resolutionLimit ||
+                widget.statusFooter != null))
           Positioned(
             bottom: widget.statusBottom,
             left: widget.statusLeft,
-            child: _MapTileStatus(
-              loading: loading,
-              error: hasError
-                  ? baseError
-                        ? 'Map connection unavailable'
-                        : 'Detail tiles unavailable'
-                  : null,
-              resolutionLimit: _resolutionLimit,
-              onRetry: _retry,
+            right: widget.statusRight,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 6,
+                children: [
+                  if (loading || hasError || _resolutionLimit)
+                    _MapTileStatus(
+                      loading: loading,
+                      error: hasError
+                          ? baseError
+                                ? 'Map connection unavailable'
+                                : 'Detail tiles unavailable'
+                          : null,
+                      onRetry: _retry,
+                    ),
+                  if (widget.statusFooter case final footer?) footer,
+                ],
+              ),
             ),
           ),
       ],
@@ -300,17 +322,16 @@ class _MapTileStatus extends StatelessWidget {
   const _MapTileStatus({
     required this.loading,
     required this.error,
-    required this.resolutionLimit,
     required this.onRetry,
   });
 
   final bool loading;
   final String? error;
-  final bool resolutionLimit;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) => Material(
+    key: const ValueKey('map-tile-status'),
     color: DashboardStyle.inset,
     borderRadius: BorderRadius.circular(10),
     child: Padding(
@@ -324,14 +345,19 @@ class _MapTileStatus extends StatelessWidget {
               dimension: 12,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-          Semantics(
-            liveRegion: error != null,
-            child: Text(
-              error ??
-                  (loading
-                      ? 'Loading Mars Trek tiles'
-                      : 'Raster resolution limit'),
-              style: const TextStyle(fontSize: 12),
+          Flexible(
+            child: Semantics(
+              liveRegion: error != null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  error ??
+                      (loading
+                          ? 'Loading Mars Trek tiles'
+                          : 'Raster resolution limit'),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
             ),
           ),
           if (error != null)

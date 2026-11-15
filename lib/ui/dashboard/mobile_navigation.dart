@@ -29,7 +29,7 @@ enum _Sheet {
 class MobileNavigation extends StatefulWidget {
   const MobileNavigation({
     super.key,
-    required this.map,
+    required this.mapBuilder,
     required this.view,
     required this.astronaut,
     required this.teammate,
@@ -51,7 +51,7 @@ class MobileNavigation extends StatefulWidget {
     required this.onSos,
   });
 
-  final Widget map;
+  final Widget Function(bool showMapHud) mapBuilder;
   final TerrainViewController view;
   final Astronaut astronaut;
   final Astronaut teammate;
@@ -76,7 +76,7 @@ class MobileNavigation extends StatefulWidget {
   static const barMargin = 10.0;
 
   static double chromeBottom(BuildContext context) =>
-      MediaQuery.viewPaddingOf(context).bottom + barHeight + barMargin * 2;
+      MediaQuery.viewPaddingOf(context).bottom + barHeight + barMargin;
 
   @override
   State<MobileNavigation> createState() => _MobileNavigationState();
@@ -309,7 +309,7 @@ class _MobileNavigationState extends State<MobileNavigation>
   Widget build(BuildContext context) {
     final insets = MediaQuery.viewPaddingOf(context);
     final dockBottom = insets.bottom + MobileNavigation.barMargin;
-    final dockTop = dockBottom + MobileNavigation.barHeight;
+    final dockTop = MobileNavigation.chromeBottom(context);
     final sheet = _sheet;
     return PopScope(
       canPop: sheet == null,
@@ -320,7 +320,7 @@ class _MobileNavigationState extends State<MobileNavigation>
         builder: (context, constraints) => Stack(
           fit: StackFit.expand,
           children: [
-            widget.map,
+            widget.mapBuilder(sheet == null),
             Positioned(
               left: insets.left + 12,
               right: insets.right + 12,
@@ -345,51 +345,28 @@ class _MobileNavigationState extends State<MobileNavigation>
                   ),
                   if (sheet == null)
                     Expanded(
-                      child: Stack(
-                        children: [
-                          Align(
-                            key: const ValueKey('mobile-map-camera'),
-                            alignment: const Alignment(-1, -.52),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              spacing: 7,
-                              children: [
-                                _CameraButton(
-                                  label: 'Recenter on astronaut',
-                                  icon: Icons.my_location,
-                                  onPressed: () {
-                                    final viewport = constraints.biggest;
-                                    final world = missionWorld(viewport);
-                                    widget.view.recenter(
-                                      world.topLeft +
-                                          widget.navigation.position *
-                                              world.width,
-                                      viewport,
-                                    );
-                                  },
-                                ),
-                                _CameraButton(
-                                  label: 'Follow astronaut',
-                                  icon: Icons.navigation_outlined,
-                                  active: widget.tracking.follow,
-                                  onPressed: () => widget.tracking.setFollow(
-                                    !widget.tracking.follow,
-                                  ),
-                                ),
-                              ],
-                            ),
+                      child: Align(
+                        alignment: const Alignment(1, -.47),
+                        child: MobileMapControls(
+                          navigation: widget.navigation,
+                          onNavigate: widget.onNavigate,
+                          onReturn: _returnToBase,
+                          onPing: _ping,
+                          onSos: _sos,
+                          following: widget.tracking.follow,
+                          onRecenter: () {
+                            final viewport = constraints.biggest;
+                            final world = missionWorld(viewport);
+                            widget.view.recenter(
+                              world.topLeft +
+                                  widget.navigation.position * world.width,
+                              viewport,
+                            );
+                          },
+                          onFollow: () => widget.tracking.setFollow(
+                            !widget.tracking.follow,
                           ),
-                          Align(
-                            alignment: const Alignment(1, -.47),
-                            child: MobileMapActions(
-                              navigation: widget.navigation,
-                              onNavigate: widget.onNavigate,
-                              onReturn: _returnToBase,
-                              onPing: _ping,
-                              onSos: _sos,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                 ],
@@ -399,8 +376,8 @@ class _MobileNavigationState extends State<MobileNavigation>
               Positioned(
                 top: insets.top + 8,
                 bottom: dockTop,
-                left: insets.left + 10,
-                right: insets.right + 10,
+                left: insets.left + MobileNavigation.barMargin,
+                right: insets.right + MobileNavigation.barMargin,
                 child: ClipRect(
                   child: SlideTransition(
                     position: _slide.drive(
@@ -427,12 +404,8 @@ class _MobileNavigationState extends State<MobileNavigation>
             Positioned(
               left: insets.left + MobileNavigation.barMargin,
               right: insets.right + MobileNavigation.barMargin,
-              bottom: sheet == null ? dockBottom : 0,
-              child: _SheetNavigation(
-                selected: sheet,
-                onTap: _open,
-                bottomPadding: sheet == null ? 0 : dockBottom,
-              ),
+              bottom: dockBottom,
+              child: _SheetNavigation(selected: sheet, onTap: _open),
             ),
           ],
         ),
@@ -585,62 +558,28 @@ class _MissionHeader extends StatelessWidget {
   }
 }
 
-class _CameraButton extends StatelessWidget {
-  const _CameraButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    this.active = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    selected: active,
-    child: IconButton.filled(
-      onPressed: onPressed,
-      tooltip: label,
-      style: IconButton.styleFrom(
-        minimumSize: const Size.square(48),
-        backgroundColor: active ? DashboardStyle.cyan : DashboardStyle.inset,
-        foregroundColor: active ? DashboardStyle.inset : DashboardStyle.cyan,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: DashboardStyle.outline),
-        ),
-      ),
-      icon: Icon(icon, size: 21),
-    ),
-  );
-}
-
 class _SheetNavigation extends StatelessWidget {
-  const _SheetNavigation({
-    required this.selected,
-    required this.onTap,
-    required this.bottomPadding,
-  });
+  const _SheetNavigation({required this.selected, required this.onTap});
 
   final _Sheet? selected;
   final ValueChanged<_Sheet> onTap;
-  final double bottomPadding;
 
   @override
   Widget build(BuildContext context) => Material(
+    key: const ValueKey('mobile-navigation-dock'),
     color: DashboardStyle.inset,
     elevation: selected == null ? 14 : 0,
     shadowColor: Colors.black,
     shape: selected == null
         ? const StadiumBorder(side: BorderSide(color: DashboardStyle.outline))
-        : const RoundedRectangleBorder(),
+        : const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
+            side: BorderSide(color: DashboardStyle.outline),
+          ),
     child: SizedBox(
-      height: MobileNavigation.barHeight + bottomPadding,
+      height: MobileNavigation.barHeight,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(6, 6, 6, 6 + bottomPadding),
+        padding: const EdgeInsets.all(6),
         child: Row(
           children: [
             for (final sheet in _Sheet.values)
@@ -698,7 +637,7 @@ class _MissionSheet extends StatefulWidget {
 class _MissionSheetState extends State<_MissionSheet> {
   static const _minimum = .12;
   static const _peek = .28;
-  static const _initial = .48;
+  static const _medium = .48;
   static const _expanded = 1.0;
   final _extent = DraggableScrollableController();
 
@@ -710,7 +649,7 @@ class _MissionSheetState extends State<_MissionSheet> {
 
   void _changeExtent() {
     if (!_extent.isAttached) return;
-    final target = _extent.size > _initial + .03 ? _peek : _expanded;
+    final target = _extent.size > _medium + .03 ? _peek : _expanded;
     if (MediaQuery.disableAnimationsOf(context)) {
       _extent.jumpTo(target);
     } else {
@@ -739,9 +678,9 @@ class _MissionSheetState extends State<_MissionSheet> {
           controller: _extent,
           expand: false,
           snap: true,
-          snapSizes: const [_peek, _initial],
+          snapSizes: const [_peek, _medium],
           minChildSize: _minimum,
-          initialChildSize: _initial,
+          initialChildSize: _expanded,
           maxChildSize: _expanded,
           builder: (context, scroll) => Material(
             key: const ValueKey('mobile-mission-sheet'),

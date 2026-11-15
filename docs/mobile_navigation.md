@@ -8,13 +8,17 @@ The mission header reserves one line for the destination name and distance. It s
 
 Directly below the header, three equal-width floating cards show Mars local solar time, temperature and Habitat Base elevation. The time is a demo reference, temperature is illustrative, and elevation is the existing MOLA grid estimate relative to the GMM3 Martian areoid. The elevation card's accessibility label includes the datum. The row fits under the system insets on phones. [Scientific missions and MOLA method](scientific_missions.md)
 
-Start Navigation, Return to Base, Send Ping and SOS are four orange circular buttons with dark icons in a single column on the right. Recenter and Follow sit on the left. The action column returns when the active sheet closes. The Start control requires a valid destination in Demo Movement. Return to Base asks for confirmation, then starts a route from the current position in Demo Movement or selects base in Live Sensors.
+Start Navigation, Return to Base, Send Ping and SOS are four orange circular buttons with dark icons. Recenter and Follow are the two dark buttons immediately below SOS in the same right-side column. The column reduces its spacing and button size on shorter displays, keeping 44 logical-pixel touch targets. It scrolls only when the available height cannot hold all six controls. The controls return to the map when the active sheet closes. Start Navigation requires a valid destination in Demo Movement. Return to Base confirms first, then starts a route from the current position in Demo Movement or selects base in Live Sensors.
+
+Fit Area, the scale bar and NASA Mars Trek attribution form one compact panel at the lower left. Tile loading and error messages occupy a row above that panel with a fixed gap. Retry re-requests the failed tiles and the scale panel stays anchored. Both overlays are hidden while a sheet is open. Close the sheet to see any remaining map error and Retry.
 
 Send Ping and SOS each show equal-width **NO** and **YES** controls when space permits, with initial focus on **NO**. **NO** closes the dialog. **YES** places one local location marker at the current simulated position or activates the existing local demo SOS, respectively. Demo SOS pauses exploration until dismissed and the astronaut resumes. The iPad retains its ping picker and emergency controls.
 
 ## Bottom sheets
 
-Missions, Astronaut and Crew open at medium height. Drag up or use the extent button to expand to just below the top system inset, then scroll the content. Drag down through medium and peek to dismiss, tap the active tab again, or use Close. Android Back dismisses an open sheet first. The sheet has rounded top corners and square bottom corners, and it meets the dock on one continuous navy surface. The map stays mounted throughout, with pinch and pan on the exposed area.
+Missions, Astronaut and Crew open at full usable height on the first tap and when switching tabs. The expanded top sits just below the status-bar safe area. The sheet can scroll internally and drag down through medium and peek to dismiss. The extent button toggles between peek and full height. Tap the active tab again or use Close to dismiss. Android Back closes an open sheet first.
+
+The sheet has rounded top corners and square bottom corners. Its bottom edge meets the top of the independently interactive dock at the shared layout boundary. The dock keeps the same height and position above the device's bottom safe area in every state. The map remains mounted while tabs change and responds to pinch and pan on exposed areas.
 
 - **Missions** presents the three existing scientific objectives from the briefing. Tap any objective card to complete it. The entire card turns green and reads **Completed**. Tap again to return it to **Pending**. A waypoint shortcut can select a destination independently. Progress saves on that installation by astronaut ID, mission ID and objective ID, including after restart.
 - **Astronaut** shows the astronaut identity, simulated Mars coordinates, mission state, distance traveled, distance to base, movement source, position quality and measured steps when available. Earth time uses the device clock converted to Tegucigalpa (UTC−6). The sheet retains pause, resume and device-sensor controls. Distance traveled accumulates accepted simulated route segments and excludes the initial position and Firebase restores. The local step total sums accepted native pedometer readings while Live Sensors is active and the mission is unpaused. The OS may batch measurements. The total uses foreground sensor windows and excludes retrospective reports and the Walking Detection Lab.
@@ -38,8 +42,8 @@ Run `flutter doctor -v` and `flutter devices`. Supply the existing SIDERA VI Fir
 
 ## Physical checklist
 
-1. Open Gale Crater on both phones, then repeat in another mission. Check the system insets, three telemetry cards, stable header height when a destination is selected, and four orange circles aligned on the right. Pinch and pan, and compare marker size before and after zoom.
-2. Open each sheet, drag to the top safe area, scroll, and dismiss. Confirm the sheet meets the dock and the Astronaut sheet shows Earth time. Tap an objective card to turn it green, restart the app to check persistence, then tap the card again to restore its prior state.
+1. Open Jezero Crater on both phones. Check the safe areas, the four orange circles, and Recenter and Follow immediately below SOS. Try Fit Area, pinch or pan the map, recenter, and compare marker size before and after zoom. If a tile error appears, verify that Retry is above the scale panel.
+2. Tap each tab once and check that its sheet reaches the top safe area and ends at the dock. Switch between the three tabs, scroll inside a sheet, then dismiss it by dragging down or tapping its active tab or close button. Tap an objective card and restart to check that its state persists.
 3. Open Send Ping and SOS separately and choose **NO**. Confirm the map gains no ping and exploration remains active. For the paired Jezero session, use **Crew → Join Crew** with each assigned account and verify the other astronaut's marker. Test stale and reconnect behavior by temporarily interrupting one device's connection.
 4. In **Astronaut → Sensor Test**, compare reported capability and sample delivery. In Live Sensors, align the top edge of the phone with a visible point, calibrate the arrow, then turn the device about 90° with the top edge near the horizontal plane. Record real sample availability and any permission or freshness limitations separately from map movement.
 5. On an iPad, confirm the landscape dashboard, map gestures, navigation and diagnostics remain available.
@@ -47,6 +51,10 @@ Run `flutter doctor -v` and `flutter devices`. Supply the existing SIDERA VI Fir
 ## Verification
 
 Flutter widget tests cover the four circular controls, safe-area layout, stable header, telemetry, near-full-height scrolling sheets, fixed-size markers, objective card state and persistence, safe return, and cancellation and confirmation of the local ping and SOS actions. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+
+### Phase 6A.4 field results
+
+Jezero opened on the iPhone 16 as ARES-01 and on the OPPO CPH2579 as ARES-02. On both phones the three tabs expanded on the first tap and switched at the same height. The dock stayed above the bottom safe area. Recenter and Follow responded below SOS. Live tile errors appeared above the compact scale panel, and Retry was tappable on both phones. The iPhone test pinched and panned. The OPPO used Fit Area, panned, and followed a route to the delta outcrop.
 
 ### Phase 6A.3 field results
 

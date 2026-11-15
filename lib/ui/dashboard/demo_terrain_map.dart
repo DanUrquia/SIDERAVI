@@ -33,6 +33,7 @@ class DemoTerrainMap extends StatefulWidget {
     required this.teammateName,
     required this.onSelect,
     this.fullScreen = false,
+    this.showMapHud = true,
     this.overlayInsets = EdgeInsets.zero,
   });
 
@@ -49,6 +50,7 @@ class DemoTerrainMap extends StatefulWidget {
   final String teammateName;
   final void Function(Offset point, String label) onSelect;
   final bool fullScreen;
+  final bool showMapHud;
   final EdgeInsets overlayInsets;
 
   @override
@@ -133,21 +135,34 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             TerrainViewController.maxZoom,
             areaScale * 4,
           );
-          final palette = Theme.of(context).textTheme;
           final mission = widget.mission;
           final trek = missionTrekMaps[mission.id]!;
           final scene = trek.scene(mission, viewport);
           _follow(viewport, _project(world, navigation.position));
           final peerPoint = widget.peerPoint;
           final peer = widget.peer;
+          final scalePanel = _scalePanel(
+            scene: scene,
+            world: world,
+            viewport: viewport,
+            areaScale: areaScale,
+            attribution: widget.fullScreen
+                ? 'NASA Mars Trek'
+                : 'Map imagery: NASA Mars Trek\n'
+                      '${trek.detail?.product ?? globalTrekLayer.product}'
+                      '${trek.detail == null ? '' : ' / Global CTX'}',
+          );
           return TrekTileView(
             scene: scene,
             view: view,
             source: widget.tileSource,
             detail: trek.detail,
+            showStatus: widget.showMapHud,
+            statusFooter: widget.fullScreen ? scalePanel : null,
             statusBottom:
-                widget.overlayInsets.bottom + (widget.fullScreen ? 89 : 113),
-            statusLeft: widget.overlayInsets.left + 15,
+                widget.overlayInsets.bottom + (widget.fullScreen ? 15 : 113),
+            statusLeft: widget.overlayInsets.left + 14,
+            statusRight: widget.overlayInsets.right + 78,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -334,82 +349,92 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                       },
                     ),
                   ),
-                Positioned(
-                  left: widget.overlayInsets.left + 14,
-                  right: widget.overlayInsets.right + 82,
-                  bottom: widget.overlayInsets.bottom + 15,
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: DecoratedBox(
-                      decoration: DashboardStyle.surface(
-                        color: const Color(0xEE0B1320),
-                        radius: 10,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 8,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          spacing: 4,
-                          children: [
-                            ValueListenableBuilder(
-                              valueListenable: view,
-                              builder: (context, transform, _) {
-                                final local =
-                                    transform.getMaxScaleOnAxis() >=
-                                    areaScale - .001;
-                                return TextButton(
-                                  onPressed: () {
-                                    tracking.setFollow(false);
-                                    if (local) {
-                                      view.reset();
-                                    } else {
-                                      view.fitArea(
-                                        _project(world, config.base),
-                                        areaScale,
-                                        viewport,
-                                      );
-                                    }
-                                  },
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: DashboardStyle.warm,
-                                    padding: EdgeInsets.zero,
-                                    minimumSize: const Size(0, 36),
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  child: Text(
-                                    '${local ? 'View region' : 'Fit area'} · ${mission.radiusLabel} radius',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                );
-                              },
-                            ),
-                            _MarsScaleBar(scene: scene, view: view),
-                            Text(
-                              widget.fullScreen
-                                  ? 'NASA Mars Trek'
-                                  : 'Map imagery: NASA Mars Trek\n'
-                                        '${trek.detail?.product ?? globalTrekLayer.product}'
-                                        '${trek.detail == null ? '' : ' / Global CTX'}',
-                              style: palette.bodySmall?.copyWith(
-                                color: DashboardStyle.text,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                if (!widget.fullScreen)
+                  Positioned(
+                    left: 14,
+                    right: 82,
+                    bottom: 15,
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: scalePanel,
                     ),
                   ),
-                ),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _scalePanel({
+    required MarsScene scene,
+    required Rect world,
+    required Size viewport,
+    required double areaScale,
+    required String attribution,
+  }) {
+    final compact = widget.fullScreen;
+    return DecoratedBox(
+      key: const ValueKey('map-scale-panel'),
+      decoration: DashboardStyle.surface(
+        color: const Color(0xEE0B1320),
+        radius: 10,
+      ),
+      child: Padding(
+        padding: compact
+            ? const EdgeInsets.fromLTRB(10, 4, 10, 7)
+            : const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: compact ? 3 : 4,
+          children: [
+            ValueListenableBuilder(
+              valueListenable: view,
+              builder: (context, transform, _) {
+                final local = transform.getMaxScaleOnAxis() >= areaScale - .001;
+                return TextButton(
+                  onPressed: () {
+                    tracking.setFollow(false);
+                    if (local) {
+                      view.reset();
+                    } else {
+                      view.fitArea(
+                        _project(world, navigation.map.base),
+                        areaScale,
+                        viewport,
+                      );
+                    }
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: DashboardStyle.warm,
+                    alignment: compact
+                        ? Alignment.bottomLeft
+                        : Alignment.center,
+                    padding: compact
+                        ? const EdgeInsets.only(bottom: 2)
+                        : EdgeInsets.zero,
+                    minimumSize: Size(0, compact ? 28 : 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    '${local ? 'View region' : 'Fit area'} · ${widget.mission.radiusLabel} radius',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                );
+              },
+            ),
+            _MarsScaleBar(scene: scene, view: view),
+            Text(
+              attribution,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: DashboardStyle.text,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
