@@ -24,40 +24,52 @@ Both iPads use the same existing normalized habitat marker as the base. Its Phas
 | `columbia-hills` | -14.5478 | 175.6165 |
 | `valles-marineris` | -13.8300 | -59.1550 |
 
-## Shared mission setup
+## Shared Jezero session on Firebase
 
-The prototype includes an optional Firebase Realtime Database adapter using [authenticated REST requests](https://firebase.google.com/docs/database/rest/auth) and [server-sent events](https://firebase.google.com/docs/database/rest/retrieve-data). The offline build defaults to **Offline**. It supports both movement modes without Firebase. Production setup requires a project, registered clients, crew accounts and provisioned session records.
+The independent field-test project is `sidera-vi`. Its Realtime Database is `https://sidera-vi-default-rtdb.firebaseio.com`, and both iPads join the active `missions/jezero/sessions/field-test-01` session. The project already contains both crew accounts, their ARES slot assignments, and the simulated base metadata. Keep those records when deploying rules or installing a new build.
 
-1. Create or select a Firebase project. Enable the Email/Password provider under Authentication. Create separate accounts for ARES-01 and ARES-02 and get their Firebase Authentication UIDs. Deliver the account credentials privately. The astronaut PINs are for local demo login only.
-2. Create a Realtime Database in locked mode. Deploy the checked-in deny-by-default rules using an authorized Firebase CLI session from the repository root.
+The app uses [authenticated Firebase REST requests](https://firebase.google.com/docs/database/rest/auth) and [server-sent events](https://firebase.google.com/docs/database/rest/retrieve-data). An unconfigured build starts **Offline** and supports both local movement modes.
 
-   ```sh
-   firebase deploy --only database --project PROJECT_ID
-   ```
+### Check and deploy rules
 
-3. As a project administrator, provision a record under `missions/jezero/sessions/field-test-01` using the Firebase console. The mission ID must match the chosen app mission. Provision other missions separately if the crew needs them.
+Run the emulator check from the repository root. The `demo-sideravi` ID is local to the emulator.
 
-   ```json
-   {
-     "metadata": {"state": "active", "baseLat": 18.386, "baseLon": 77.6564},
-     "members": {"ARES-01": "DAN_FIREBASE_UID", "ARES-02": "ADRIAN_FIREBASE_UID"}
-   }
-   ```
+```sh
+npx --yes firebase-tools emulators:exec --only auth,database \
+  --project demo-sideravi 'node firebase/test-rules.mjs'
+```
 
-   Leave `presence` empty to begin at the base. Use the same session ID on both builds. Setting `metadata/state` to `ended` closes shared presence access. Use a new session ID for a new shared run.
+Use the authorized Firebase CLI session and explicit SIDERA VI project argument for the rules-only deployment.
 
-4. Build or run with the Realtime Database HTTPS origin and the project's Firebase client Web API key. Only public client configuration belongs in build flags.
+```sh
+npx --yes firebase-tools deploy --only database --project sidera-vi
+```
 
-   ```sh
-   flutter build ios --release \
-     --dart-define=SIDERA_DATABASE_URL=https://YOUR_DATABASE_HOST \
-     --dart-define=SIDERA_FIREBASE_API_KEY=YOUR_CLIENT_WEB_API_KEY \
-     --dart-define=SIDERA_SESSION_ID=field-test-01
-   ```
+The deployment updates access rules. The existing session, metadata, and crew UID assignments are provisioned separately. The Auth accounts are assigned to ARES-01 and ARES-02 by Firebase UID. A crew member may verify their own slot during sign-in. The rules deny listing the membership map and writing someone else's simulated pose.
 
-   The database host ends in `.firebaseio.com` or `.firebasedatabase.app`. The client key must permit the Identity Toolkit and Secure Token APIs used for account sign-in and refresh. No Firebase plist, admin secret or service account file is used by this adapter.
+### Build and join
 
-5. On each iPad, sign in to SIDERA VI, enter the same mission, tap **Join Crew** and enter the Firebase account assigned to that astronaut. Confirm both dashboards say **Connected** and show both ARES markers. If access is denied, verify the project, session state and UID assigned to the astronaut slot.
+Retrieve the client Web API key from the registered SIDERA VI Web app through the Firebase console or authenticated CLI. [Firebase CLI reference](https://firebase.google.com/docs/cli/)
+
+```sh
+npx --yes firebase-tools apps:list --project sidera-vi
+npx --yes firebase-tools apps:sdkconfig web WEB_APP_ID --project sidera-vi
+```
+
+Pass the Firebase URL, client key, and session to Flutter at build time. The command below assumes the client key was loaded into a local shell variable.
+
+```sh
+flutter build ios --release \
+  --dart-define=SIDERA_DATABASE_URL=https://sidera-vi-default-rtdb.firebaseio.com \
+  --dart-define=SIDERA_FIREBASE_API_KEY="$SIDERA_FIREBASE_API_KEY" \
+  --dart-define=SIDERA_SESSION_ID=field-test-01
+```
+
+The client key must permit the Identity Toolkit and Secure Token APIs. An untracked local file passed with `--dart-define-from-file` is another option. Keep build definitions and account credentials separate. The app has no Firebase plist or administrative credentials.
+
+1. Install the configured build on both iPads. Sign in with each astronaut’s existing SIDERA VI PIN and enter Jezero.
+2. On each device, tap **Join Crew** and enter the assigned Firebase email and password privately. The app verifies the authenticated account’s Firebase UID against the signed-in astronaut’s session slot before subscribing to crew presence.
+3. Confirm **Connected** and look for both ARES markers. If an account is declined, check the assigned Firebase account, session state and membership on the administrator side. A new shared run can use a separately provisioned session ID.
 
 ## Security, lifecycle and transport
 

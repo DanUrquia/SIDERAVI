@@ -79,15 +79,17 @@ class TrackingControls extends StatelessWidget {
 Future<ConnectPresence?> showCrewSignIn(
   BuildContext context,
   FirebasePresenceConfig config,
+  SessionKey slot,
 ) => showDialog<ConnectPresence>(
   context: context,
-  builder: (_) => _CrewSignIn(config: config),
+  builder: (_) => _CrewSignIn(config: config, slot: slot),
 );
 
 /// Keeps account credentials out of the demo roster and build settings.
 class _CrewSignIn extends StatefulWidget {
-  const _CrewSignIn({required this.config});
+  const _CrewSignIn({required this.config, required this.slot});
   final FirebasePresenceConfig config;
+  final SessionKey slot;
 
   @override
   State<_CrewSignIn> createState() => _CrewSignInState();
@@ -112,15 +114,19 @@ class _CrewSignInState extends State<_CrewSignIn> {
     });
     try {
       final connect = await widget.config.signIn(
+        widget.slot,
         _email.text.trim(),
         _password.text,
       );
       if (mounted) Navigator.of(context).pop(connect);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
+        _password.clear();
         setState(() {
           _busy = false;
-          _error = 'Crew sign-in failed. Check your account and connection.';
+          _error = error is PresenceAccessDenied
+              ? 'This account cannot join as ${widget.slot.astronaut}. Check your crew assignment.'
+              : 'Crew sign-in failed. Check your account and connection.';
         });
       }
     }
@@ -135,7 +141,7 @@ class _CrewSignInState extends State<_CrewSignIn> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Join shared mission'),
+    title: Text('Join shared mission as ${widget.slot.astronaut}'),
     scrollable: true,
     content: SizedBox(
       width: 400,

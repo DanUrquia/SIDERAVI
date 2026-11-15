@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 // Use only the isolated localhost demo project started by firebase emulators:exec.
 const project = 'demo-sideravi';
 const origin = 'http://127.0.0.1:9000';
-const identity = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo';
+const identity = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:';
 const session = 'test-' + randomUUID();
 const root = '/missions/jezero/sessions/' + session;
 const write = (value) => ({
@@ -12,11 +12,20 @@ const write = (value) => ({
 });
 
 async function account() {
-  const response = await fetch(identity, {...write({
-    email: randomUUID() + '@example.test', password: randomUUID(), returnSecureToken: true
-  }), method: 'POST'});
-  assert.equal(response.status, 200, await response.clone().text());
-  return response.json();
+  const credentials = {
+    email: randomUUID() + '@example.test', password: randomUUID(), returnSecureToken: true,
+  };
+  async function auth(method) {
+    const response = await fetch(identity + method + '?key=demo', {
+      ...write(credentials), method: 'POST',
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  }
+  const created = await auth('signUp');
+  const signedIn = await auth('signInWithPassword');
+  assert.equal(signedIn.localId, created.localId);
+  return signedIn;
 }
 
 function uri(path, token) {
@@ -51,6 +60,13 @@ await expectStatus(presence, null, 401);
 await expectStatus(presence, outsider.idToken, 401);
 await expectStatus(presence, adrian.idToken, 200);
 await expectStatus(root + '/members', adrian.idToken, 401);
+await expectStatus(root + '/members/ARES-01', null, 401);
+await expectStatus(root + '/members/ARES-01', outsider.idToken, 401);
+await expectStatus(root + '/members/ARES-01', dan.idToken, 200);
+await expectStatus(root + '/members/ARES-02', adrian.idToken, 200);
+await expectStatus(root + '/members/ARES-01', adrian.idToken, 401);
+await expectStatus(root + '/members/ARES-02', dan.idToken, 401);
+await expectStatus(root + '/members/ARES-01', dan.idToken, 401, write(outsider.localId));
 await expectStatus(root.replace('jezero', 'gale') + '/presence', dan.idToken, 401);
 await expectStatus(presence + '/ARES-02', dan.idToken, 401, write(pose));
 await expectStatus(presence + '/ARES-01', dan.idToken, 401, write({...pose, earthLatitude: 0}));
@@ -81,6 +97,7 @@ try {
 }
 
 await expectStatus(root + '/metadata/state', 'owner', 200, write('ended'));
+await expectStatus(root + '/members/ARES-01', dan.idToken, 401);
 await expectStatus(presence, adrian.idToken, 401);
 await expectStatus(presence + '/ARES-01', dan.idToken, 401, write(pose));
-console.log('Firebase emulator passed own-slot writes, session isolation, rejection of extra fields, streamed updates, and termination.');
+console.log('Firebase emulator passed password sign-in, own-slot membership and writes, session isolation, rejection of extra fields, streamed updates, and termination.');

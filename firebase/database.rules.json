@@ -9,6 +9,11 @@
             "metadata": {
               ".read": "auth != null && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid)"
             },
+            "members": {
+              "$slot": {
+                ".read": "auth != null && ($slot == 'ARES-01' || $slot == 'ARES-02') && data.val() == auth.uid && data.parent().parent().child('metadata/state').val() == 'active'"
+              }
+            },
             "presence": {
               ".read": "auth != null && data.parent().child('metadata/state').val() == 'active' && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid)",
               "$slot": {

@@ -31,31 +31,49 @@ final class FirebasePresenceConfig {
     return FirebasePresenceConfig._(database, apiKey, session);
   }
 
-  /// Exchanges the assigned account's credentials for in-memory Firebase tokens.
-  Future<ConnectPresence> signIn(String email, String password) async {
+  /// Authenticates the crew account and verifies its assigned slot before joining.
+  Future<ConnectPresence> signIn(
+    SessionKey key,
+    String email,
+    String password,
+  ) async {
+    if (key.session != session) throw const PresenceAccessDenied();
     final http = _client();
     try {
-      final response = await _request(
+      final response =
+          (await _request(
+                http,
+                'POST',
+                Uri.https(
+                  'identitytoolkit.googleapis.com',
+                  '/v1/accounts:signInWithPassword',
+                  {'key': apiKey},
+                ),
+                body: jsonEncode({
+                  'email': email,
+                  'password': password,
+                  'returnSecureToken': true,
+                }),
+              ))
+              as Map;
+      final token = response['idToken'] as String;
+      final uid = response['localId'] as String;
+      final member = await _request(
         http,
-        'POST',
-        Uri.https(
-          'identitytoolkit.googleapis.com',
-          '/v1/accounts:signInWithPassword',
-          {'key': apiKey},
-        ),
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          'returnSecureToken': true,
-        }),
+        'GET',
+        _sessionUri(database, key, ['members', '${key.astronaut}.json'], token),
       );
+      if (member != uid) throw const PresenceAccessDenied();
       final credential = _Credential(
         config: this,
-        token: response['idToken'] as String,
+        token: token,
         refresh: response['refreshToken'] as String,
         expiresIn: response['expiresIn'] as String,
       );
-      return credential.connect;
+      return (scope) async {
+        if (scope != key) throw const PresenceAccessDenied();
+        return _FirebaseConnection(this, scope, credential.token);
+      };
     } finally {
       http.close(force: true);
     }
@@ -92,23 +110,21 @@ final class _Credential {
     return _token;
   }
 
-  /// Returns a separate transport for each stream attempt.
-  Future<PresenceConnection> connect(SessionKey key) async =>
-      _FirebaseConnection(config, key, token);
-
   Future<void> _renew() async {
     final http = _client();
     try {
-      final response = await _request(
-        http,
-        'POST',
-        Uri.https('securetoken.googleapis.com', '/v1/token', {
-          'key': config.apiKey,
-        }),
-        form: true,
-        body:
-            'grant_type=refresh_token&refresh_token=${Uri.encodeQueryComponent(_refresh)}',
-      );
+      final response =
+          (await _request(
+                http,
+                'POST',
+                Uri.https('securetoken.googleapis.com', '/v1/token', {
+                  'key': config.apiKey,
+                }),
+                form: true,
+                body:
+                    'grant_type=refresh_token&refresh_token=${Uri.encodeQueryComponent(_refresh)}',
+              ))
+              as Map;
       _token = response['id_token'] as String;
       _refresh = response['refresh_token'] as String;
       _expires = _expiry(response['expires_in'] as String);
@@ -131,20 +147,11 @@ final class _FirebaseConnection implements PresenceConnection {
   final Future<String> Function() authToken;
   final HttpClient _http = _client();
 
-  Future<Uri> _uri([String? astronaut]) async => config.database.replace(
-    pathSegments: [
-      'missions',
-      key.mission,
-      'sessions',
-      key.session,
-      if (astronaut == null)
-        'presence.json'
-      else ...[
-        'presence',
-        '$astronaut.json',
-      ],
-    ],
-    queryParameters: {'auth': await authToken()},
+  Future<Uri> _uri([String? astronaut]) async => _sessionUri(
+    config.database,
+    key,
+    astronaut == null ? ['presence.json'] : ['presence', '$astronaut.json'],
+    await authToken(),
   );
 
   @override
@@ -321,6 +328,17 @@ PresenceSnapshot decodePresence(Map<String, Object?> tree) {
   return crew;
 }
 
+/// Builds a token-authenticated endpoint scoped to the selected mission session.
+Uri _sessionUri(
+  Uri database,
+  SessionKey key,
+  List<String> path,
+  String token,
+) => database.replace(
+  pathSegments: ['missions', key.mission, 'sessions', key.session, ...path],
+  queryParameters: {'auth': token},
+);
+
 /// Restricts database tokens to Firebase database HTTPS hosts.
 bool _trustedDatabase(Uri url) =>
     url.scheme == 'https' &&
@@ -335,19 +353,21 @@ const _timeout = Duration(seconds: 10);
 HttpClient _client() => HttpClient()..connectionTimeout = _timeout;
 
 /// Performs a bounded Firebase request without logging or forwarding credentials.
-Future<Map> _request(
+Future<Object?> _request(
   HttpClient http,
   String method,
   Uri uri, {
-  required String body,
+  String? body,
   bool form = false,
 }) async {
   final request = await http.openUrl(method, uri).timeout(_timeout);
   request.followRedirects = false;
-  request.headers.contentType = form
-      ? ContentType('application', 'x-www-form-urlencoded')
-      : ContentType.json;
-  request.write(body);
+  if (body != null) {
+    request.headers.contentType = form
+        ? ContentType('application', 'x-www-form-urlencoded')
+        : ContentType.json;
+    request.write(body);
+  }
   final response = await request.close().timeout(_timeout);
   if (response.statusCode == 401 || response.statusCode == 403) {
     throw const PresenceAccessDenied();
@@ -355,6 +375,5 @@ Future<Map> _request(
   if (response.statusCode != 200) {
     throw const HttpException('Firebase request unavailable');
   }
-  return jsonDecode(await utf8.decoder.bind(response).join().timeout(_timeout))
-      as Map;
+  return jsonDecode(await utf8.decoder.bind(response).join().timeout(_timeout));
 }

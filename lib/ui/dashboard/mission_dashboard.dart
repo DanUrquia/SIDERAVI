@@ -187,7 +187,7 @@ class _MissionDashboardState extends State<MissionDashboard>
       _presence.suspend();
       return;
     }
-    final connect = await showCrewSignIn(context, setup);
+    final connect = await showCrewSignIn(context, setup, _presence.key);
     if (!mounted || connect == null) return;
     _connect = connect;
     if (_foreground) _presence.open(connect);
