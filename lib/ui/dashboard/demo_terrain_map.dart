@@ -275,6 +275,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           final peerPoint = widget.peerPoint;
           final peer = widget.peer;
           final pairOnPhone = widget.fullScreen && peerPoint != null;
+          final sharedAnchor = pairOnPhone && peerPoint == navigation.position
+              ? peerPoint
+              : null;
           final localAnchor = _project(world, navigation.position);
           final baseAnchor = _project(world, config.base);
           final peerAnchor = peerPoint == null
@@ -407,7 +410,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             ),
                           for (final ping in navigation.pings)
                             _pingMarker(world, ping),
-                          if (navigation.target case final target?)
+                          // The header still identifies a selected destination at the shared anchor.
+                          if (navigation.target case final target?
+                              when target != sharedAnchor)
                             _marker(
                               world,
                               target,

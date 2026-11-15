@@ -1022,6 +1022,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(map.navigation.target, anchor);
       expect(map.navigation.targetLabel, 'Adrian Flores');
+      final header = find.byKey(const ValueKey('mobile-header-destination'));
+      expect(_within(header, 'Adrian Flores'), findsOneWidget);
+      expect(_within(header, ' · 0 m'), findsOneWidget);
+      expect(find.text('Destination'), findsNothing);
+      expectCluster();
 
       await _mobileTab(tester, 'crew');
       final readout = find.ancestor(
@@ -1049,6 +1054,8 @@ void main() {
         expect(current.navigation.position, anchor);
         expect(session.writes.last.mars, base);
       }
+      await _tapTooltip(tester, 'Close Crew');
+      expect(find.text('Destination'), findsOneWidget);
     },
   );
 
