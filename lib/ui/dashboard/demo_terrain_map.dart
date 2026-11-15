@@ -133,12 +133,6 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           _follow(viewport, _project(world, navigation.position));
           final peerPoint = widget.peerPoint;
           final peer = widget.peer;
-          final peerOverlap =
-              peerPoint != null &&
-              (_project(world, peerPoint) -
-                          _project(world, navigation.position))
-                      .distance <
-                  22;
           return TrekTileView(
             scene: scene,
             view: view,
@@ -223,9 +217,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             key: ValueKey(widget.teammateId),
                             heading: peer?.pose.heading,
                             animate: peer != null,
-                            shift: peerOverlap
-                                ? const Offset(25, 20)
-                                : Offset.zero,
+                            nearby: _project(world, navigation.position),
                             description: 'Select ${widget.teammateName} on map',
                             onTap: () =>
                                 widget.onSelect(peerPoint, widget.teammateName),
@@ -255,6 +247,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                           key: ValueKey(widget.astronautId),
                           liveHeading: navigation.sos ? null : tracking.heading,
                           animate: tracking.mode == TrackingMode.live,
+                          emergency: navigation.sos,
                         ),
                       ],
                     ),
@@ -361,7 +354,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     );
   }
 
-  /// Positions a marker in the same square scene as the painted route.
+  /// Follows the scene anchor while cancelling camera scale on the visual marker.
   Widget _marker(
     Rect world,
     Offset local,
@@ -372,18 +365,23 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     double? heading,
     ValueNotifier<double?>? liveHeading,
     bool animate = false,
+    Offset? nearby,
     Offset shift = Offset.zero,
     String? description,
     VoidCallback? onTap,
     bool small = false,
     bool above = false,
+    bool emergency = false,
   }) {
-    final center = _project(world, local) + shift;
+    final anchor = _project(world, local);
     final duration = animate && !MediaQuery.disableAnimationsOf(context)
         ? const Duration(milliseconds: 220)
         : Duration.zero;
+    const width = 210.0;
+    const height = 138.0;
+    const center = Offset(width / 2, height / 2);
     final buttonSize = small && onTap == null ? 30.0 : 48.0;
-    final labelWidth = small ? 110.0 : 146.0;
+    const labelWidth = 146.0;
     final chip = _MarkerChip(
       icon: icon,
       color: color,
@@ -394,36 +392,93 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
       heading: heading,
       liveHeading: liveHeading,
     );
-    return Stack(
+    return AnimatedPositioned(
       key: key,
-      children: [
-        AnimatedPositioned(
-          duration: duration,
-          curve: Curves.easeOut,
-          left: center.dx - buttonSize / 2,
-          top: center.dy - buttonSize / 2,
-          child: chip,
-        ),
-        if (!small)
-          AnimatedPositioned(
-            duration: duration,
-            curve: Curves.easeOut,
-            width: labelWidth,
-            left: center.dx - labelWidth / 2,
-            top: above ? center.dy - 51 : center.dy + 22,
-            child: IgnorePointer(
-              child: Align(
-                child: _MapChip(text: label, color: color, compact: true),
-              ),
+      duration: duration,
+      curve: Curves.easeOut,
+      width: width,
+      height: height,
+      left: anchor.dx - center.dx,
+      top: anchor.dy - center.dy,
+      child: ValueListenableBuilder(
+        valueListenable: view,
+        builder: (context, transform, child) {
+          final scale = transform.getMaxScaleOnAxis();
+          final overlap =
+              nearby != null && (anchor - nearby).distance * scale < 34;
+          final separation = overlap ? const Offset(25, 20) : Offset.zero;
+          final at = center + shift + separation;
+          return Transform.scale(
+            scale: 1 / scale,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                if (overlap)
+                  Positioned(
+                    left: center.dx,
+                    top: center.dy,
+                    child: IgnorePointer(
+                      child: Transform.rotate(
+                        angle: separation.direction,
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: separation.distance,
+                          height: 2,
+                          child: ColoredBox(color: color),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (emergency)
+                  Positioned(
+                    left: at.dx - 43,
+                    top: at.dy - 43,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 86,
+                        height: 86,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0x66FF4242),
+                          border: Border.all(
+                            color: DashboardStyle.danger,
+                            width: 2.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: at.dx - buttonSize / 2,
+                  top: at.dy - buttonSize / 2,
+                  child: child!,
+                ),
+                if (!small)
+                  Positioned(
+                    width: labelWidth,
+                    left: at.dx - labelWidth / 2,
+                    top: above ? at.dy - 51 : at.dy + 22,
+                    child: IgnorePointer(
+                      child: Align(
+                        child: _MapChip(
+                          text: label,
+                          color: color,
+                          compact: true,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ),
-      ],
+          );
+        },
+        child: chip,
+      ),
     );
   }
 
-  /// Keeps annotations visually distinct when they share a navigation target.
+  /// Offsets ping glyphs in screen space when they share a route point.
   Widget _pingMarker(Rect world, DemoPing ping) {
-    final point = _project(world, ping.position);
     final (icon, color, shift) = switch (ping.type) {
       DemoPingType.location => (
         Icons.place_outlined,
@@ -441,19 +496,15 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
         const Offset(25, -24),
       ),
     };
-    return Positioned(
+    return _marker(
+      world,
+      ping.position,
+      ping.type.label,
+      icon,
+      color,
       key: ValueKey((ping.type, ping.position)),
-      left: point.dx + shift.dx - 15,
-      top: point.dy + shift.dy - 15,
-      child: IgnorePointer(
-        child: _MarkerChip(
-          icon: icon,
-          color: color,
-          size: 30,
-          description: ping.type.label,
-          small: true,
-        ),
-      ),
+      shift: shift,
+      small: true,
     );
   }
 
@@ -537,17 +588,6 @@ class _DemoGrid extends CustomPainter {
           );
         }
       }
-    }
-    if (emergency) {
-      canvas.drawCircle(from, 43, Paint()..color = const Color(0x66FF4242));
-      canvas.drawCircle(
-        from,
-        43,
-        Paint()
-          ..color = DashboardStyle.danger
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5,
-      );
     }
   }
 

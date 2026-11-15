@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../sensors/earth_fix.dart';
 import 'live_movement.dart';
+import 'pedometer_monitor.dart';
 
 /// Records an opt-in, bounded diagnostic timeline in memory on the current iPad.
 final class MovementTelemetry extends ChangeNotifier {
@@ -63,6 +64,15 @@ final class MovementTelemetry extends ChangeNotifier {
       ])
         if (batch.containsKey(key)) key: batch[key],
     };
+    if (batch['pedometer'] case final Map pedometer) {
+      next['pedometerCadence'] = pedometer['cadence'];
+      next['pedometerState'] = pedometer['authorization'];
+      final failure = pedometer['error'];
+      if (failure is Map) {
+        next['pedometerErrorDomain'] = failure['domain'];
+        next['pedometerErrorCode'] = failure['code'];
+      }
+    }
     if (mapEquals(next, _capabilities)) return;
     _capabilities = next;
     notifyListeners();
@@ -100,6 +110,28 @@ final class MovementTelemetry extends ChangeNotifier {
       'decision': decision.reason.name,
     });
   }
+
+  /// Records measured activity with an explicit diagnostic-only position decision.
+  void pedometer(
+    DateTime time,
+    PedometerObservation sample, {
+    required double? relativeHeading,
+    required String authorization,
+  }) => event(time, 'pedometerSample', {
+    'start': sample.start,
+    'end': sample.end,
+    'received': sample.received,
+    'authorization': authorization,
+    'steps': sample.steps,
+    'incrementalSteps': sample.incrementalSteps,
+    'estimatedDistanceMeters': sample.distance,
+    'incrementalDistanceMeters': sample.incrementalDistance,
+    'cadenceStepsPerSecond': sample.cadence,
+    'decision': sample.decision,
+    'relativeDeviceHeadingDegrees': relativeHeading,
+    'directionSource': 'measurementOnly',
+    'appliedMarsMeters': 0,
+  });
 
   /// Records each local pose change with its specific writer.
   void position(DateTime time, String source, Offset before, Offset after) {

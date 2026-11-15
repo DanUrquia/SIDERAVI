@@ -4,7 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sidera_vi/auth/astronaut.dart';
 import 'package:sidera_vi/dashboard/demo_navigation.dart';
 import 'package:sidera_vi/dashboard/mission_map_config.dart';
+import 'package:sidera_vi/dashboard/terrain_view_controller.dart';
 import 'package:sidera_vi/missions/mission_catalog.dart';
+import 'package:sidera_vi/tracking/mission_presence.dart';
+import 'package:sidera_vi/tracking/astronaut_tracking.dart';
+import 'package:sidera_vi/tracking/tracking_geometry.dart';
+import 'package:sidera_vi/sensors/sensor_service.dart';
 import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
@@ -104,6 +109,144 @@ void main() {
     expect(map.view.value.isIdentity(), isTrue);
   });
 
+  testWidgets(
+    'Astronaut glyphs, labels and teammate targets stay fixed across zoom',
+    (tester) async {
+      final mission = marsMissions.first;
+      final navigation = DemoNavigation(
+        missionMaps[mission.id]!,
+        startAtBase: true,
+      );
+      final view = TerrainViewController();
+      final tracking = AstronautTracking(
+        navigation: navigation,
+        coordinates: MissionCoordinates(mission),
+        sensors: const IpadSensorService(),
+      );
+      addTearDown(navigation.dispose);
+      addTearDown(view.dispose);
+      addTearDown(tracking.dispose);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1180, 820);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final peer = navigation.map.base + const Offset(.09, -.03);
+      final teammate = (
+        pose: (
+          mars: tracking.coordinates.toMars(peer),
+          heading: 25.0,
+          mode: TrackingMode.live,
+          quality: PositionQuality.uncertain,
+        ),
+        updated: DateTime.utc(2026),
+        online: true,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MissionTheme.dark,
+          home: DemoTerrainMap(
+            navigation: navigation,
+            view: view,
+            mission: mission,
+            tileSource: FakeTrekTiles(),
+            tracking: tracking,
+            astronautId: 'ARES-01',
+            teammateId: 'ARES-02',
+            peer: teammate,
+            peerPoint: peer,
+            peerFresh: true,
+            teammateName: 'Adrian Flores',
+            onSelect: (point, label) => navigation.select(point, label),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final local = find.descendant(
+        of: find.byKey(const ValueKey('ARES-01')),
+        matching: find.byType(RelativeMarkerArrow),
+      );
+      final remote = find.descendant(
+        of: find.byKey(const ValueKey('ARES-02')),
+        matching: find.byType(RelativeMarkerArrow),
+      );
+      final label = find.text('ARES-01 · YOU');
+      final sizes = [
+        tester.getSize(local),
+        tester.getSize(remote),
+        tester.getSize(label),
+      ];
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('demo-map-viewport')),
+      );
+      final world = Rect.fromCenter(
+        center: viewport.size.center(Offset.zero),
+        width: viewport.shortestSide,
+        height: viewport.shortestSide,
+      );
+      final focal = world.topLeft + navigation.position * world.width;
+
+      for (final zoom in [1.0, 1.4, 2.7, TerrainViewController.maxZoom, 1.0]) {
+        final offset = focal * (1 - zoom) + const Offset(-18, 16);
+        view.value = Matrix4.identity()
+          ..setEntry(0, 0, zoom)
+          ..setEntry(1, 1, zoom)
+          ..setTranslationRaw(offset.dx, offset.dy, 0);
+        await tester.pumpAndSettle();
+        for (final (finder, original) in [
+          (local, sizes[0]),
+          (remote, sizes[1]),
+          (label, sizes[2]),
+        ]) {
+          final rect = tester.getRect(finder);
+          expect(rect.width, closeTo(original.width, .001));
+          expect(rect.height, closeTo(original.height, .001));
+        }
+        final anchor =
+            viewport.topLeft + MatrixUtils.transformPoint(view.value, focal);
+        expect((tester.getCenter(local) - anchor).distance, lessThan(.01));
+        final peerAnchor =
+            viewport.topLeft +
+            MatrixUtils.transformPoint(
+              view.value,
+              world.topLeft + peer * world.width,
+            );
+        expect((tester.getCenter(remote) - peerAnchor).distance, lessThan(.01));
+        final hit = tester.getRect(
+          find.byTooltip('Select Adrian Flores on map'),
+        );
+        expect(hit.width, closeTo(48, .001));
+        expect(hit.height, closeTo(48, .001));
+        expect(
+          tester
+              .widget<AnimatedRotation>(
+                find.descendant(
+                  of: remote,
+                  matching: find.byType(AnimatedRotation),
+                ),
+              )
+              .turns,
+          closeTo(25 / 360, .001),
+        );
+      }
+      tracking.heading.value = 80;
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<AnimatedRotation>(
+              find.descendant(
+                of: local,
+                matching: find.byType(AnimatedRotation),
+              ),
+            )
+            .turns,
+        closeTo(80 / 360, .001),
+      );
+      await tester.tap(find.byTooltip('Select Adrian Flores on map'));
+      await tester.pumpAndSettle();
+      expect(navigation.target, peer);
+    },
+  );
+
   testWidgets('Sensor Test returns to the existing Mars scenario', (
     tester,
   ) async {
@@ -153,17 +296,19 @@ void main() {
     await tester.tap(find.text('MOVEMENT LOG'));
     await tester.pumpAndSettle();
     expect(find.text('Live Movement Diagnostics'), findsOneWidget);
-    expect(find.text('Step counting · Unavailable'), findsOneWidget);
+    expect(find.textContaining('Step counting · Unavailable'), findsOneWidget);
+    expect(find.text('ENABLE LIVE SENSORS'), findsOneWidget);
     await tester.tap(find.text('START CAPTURE'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Close'));
     await tester.pumpAndSettle();
 
     expect(map.tracking.telemetry.recording, isTrue);
-    await tester.tap(find.text('LIVE SENSORS'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('MOVEMENT LOG'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('ENABLE LIVE SENSORS'));
+    await tester.pumpAndSettle();
+    expect(map.tracking.mode, TrackingMode.live);
     await tester.tap(find.text('REBASELINE'));
     await tester.pumpAndSettle();
     expect(map.navigation.position, map.navigation.map.base);
@@ -186,7 +331,10 @@ void main() {
       );
       final viewport = find.byKey(const ValueKey('demo-map-viewport'));
       final rect = tester.getRect(viewport);
-      await _tapTooltip(tester, 'Zoom in');
+      while (map.view.value.getMaxScaleOnAxis() <
+          TerrainViewController.maxZoom) {
+        await _tapTooltip(tester, 'Zoom in');
+      }
       final zoom = map.view.value.getMaxScaleOnAxis();
       final before = tester.getCenter(marker);
       expect((before - rect.center).distance, greaterThan(5));

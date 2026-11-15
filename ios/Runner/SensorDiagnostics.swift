@@ -226,10 +226,91 @@ enum ScreenTopAttitude {
   }
 }
 
+/// Captures cumulative CMPedometer data for one foreground measurement window.
+private final class DiagnosticPedometer {
+  private let pedometer = CMPedometer()
+  private var generation = 0
+  private var running = false
+  private var samples: [[String: Any]] = []
+  private var error: [String: Any]?
+  private var started: Date?
+
+  /// Stops older callbacks and starts an independent count from the current time.
+  func start() {
+    stop()
+    guard CMPedometer.isStepCountingAvailable() else { return }
+    let authorization = CMPedometer.authorizationStatus()
+    guard authorization != .denied && authorization != .restricted else { return }
+    let from = Date()
+    let current = generation
+    started = from
+    running = true
+    pedometer.startUpdates(from: from) { [weak self] data, failure in
+      DispatchQueue.main.async {
+        guard let self, self.running, self.generation == current else { return }
+        if let failure = failure as NSError? {
+          self.error = ["domain": failure.domain, "code": failure.code]
+          self.pedometer.stopUpdates()
+          self.running = false
+          return
+        }
+        guard let data else { return }
+        var sample: [String: Any] = [
+          "start": data.startDate.timeIntervalSince1970,
+          "end": data.endDate.timeIntervalSince1970,
+          "received": Date().timeIntervalSince1970,
+          "steps": data.numberOfSteps.intValue
+        ]
+        if let distance = data.distance { sample["distance"] = distance.doubleValue }
+        if let cadence = data.currentCadence { sample["cadence"] = cadence.doubleValue }
+        self.samples.append(sample)
+        if self.samples.count > 32 { self.samples.removeFirst(self.samples.count - 32) }
+      }
+    }
+  }
+
+  /// Clears the buffer and invalidates callbacks racing a mode or scene change.
+  func stop() {
+    generation += 1
+    if running { pedometer.stopUpdates() }
+    running = false
+    started = nil
+    error = nil
+    samples.removeAll(keepingCapacity: true)
+  }
+
+  /// Delivers new samples once, with hardware flags and authorization.
+  func snapshot() -> [String: Any] {
+    let authorization = CMPedometer.authorizationStatus()
+    let state: String
+    switch authorization {
+    case .authorized: state = "authorized"
+    case .denied: state = "denied"
+    case .restricted: state = "restricted"
+    case .notDetermined: state = "notDetermined"
+    @unknown default: state = "unknown"
+    }
+    var data: [String: Any] = [
+      "stream": generation,
+      "running": running,
+      "stepCounting": CMPedometer.isStepCountingAvailable(),
+      "distance": CMPedometer.isDistanceAvailable(),
+      "cadence": CMPedometer.isCadenceAvailable(),
+      "authorization": state,
+      "samples": samples
+    ]
+    if let started { data["started"] = started.timeIntervalSince1970 }
+    if let error { data["error"] = error }
+    samples.removeAll(keepingCapacity: true)
+    return data
+  }
+}
+
 /// Registers one foreground-only diagnostic bridge with the scene's Flutter engine.
 final class SensorDiagnostics: NSObject, FlutterPlugin {
   private var location: DiagnosticLocation?
   private let motion = DiagnosticMotion()
+  private let pedometer = DiagnosticPedometer()
   private var servicesEnabled: Bool?
   private var checkingServices = false
   private var exporting = false
@@ -257,12 +338,19 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       if call.method != "startMotion" {
         location?.start(includesHeading: call.method == "start")
       }
+      if call.method == "startLocation" { pedometer.start() }
       if call.method != "startLocation" {
         motion.start(orientation: orientation)
       }
       result(nil)
+    case "restartPedometer":
+      if location?.running == true && UIApplication.shared.applicationState != .background {
+        pedometer.start()
+      }
+      result(nil)
     case "stopLocation":
       location?.stop()
+      pedometer.stop()
       result(nil)
     case "stop":
       stop()
@@ -284,7 +372,8 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
         "os": UIDevice.current.systemVersion,
         "stepCounting": CMPedometer.isStepCountingAvailable(),
         "pedometerDistance": CMPedometer.isDistanceAvailable(),
-        "pedometerAuthorization": CMPedometer.authorizationStatus().rawValue
+        "pedometerAuthorization": CMPedometer.authorizationStatus().rawValue,
+        "pedometer": pedometer.snapshot()
       ]) { _, latest in latest })
     case "export", "exportMovement":
       guard let content = call.arguments as? String else {
@@ -298,10 +387,11 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     }
   }
 
-  /// Stops both services when the diagnostic ends or the app enters the background.
+  /// Stops all foreground sensor streams when the app enters the background.
   @objc private func stop() {
     location?.stop()
     motion.stop()
+    pedometer.stop()
   }
 
   /// Reads the system-wide Location Services switch off the main thread.

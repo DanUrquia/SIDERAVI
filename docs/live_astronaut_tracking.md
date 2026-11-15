@@ -14,6 +14,8 @@ Phase 5D adds an operator rebaseline, a hold for large location-derived steps, a
 
 For accepted Earth steps, the filtered displacement outside reported uncertainty is resolved into east and north meters and transferred at **1 physical meter = 1 simulated Mars meter** via the Mars 2000 sphere (radius 3,396,190 m). The existing equidistant cylindrical projection maps the result to the overlay. East and north displacement map to Mars east and north for this experiment. Calibration changes the arrow only. The preexisting demo route retains its own scenario distances. Live route readouts use the Mars sphere.
 
+Phase 5E adds local CMPedometer diagnostics and fixed-size map markers. [Pedometer validation and marker behavior](pedometer_validation.md).
+
 Both iPads use the same existing normalized habitat marker as the base. Its Phase 4 map location is derived from the catalog reference and initial angular span. The following are simulated operational positions.
 
 | Mission ID | Base latitude | Base east-positive signed longitude |

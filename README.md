@@ -13,7 +13,7 @@ SIDERA VI is a landscape iPad prototype by team **SIDERA VI** for the [2026 NASA
 - Send Ping places a location, item or danger marker on the iPad. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
 - Each new dashboard starts at the simulated Habitat Base. **Demo Movement** runs the waypoint controls, and **Live Sensors** applies conservative experimental Earth displacement to simulated Mars coordinates. Both modes use available relative iPad orientation. **Calibrate** sets the forward reference and **Follow Astronaut** recenters the map. [Tracking and optional Firebase crew setup](docs/live_astronaut_tracking.md).
 - **Sensor Test** opens a foreground Earth location and iPad orientation diagnostic from the dashboard. It shows reported accuracy, movement uncertainty, relative heading, and sample timing. Optional JSON export uses the iPad share sheet. [Phase 5A procedure and limitations](docs/sensor_feasibility.md).
-- **Movement Log** records an opt-in local timeline of physical movement decisions and simulated position changes. Use it to export private JSON or explicitly rebaseline while keeping the current Mars position. [Phase 5D validation guide](docs/live_movement_validation.md).
+- **Movement Log** shows foreground pedometer measurements and can record an opt-in local timeline of movement decisions and simulated position changes. It supports private JSON export and rebaselining at the current Mars position. Map symbols keep their screen size during zoom. [Movement guard](docs/live_movement_validation.md) · [Pedometer and marker checks](docs/pedometer_validation.md).
 - The official SIDERA VI wordmark, S‑VI home-screen icon, and display name.
 
 ## Run on iPad

@@ -10,6 +10,7 @@ import '../sensors/sensor_service.dart';
 import 'live_movement.dart';
 import 'mission_presence.dart';
 import 'movement_telemetry.dart';
+import 'pedometer_monitor.dart';
 import 'tracking_geometry.dart';
 
 /// Owns local sensor state for one dashboard, independently of the network.
@@ -31,6 +32,7 @@ final class AstronautTracking extends ChangeNotifier {
   final DateTime Function() clock;
   final heading = ValueNotifier<double?>(null);
   final telemetry = MovementTelemetry();
+  final pedometer = PedometerMonitor();
 
   static const _interval = Duration(milliseconds: 100);
   final _movement = LiveMovement();
@@ -106,19 +108,43 @@ final class AstronautTracking extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Opens an opt-in timeline for the current mission dashboard.
-  void startCapture(String mission) => telemetry.start(clock(), {
-    'mission': mission,
-    'mode': mode.name,
-    'quality': quality.name,
-    'connection': _connection.name,
-    'position': marsPosition(pose.mars),
-    'requiresRebaseline': requiresRebaseline,
-  });
+  /// Opens an opt-in timeline and fresh pedometer window for this capture.
+  void startCapture(String mission) {
+    final at = clock();
+    pedometer.beginCapture(at.microsecondsSinceEpoch / 1000000);
+    telemetry.start(at, {
+      'mission': mission,
+      'mode': mode.name,
+      'quality': quality.name,
+      'connection': _connection.name,
+      'position': marsPosition(pose.mars),
+      'requiresRebaseline': requiresRebaseline,
+    });
+    if (mode == TrackingMode.live) {
+      final epoch = _epoch;
+      unawaited(
+        _queue(() async {
+          if (_current(epoch) && mode == TrackingMode.live) {
+            await sensors.command('restartPedometer');
+          }
+        }),
+      );
+    }
+  }
+
+  /// Keeps the pedometer and movement totals available for local review.
+  void stopCapture() {
+    pedometer.endCapture();
+    telemetry.event(clock(), 'pedometerCaptureEnded', {
+      'steps': pedometer.captureSteps,
+      'estimatedDistanceMeters': pedometer.captureDistance,
+    });
+    telemetry.stop(clock());
+  }
 
   /// Freezes the capture and opens the native local report export.
   Future<void> exportCapture() {
-    telemetry.stop(clock());
+    stopCapture();
     return sensors.command('exportMovement', telemetry.export());
   }
 
@@ -192,6 +218,11 @@ final class AstronautTracking extends ChangeNotifier {
       if (!_current(epoch)) return;
       await sensors.command('clearMotion');
       if (!_current(epoch)) return;
+      telemetry.event(clock(), 'headingCalibrated', {
+        'previousRelativeDegrees': heading.value,
+        'reference': 'screenTopToMapUp',
+        'directionSource': 'deviceAttitude',
+      });
       _reference = null;
       _resumeHeading = null;
       heading.value = null;
@@ -220,6 +251,18 @@ final class AstronautTracking extends ChangeNotifier {
           final now = _seconds;
           telemetry.updateCapabilities(batch);
           _orientation(batch['orientations'] as List? ?? const [], now);
+          final motion = batch['pedometer'];
+          pedometer.ingest(
+            motion is Map ? motion : null,
+            now,
+            active: mode == TrackingMode.live,
+            onSample: (sample) => telemetry.pedometer(
+              clock(),
+              sample,
+              relativeHeading: heading.value,
+              authorization: pedometer.authorization,
+            ),
+          );
           if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
             _location(batch, now);
           } else {
@@ -408,6 +451,7 @@ final class AstronautTracking extends ChangeNotifier {
     navigation.removeListener(_navigationChanged);
     unawaited(suspend());
     heading.dispose();
+    pedometer.dispose();
     telemetry.dispose();
     super.dispose();
   }
