@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -64,57 +65,183 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
   TerrainViewController get view => widget.view;
   AstronautTracking get tracking => widget.tracking;
 
+  static const _openingDelay = Duration(seconds: 1);
+  static const _openingDuration = Duration(milliseconds: 850);
+  static const _followDuration = Duration(milliseconds: 220);
+  static const _walkingWidth = 150.0;
+
   late final AnimationController _camera;
+  Timer? _openingTimer;
+  MarsScene? _scene;
+  bool _openingZoom = false;
+  bool _writingCamera = false;
+  bool _interacting = false;
+  ({Size viewport, Offset pixel})? _followTarget;
+  Offset _panStart = Offset.zero;
+  Offset _panEnd = Offset.zero;
+  Offset _openingAnchor = Offset.zero;
+  double _openingScale = 1;
+  double _walkingScale = 1;
 
   @override
   void initState() {
     super.initState();
-    _camera = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    )..addListener(_panFrame);
+    _camera = AnimationController(vsync: this)
+      ..addListener(_cameraFrame)
+      ..addStatusListener(_cameraStatus);
+    view.addListener(_cameraChanged);
+    if (widget.fullScreen && widget.showMapHud) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !widget.showMapHud) return;
+        _openingTimer = Timer(_openingDelay, _openWalkingView);
+      });
+    }
   }
 
-  Offset? _followTarget;
-  Offset _panStart = Offset.zero;
-  Offset _panEnd = Offset.zero;
-
-  /// Applies only translation so camera follow preserves the current zoom.
-  void _panFrame() {
-    final position = Offset.lerp(
-      _panStart,
-      _panEnd,
-      Curves.easeOut.transform(_camera.value),
-    )!;
-    view.value = Matrix4.copy(view.value)
-      ..setTranslationRaw(position.dx, position.dy, 0);
+  @override
+  void didUpdateWidget(DemoTerrainMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.view != view) {
+      oldWidget.view.removeListener(_cameraChanged);
+      view.addListener(_cameraChanged);
+      _manualCameraInput();
+    }
+    if (!widget.showMapHud || !widget.fullScreen) _cancelOpeningZoom();
   }
 
-  /// Reframes only after the position or follow state changes.
+  void _openWalkingView() {
+    _openingTimer = null;
+    final scene = _scene;
+    if (!mounted || !widget.showMapHud || scene == null || _interacting) return;
+    final viewport = scene.viewport;
+    final pixel = _project(missionWorld(viewport), navigation.position);
+    final geographic = scene.toGeographic(pixel);
+    final detail = missionTrekMaps[widget.mission.id]!.detail;
+    final layer =
+        detail != null &&
+            detail.coverage.contains(
+              Offset(
+                MarsProjection.signedLongitude(geographic.dx),
+                geographic.dy,
+              ),
+            )
+        ? detail
+        : globalTrekLayer;
+    final usableWidth = viewport.width - widget.overlayInsets.horizontal;
+    if (usableWidth <= 0) return;
+    _openingScale = view.value.getMaxScaleOnAxis();
+    _openingAnchor = MatrixUtils.transformPoint(view.value, pixel);
+    _walkingScale = TerrainViewController.zoomForGroundWidth(
+      scene,
+      pixel,
+      usableWidth,
+      _walkingWidth,
+    ).clamp(1.0, TerrainViewController.rasterZoomLimit(scene, layer));
+    _openingZoom = true;
+    _startCamera(_openingDuration);
+  }
+
+  void _startCamera(Duration duration) {
+    _camera.duration = duration;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _camera.value = 0;
+      _camera.value = 1;
+    } else {
+      _camera.forward(from: 0);
+    }
+  }
+
+  void _cameraFrame() {
+    _writingCamera = true;
+    try {
+      final scene = _scene;
+      if (_openingZoom && scene != null) {
+        final progress = Curves.easeInOutCubic.transform(_camera.value);
+        final scale =
+            _openingScale *
+            math.pow(_walkingScale / _openingScale, progress).toDouble();
+        final viewport = scene.viewport;
+        final target = _project(missionWorld(viewport), navigation.position);
+        final screen = Offset.lerp(
+          _openingAnchor,
+          viewport.center(Offset.zero),
+          progress,
+        )!;
+        view.frame(target, screen, scale);
+      } else {
+        final position = Offset.lerp(
+          _panStart,
+          _panEnd,
+          Curves.easeOut.transform(_camera.value),
+        )!;
+        view.value = Matrix4.copy(view.value)
+          ..setTranslationRaw(position.dx, position.dy, 0);
+      }
+    } finally {
+      _writingCamera = false;
+    }
+  }
+
+  void _cameraStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || !_openingZoom) return;
+    _openingZoom = false;
+    final viewport = _scene!.viewport;
+    _followTarget = (
+      viewport: viewport,
+      pixel: _project(missionWorld(viewport), navigation.position),
+    );
+    tracking.setFollow(true);
+  }
+
+  void _cancelOpeningZoom() {
+    _openingTimer?.cancel();
+    _openingTimer = null;
+    if (!_openingZoom) return;
+    _openingZoom = false;
+    _camera.stop();
+  }
+
+  void _manualCameraInput() {
+    _cancelOpeningZoom();
+    _camera.stop();
+  }
+
+  void _cameraChanged() {
+    if (!_writingCamera) _manualCameraInput();
+  }
+
+  /// Reframes accepted position changes without changing the user's scale.
   void _follow(Size viewport, Offset pixel) {
     if (!tracking.follow) {
-      if (_followTarget != null) _camera.stop();
+      if (_followTarget != null && !_openingZoom) _camera.stop();
       _followTarget = null;
       return;
     }
-    if (_followTarget == pixel) return;
-    _followTarget = pixel;
+    _cancelOpeningZoom();
+    final target = (viewport: viewport, pixel: pixel);
+    if (_followTarget == target) return;
+    _followTarget = target;
+    if (_interacting) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !tracking.follow || _followTarget != pixel) return;
-      final scale = view.value.getMaxScaleOnAxis();
+      if (!mounted ||
+          !tracking.follow ||
+          _followTarget != target ||
+          _interacting) {
+        return;
+      }
       final translation = view.value.getTranslation();
       _panStart = Offset(translation.x, translation.y);
-      _panEnd = viewport.center(Offset.zero) - pixel * scale;
-      if (MediaQuery.disableAnimationsOf(context)) {
-        _camera.value = 1;
-      } else {
-        _camera.forward(from: 0);
-      }
+      _panEnd =
+          viewport.center(Offset.zero) - pixel * view.value.getMaxScaleOnAxis();
+      if ((_panEnd - _panStart).distanceSquared < .000001) return;
+      _startCamera(_followDuration);
     });
   }
 
   @override
   void dispose() {
+    _openingTimer?.cancel();
+    view.removeListener(_cameraChanged);
     _camera.dispose();
     super.dispose();
   }
@@ -131,13 +258,19 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           final world = missionWorld(viewport);
           final config = navigation.map;
           final areaScale = .52 / config.boundaryBounds.longestSide;
-          final maxZoom = math.max(
-            TerrainViewController.maxZoom,
-            areaScale * 4,
-          );
           final mission = widget.mission;
           final trek = missionTrekMaps[mission.id]!;
           final scene = trek.scene(mission, viewport);
+          _scene = scene;
+          final maxZoom = widget.fullScreen
+              ? math.max(
+                  areaScale,
+                  TerrainViewController.rasterZoomLimit(
+                    scene,
+                    trek.detail ?? globalTrekLayer,
+                  ),
+                )
+              : math.max(TerrainViewController.maxZoom, areaScale * 4);
           _follow(viewport, _project(world, navigation.position));
           final peerPoint = widget.peerPoint;
           final peer = widget.peer;
@@ -158,6 +291,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             source: widget.tileSource,
             detail: trek.detail,
             showStatus: widget.showMapHud,
+            showResolutionLimit: !widget.fullScreen,
             statusFooter: widget.fullScreen ? scalePanel : null,
             statusBottom:
                 widget.overlayInsets.bottom + (widget.fullScreen ? 15 : 113),
@@ -174,112 +308,123 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                         view.toScene(details.localPosition) - world.topLeft;
                     widget.onSelect(scene / side, 'Map waypoint');
                   },
-                  child: InteractiveViewer(
-                    transformationController: view,
-                    minScale: 1,
-                    boundaryMargin: view.panMargin(viewport),
-                    maxScale: maxZoom,
-                    onInteractionStart: (_) {
-                      if (tracking.follow && _camera.isAnimating) {
-                        _camera.stop();
-                      }
-                    },
-                    onInteractionUpdate: (details) {
-                      if (tracking.follow &&
-                          details.pointerCount == 1 &&
-                          details.focalPointDelta.distanceSquared > 0) {
-                        tracking.setFollow(false);
-                      }
-                    },
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CustomPaint(
-                          key: const ValueKey('mission-route-overlay'),
-                          painter: _DemoGrid(
-                            world: world,
-                            navigation: navigation,
-                            view: view,
+                  child: Listener(
+                    onPointerDown: (_) => _manualCameraInput(),
+                    onPointerSignal: (_) => _manualCameraInput(),
+                    child: InteractiveViewer(
+                      transformationController: view,
+                      minScale: 1,
+                      boundaryMargin: view.panMargin(viewport),
+                      maxScale: maxZoom,
+                      onInteractionStart: (_) {
+                        _interacting = true;
+                        _manualCameraInput();
+                      },
+                      onInteractionUpdate: (details) {
+                        if (tracking.follow &&
+                            details.pointerCount == 1 &&
+                            details.focalPointDelta.distanceSquared > 0) {
+                          tracking.setFollow(false);
+                        }
+                      },
+                      onInteractionEnd: (_) => _interacting = false,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CustomPaint(
+                            key: const ValueKey('mission-route-overlay'),
+                            painter: _DemoGrid(
+                              world: world,
+                              navigation: navigation,
+                              view: view,
+                            ),
                           ),
-                        ),
-                        _marker(
-                          world,
-                          config.base,
-                          'Habitat base',
-                          Icons.home_filled,
-                          DashboardStyle.text,
-                          onTap: () =>
-                              widget.onSelect(config.base, 'Habitat base'),
-                        ),
-                        for (final landmark in config.landmarks)
                           _marker(
                             world,
-                            landmark.position,
-                            landmark.name,
-                            Icons.terrain,
-                            DashboardStyle.warm,
-                            onTap: () => widget.onSelect(
+                            config.base,
+                            'Habitat base',
+                            Icons.home_filled,
+                            DashboardStyle.text,
+                            onTap: () =>
+                                widget.onSelect(config.base, 'Habitat base'),
+                          ),
+                          for (final landmark in config.landmarks)
+                            _marker(
+                              world,
                               landmark.position,
                               landmark.name,
+                              Icons.terrain,
+                              DashboardStyle.warm,
+                              onTap: () => widget.onSelect(
+                                landmark.position,
+                                landmark.name,
+                              ),
+                              small: true,
                             ),
-                            small: true,
-                          ),
-                        if (peerPoint != null)
+                          if (peerPoint != null)
+                            _marker(
+                              world,
+                              peerPoint,
+                              peer == null
+                                  ? '${widget.teammateId} · DEMO'
+                                  : widget.peerFresh
+                                  ? widget.teammateId
+                                  : '${widget.teammateId} · OFFLINE',
+                              peer == null
+                                  ? Icons.person
+                                  : Icons.navigation_rounded,
+                              peer == null
+                                  ? DashboardStyle.cyan
+                                  : widget.peerFresh
+                                  ? DashboardStyle.amber
+                                  : DashboardStyle.muted,
+                              key: ValueKey(widget.teammateId),
+                              heading: peer?.pose.heading,
+                              animate: peer != null,
+                              nearby: [
+                                _project(world, navigation.position),
+                                _project(world, config.base),
+                              ],
+                              description:
+                                  'Select ${widget.teammateName} on map',
+                              onTap: () => widget.onSelect(
+                                peerPoint,
+                                widget.teammateName,
+                              ),
+                            ),
+                          for (final ping in navigation.pings)
+                            _pingMarker(world, ping),
+                          if (navigation.target case final target?)
+                            _marker(
+                              world,
+                              target,
+                              'Destination',
+                              Icons.flag,
+                              DashboardStyle.orange,
+                              above: true,
+                            ),
                           _marker(
                             world,
-                            peerPoint,
-                            peer == null
-                                ? '${widget.teammateId} · DEMO'
-                                : widget.peerFresh
-                                ? widget.teammateId
-                                : '${widget.teammateId} · OFFLINE',
-                            peer == null
-                                ? Icons.person
+                            navigation.position,
+                            '${widget.astronautId} · YOU',
+                            navigation.sos
+                                ? Icons.warning_amber_rounded
                                 : Icons.navigation_rounded,
-                            peer == null
-                                ? DashboardStyle.cyan
-                                : widget.peerFresh
-                                ? DashboardStyle.amber
-                                : DashboardStyle.muted,
-                            key: ValueKey(widget.teammateId),
-                            heading: peer?.pose.heading,
-                            animate: peer != null,
-                            nearby: [
-                              _project(world, navigation.position),
-                              _project(world, config.base),
-                            ],
-                            description: 'Select ${widget.teammateName} on map',
-                            onTap: () =>
-                                widget.onSelect(peerPoint, widget.teammateName),
-                          ),
-                        for (final ping in navigation.pings)
-                          _pingMarker(world, ping),
-                        if (navigation.target case final target?)
-                          _marker(
-                            world,
-                            target,
-                            'Destination',
-                            Icons.flag,
-                            DashboardStyle.orange,
+                            navigation.sos
+                                ? DashboardStyle.danger
+                                : DashboardStyle.cyan,
                             above: true,
+                            key: ValueKey(widget.astronautId),
+                            liveHeading: navigation.sos
+                                ? null
+                                : tracking.heading,
+                            animate:
+                                !widget.fullScreen &&
+                                tracking.mode == TrackingMode.live,
+                            emergency: navigation.sos,
                           ),
-                        _marker(
-                          world,
-                          navigation.position,
-                          '${widget.astronautId} · YOU',
-                          navigation.sos
-                              ? Icons.warning_amber_rounded
-                              : Icons.navigation_rounded,
-                          navigation.sos
-                              ? DashboardStyle.danger
-                              : DashboardStyle.cyan,
-                          above: true,
-                          key: ValueKey(widget.astronautId),
-                          liveHeading: navigation.sos ? null : tracking.heading,
-                          animate: tracking.mode == TrackingMode.live,
-                          emergency: navigation.sos,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -394,7 +539,10 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             ValueListenableBuilder(
               valueListenable: view,
               builder: (context, transform, _) {
-                final local = transform.getMaxScaleOnAxis() >= areaScale - .001;
+                final zoom = transform.getMaxScaleOnAxis();
+                final local = compact
+                    ? (zoom - areaScale).abs() < .001
+                    : zoom >= areaScale - .001;
                 return TextButton(
                   onPressed: () {
                     tracking.setFollow(false);
@@ -852,11 +1000,8 @@ class _MarsScaleBar extends StatelessWidget {
     valueListenable: view,
     builder: (context, transform, _) {
       final center = view.toScene(scene.viewport.center(Offset.zero));
-      final latitude = scene.toGeographic(center).dy;
       final metersPerPixel =
-          MarsProjection.metersPerLongitudeDegree(latitude) *
-          scene.degreesPerPixel /
-          transform.getMaxScaleOnAxis();
+          scene.groundMetersPerPixel(center) / transform.getMaxScaleOnAxis();
       final meters = metersPerPixel * 50;
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -866,7 +1011,7 @@ class _MarsScaleBar extends StatelessWidget {
           Text(
             meters >= 1000
                 ? '≈ ${(meters / 1000).toStringAsPrecision(2)} km'
-                : '≈ ${((meters / 10).round() * 10).toString()} m',
+                : '≈ ${meters < 100 ? meters.round() : (meters / 10).round() * 10} m',
             style: const TextStyle(color: DashboardStyle.text, fontSize: 11),
           ),
         ],

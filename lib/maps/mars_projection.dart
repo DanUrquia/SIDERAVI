@@ -48,6 +48,11 @@ final class MarsScene {
     return viewport.center(Offset.zero) + Offset(delta.dx, -delta.dy);
   }
 
+  /// Returns the horizontal ground scale at a scene point before camera zoom.
+  double groundMetersPerPixel(Offset pixel) =>
+      MarsProjection.metersPerLongitudeDegree(toGeographic(pixel).dy) *
+      degreesPerPixel;
+
   /// Returns the longitude and latitude bounds of a scene rectangle.
   Rect geographicBounds(Rect pixels) => Rect.fromPoints(
     toGeographic(pixels.topLeft),

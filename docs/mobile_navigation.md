@@ -1,8 +1,16 @@
-# Phase 6A smartphone navigation
+# Smartphone navigation
 
-This record describes the Phase 6A UI and device checks. For current automatic iPhone tracking and the walking procedure, see [Phase 6B.3](real_navigation_validation.md).
+For current automatic iPhone tracking and the walking procedure, see [Phase 6B.3](real_navigation_validation.md).
 
 Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The wider landscape iPad layout still uses the map, sidebar and action row.
+
+## Phase 6C camera
+
+The phone opens at the mission's original regional scale. After one second, the camera takes 850 ms to center the astronaut at a target of 150 Mars meters across the usable width. It computes the scale from the Mars 2000 projection and the astronaut's latitude. With Reduce Motion enabled, the camera changes to the final framing at the end of the delay.
+
+The opening scale stops at the finest useful raster for the imagery covering the astronaut. Endeavour can reach the 150 m target on iPhone 16 using the Opportunity HiRISE mosaic. Missions with coarser coverage open at a wider ground span. The renderer requests only published matrices and keeps available imagery visible during transitions. The phone keeps loading and Retry feedback for tile failures. [Mars Trek layer metadata](mars_trek_integration.md) · [Opportunity WMTS capabilities](https://trek.nasa.gov/tiles/Mars/EQ/HiRISE_Opportunity/1.0.0/WMTSCapabilities.xml)
+
+Follow turns on after the opening animation completes and recenters the camera as accepted steps move the astronaut. Follow and Recenter preserve the selected zoom. Pinch uses the gesture's focal point. Panning suspends Follow until it is enabled again. Touching the map, using a camera control, or opening a bottom sheet cancels an outstanding opening zoom for that visit. Fit Area still frames the published mission radius, and the scale bar uses the actual horizontal ground scale.
 
 ## Map controls and telemetry
 
@@ -10,7 +18,7 @@ The mission header reserves one line for the destination name and distance. It s
 
 Directly below the header, three equal-width floating cards show Mars local solar time, temperature and Habitat Base elevation. The time is a demo reference, temperature is illustrative, and elevation is the existing MOLA grid estimate relative to the GMM3 Martian areoid. The elevation card's accessibility label includes the datum. The row fits under the system insets on phones. [Scientific missions and MOLA method](scientific_missions.md)
 
-Start Navigation, Return to Base, Send Ping and SOS are four orange circular buttons with dark icons. Recenter and Follow are the two dark buttons immediately below SOS in the same right-side column. The column reduces its spacing and button size on shorter displays, keeping 44 logical-pixel touch targets. It scrolls only when the available height cannot hold all six controls. The controls return to the map when the active sheet closes. Start Navigation requires a valid destination in Demo Movement. Return to Base confirms first, then starts a route from the current position in Demo Movement or selects base in Live Sensors.
+Start Navigation, Return to Base, Send Ping and SOS are four orange circular buttons with dark icons. Recenter and Follow are the two dark buttons immediately below SOS in the same right-side column. The column reduces its spacing and button size on shorter displays, keeping 44 logical-pixel touch targets. It scrolls only when the available height cannot hold all six controls. The controls return to the map when the active sheet closes. On phones, Start Navigation begins guidance to a valid destination. Return to Base confirms before selecting Habitat Base.
 
 Fit Area, the scale bar and NASA Mars Trek attribution form one compact panel at the lower left. Tile loading and error messages occupy a row above that panel with a fixed gap. Retry re-requests the failed tiles and the scale panel stays anchored. Both overlays are hidden while a sheet is open. Close the sheet to see any remaining map error and Retry.
 

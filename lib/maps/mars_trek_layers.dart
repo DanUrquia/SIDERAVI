@@ -53,9 +53,11 @@ final class TrekLayer {
     return level.clamp(0, maxMatrix);
   }
 
-  /// Reports whether this display scale exceeds the layer's finest raster.
+  /// Native angular size of one pixel at the finest published matrix.
+  double get finestDegreesPerPixel => tileDegrees(maxMatrix) / tilePixels;
+
   bool atResolutionLimit(double degreesPerPixel) =>
-      degreesPerPixel < tileDegrees(maxMatrix) / tilePixels;
+      degreesPerPixel < finestDegreesPerPixel;
 
   /// Enumerates viewport tiles clipped to the layer's declared geographic box.
   Iterable<TrekTile> tiles(Rect visible, int matrix) sync* {

@@ -10,6 +10,8 @@ import 'package:sidera_vi/dashboard/terrain_view_controller.dart';
 import 'package:sidera_vi/missions/mission.dart';
 import 'package:sidera_vi/missions/mission_catalog.dart';
 import 'package:sidera_vi/maps/mars_projection.dart';
+import 'package:sidera_vi/maps/mars_trek_layers.dart';
+
 import 'package:sidera_vi/tracking/mission_presence.dart';
 import 'package:sidera_vi/tracking/astronaut_tracking.dart';
 import 'package:sidera_vi/tracking/tracking_geometry.dart';
@@ -1062,6 +1064,249 @@ void main() {
     }
   });
 
+  testWidgets(
+    'Endeavour opens regionally then follows at a 150 m ground span',
+    (tester) async {
+      const size = Size(393, 852);
+      final mission = marsMissions[2];
+      final map = await _launch(
+        tester,
+        size: size,
+        mission: mission,
+        settle: false,
+      );
+      final nav = map.navigation;
+      final view = map.view;
+      final world = missionWorld(size);
+      final center = size.center(Offset.zero);
+      final scene = missionTrekMaps[mission.id]!.scene(mission, size);
+      final local = find.descendant(
+        of: find.byKey(const ValueKey('ARES-01')),
+        matching: find.byType(RelativeMarkerArrow),
+      );
+      final markerWidth = tester.getRect(local).width;
+      expect(view.value, Matrix4.identity());
+      expect(map.tracking.follow, isFalse);
+      await tester.pump(const Duration(milliseconds: 990));
+      expect(view.value, Matrix4.identity());
+
+      Offset walkFromBase(double east, double north) =>
+          nav.map.coordinates.toGrid(
+            displaceOnMars(
+              nav.map.coordinates.toMars(nav.map.base),
+              Offset(east, north),
+            ),
+          );
+      final firstPosition = walkFromBase(20, 10);
+      nav.applyStepPosition(firstPosition);
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 400));
+      final intermediateScale = view.value.getMaxScaleOnAxis();
+      expect(intermediateScale, greaterThan(1));
+      expect(map.tracking.follow, isFalse);
+      final currentPosition = walkFromBase(35, 15);
+      nav.applyStepPosition(currentPosition);
+      await tester.pumpAndSettle();
+
+      final scale = view.value.getMaxScaleOnAxis();
+      final focus = world.topLeft + currentPosition * world.width;
+      final actualSpan = scene.groundMetersPerPixel(focus) * size.width / scale;
+      expect(actualSpan, closeTo(150, .001));
+      expect(scale, greaterThan(intermediateScale));
+      expect((view.toScene(center) - focus).distance, lessThan(.0001));
+      expect(map.tracking.follow, isTrue);
+      expect(nav.position, currentPosition);
+      expect(tester.getRect(local).width, closeTo(markerWidth, .001));
+      expect(find.text('≈ 19 m'), findsOneWidget);
+      expect(find.text('Fit area · 750 m radius'), findsOneWidget);
+      expect(find.text('Raster resolution limit'), findsNothing);
+      expect(find.text('Map connection unavailable'), findsOneWidget);
+
+      final oldTransform = Matrix4.copy(view.value);
+      final next = walkFromBase(50, 20);
+      nav.applyStepPosition(next);
+      await tester.pump(); // Build and queue the follow animation.
+      await tester.pump(); // Establish the ticker's first frame.
+      await tester.pump(const Duration(milliseconds: 110));
+      expect(view.value, isNot(oldTransform));
+      expect(tester.getCenter(local), isNot(center));
+      await tester.pumpAndSettle();
+      expect(view.value.getMaxScaleOnAxis(), closeTo(scale, .001));
+      expect((tester.getCenter(local) - center).distance, lessThan(.001));
+      expect(nav.position, next);
+
+      final pinchPoint = center - const Offset(45, 35);
+      final left = await tester.startGesture(pinchPoint - const Offset(45, 0));
+      final right = await tester.startGesture(pinchPoint + const Offset(45, 0));
+      await left.moveBy(const Offset(14, 0));
+      await right.moveBy(const Offset(-14, 0));
+      await tester.pump();
+      final anchor = view.toScene(pinchPoint);
+      await left.moveBy(const Offset(12, 0));
+      await right.moveBy(const Offset(-12, 0));
+      await tester.pump();
+      // The two pointer moves arrive separately during the same pinch.
+      expect(
+        (MatrixUtils.transformPoint(view.value, anchor) - pinchPoint).distance,
+        lessThan(8),
+      );
+      await left.up();
+      await right.up();
+      await tester.pumpAndSettle();
+      expect(view.value.getMaxScaleOnAxis(), lessThan(scale));
+      final manualScale = view.value.getMaxScaleOnAxis();
+      final afterPinch = Matrix4.copy(view.value);
+      expect(map.tracking.follow, isTrue);
+      await tester.pump(const Duration(seconds: 2));
+      expect(view.value, afterPinch);
+
+      await tester.dragFrom(
+        center - const Offset(50, 35),
+        const Offset(48, 40),
+      );
+      await tester.pumpAndSettle();
+      expect(map.tracking.follow, isFalse);
+      final afterPan = Matrix4.copy(view.value);
+      nav.applyStepPosition(walkFromBase(65, 25));
+      await tester.pumpAndSettle();
+      expect(view.value, afterPan);
+      await _tapTooltip(tester, 'Recenter on astronaut');
+      expect(view.value.getMaxScaleOnAxis(), closeTo(manualScale, .001));
+      expect((tester.getCenter(local) - center).distance, lessThan(.001));
+      await _tapTooltip(tester, 'Follow astronaut');
+      expect(map.tracking.follow, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Opening zoom uses the finest available regional or global raster',
+    (tester) async {
+      const size = Size(390, 844);
+      for (final mission in [marsMissions[1], marsMissions.last]) {
+        await tester.pumpWidget(const SizedBox.shrink());
+        final tiles = FakeTrekTiles();
+        final map = await _launch(
+          tester,
+          size: size,
+          mission: mission,
+          tiles: tiles,
+          settle: false,
+        );
+        final config = missionTrekMaps[mission.id]!;
+        final layer = config.detail ?? globalTrekLayer;
+        final scene = config.scene(mission, size);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+        expect(
+          map.view.value.getMaxScaleOnAxis(),
+          closeTo(scene.degreesPerPixel / layer.finestDegreesPerPixel, .001),
+        );
+        expect(map.tracking.follow, isTrue);
+        expect(find.text('Raster resolution limit'), findsNothing);
+        expect(find.text('Map connection unavailable'), findsOneWidget);
+        final focus = scene.toGeographic(
+          map.view.toScene(size.center(Offset.zero)),
+        );
+        final visible = Rect.fromCenter(
+          center: focus,
+          width: 1e-7,
+          height: 1e-7,
+        );
+        expect(
+          tiles.requested,
+          contains(layer.tiles(visible, layer.maxMatrix).single.uri),
+        );
+        expect(map.navigation.map.radiusMeters, mission.radiusMeters);
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
+  testWidgets('Manual pan and pinch cancel pending opening zoom', (
+    tester,
+  ) async {
+    const size = Size(393, 852);
+    for (final pinch in [false, true]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final map = await _launch(
+        tester,
+        size: size,
+        mission: marsMissions[2],
+        settle: false,
+      );
+      const focal = Offset(140, 420);
+      await tester.pump(const Duration(milliseconds: 550));
+      if (pinch) {
+        await _pinchPhoneMap(tester, focal, 30);
+        expect(map.view.value.getMaxScaleOnAxis(), greaterThan(1));
+      } else {
+        await tester.dragFrom(focal, const Offset(55, 40));
+        await tester.pumpAndSettle();
+        expect(map.view.value, isNot(Matrix4.identity()));
+      }
+      final chosen = Matrix4.copy(map.view.value);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(map.view.value, chosen);
+      expect(map.tracking.follow, isFalse);
+    }
+  });
+
+  testWidgets(
+    'An opening zoom is interruptible and closing a sheet never restarts it',
+    (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        sensorDiagnosticsChannel,
+        (call) async =>
+            call.method == 'readMissionChecklist' ? <String>[] : null,
+      );
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+      );
+      const size = Size(393, 852);
+      final mission = marsMissions[2];
+      final map = await _launch(
+        tester,
+        size: size,
+        mission: mission,
+        settle: false,
+      );
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(milliseconds: 320));
+      expect(map.view.value.getMaxScaleOnAxis(), greaterThan(1));
+      await _pinchPhoneMap(tester, const Offset(155, 425), 25);
+      final chosen = Matrix4.copy(map.view.value);
+      await tester.pump(const Duration(seconds: 2));
+      expect(map.view.value, chosen);
+      expect(map.tracking.follow, isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      final next = await _launch(
+        tester,
+        size: size,
+        mission: mission,
+        settle: false,
+      );
+      await _mobileTab(tester, 'missions');
+      await tester.pump(const Duration(seconds: 2));
+      await _mobileTab(tester, 'missions');
+      await tester.pump(const Duration(seconds: 2));
+      expect(next.view.value, Matrix4.identity());
+      expect(next.tracking.follow, isFalse);
+      expect(find.byType(DemoTerrainMap), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _launch(tester, size: size, mission: mission, settle: false);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Phone camera controls recenter and follow from the same rail', (
     tester,
   ) async {
@@ -1510,6 +1755,7 @@ Future<DemoTerrainMap> _launch(
   FakeTrekTiles? tiles,
   DateTime Function()? clock,
   double textScale = 1,
+  bool settle = true,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1532,8 +1778,23 @@ Future<DemoTerrainMap> _launch(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) await tester.pumpAndSettle();
   return tester.widget<DemoTerrainMap>(find.byType(DemoTerrainMap));
+}
+
+/// Changes the spread around a map focal point while both fingers are down.
+Future<void> _pinchPhoneMap(
+  WidgetTester tester,
+  Offset focal,
+  double spread,
+) async {
+  final first = await tester.startGesture(focal - const Offset(45, 0));
+  final second = await tester.startGesture(focal + const Offset(45, 0));
+  await first.moveBy(Offset(-spread, 0));
+  await second.moveBy(Offset(spread, 0));
+  await first.up();
+  await second.up();
+  await tester.pumpAndSettle();
 }
 
 /// Taps a labeled map control and waits for its view to settle.

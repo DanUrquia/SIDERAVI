@@ -100,6 +100,42 @@ void main() {
     expect(globalTrekLayer.matrixFor(globalTrekLayer.tileDegrees(8) / 512), 8);
   });
 
+  testWidgets('A phone can suppress a raster-limit badge with imagery loaded', (
+    tester,
+  ) async {
+    const size = Size(800, 600);
+    final mission = marsMissions.last;
+    final scene = missionTrekMaps[mission.id]!.scene(mission, size);
+    final view = TerrainViewController()
+      ..fitArea(size.center(Offset.zero), 1000, size);
+    addTearDown(view.dispose);
+    final source = FakeTrekTiles(failing: false);
+    Widget map({required bool showResolutionLimit}) => MaterialApp(
+      home: TrekTileView(
+        scene: scene,
+        view: view,
+        source: source,
+        showResolutionLimit: showResolutionLimit,
+        child: const SizedBox.expand(),
+      ),
+    );
+    await tester.runAsync(() async {
+      await tester.pumpWidget(map(showResolutionLimit: false));
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+    });
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('map-tile-status')), findsNothing);
+    expect(source.requested, isNotEmpty);
+    expect(
+      source.requested
+          .map((uri) => uri.pathSegments[uri.pathSegments.length - 3])
+          .toSet(),
+      {globalTrekLayer.maxMatrix.toString()},
+    );
+    await tester.pumpWidget(map(showResolutionLimit: true));
+    expect(find.text('Raster resolution limit'), findsOneWidget);
+  });
+
   testWidgets(
     'Unavailable tiles show Retry and recover without leaving the map',
     (tester) async {

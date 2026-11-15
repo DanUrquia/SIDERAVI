@@ -1,5 +1,8 @@
 import 'package:flutter/widgets.dart';
 
+import '../maps/mars_projection.dart';
+import '../maps/mars_trek_layers.dart';
+
 /// The geographic overlay spans the shortest axis on every viewport.
 Rect missionWorld(Size viewport) => Rect.fromCenter(
   center: viewport.center(Offset.zero),
@@ -10,6 +13,28 @@ Rect missionWorld(Size viewport) => Rect.fromCenter(
 /// Controls the viewport transform shared by the image and all demo markers.
 final class TerrainViewController extends TransformationController {
   static const maxZoom = 4.0;
+
+  /// Matches the finest raster to the tile renderer's logical map pixels.
+  static double rasterZoomLimit(MarsScene scene, TrekLayer layer) =>
+      (scene.degreesPerPixel / layer.finestDegreesPerPixel).clamp(
+        1.0,
+        double.infinity,
+      );
+
+  /// Converts a horizontal Mars ground span to a continuous camera scale.
+  static double zoomForGroundWidth(
+    MarsScene scene,
+    Offset focus,
+    double usableWidth,
+    double groundWidth,
+  ) => scene.groundMetersPerPixel(focus) * usableWidth / groundWidth;
+
+  /// Places a scene anchor at a screen point at the chosen uniform scale.
+  void frame(Offset scenePoint, Offset screenPoint, double scale) {
+    final position = screenPoint - scenePoint * scale;
+    value = Matrix4.diagonal3Values(scale, scale, scale)
+      ..setTranslationRaw(position.dx, position.dy, 0);
+  }
 
   /// Limits free lateral exploration to a neighborhood around the mission view.
   EdgeInsets panMargin(Size viewport) =>
@@ -45,11 +70,8 @@ final class TerrainViewController extends TransformationController {
   }
 
   /// Centers a local exploration window without changing the map projection.
-  void fitArea(Offset sceneCenter, double scale, Size viewport) {
-    final position = viewport.center(Offset.zero) - sceneCenter * scale;
-    value = Matrix4.diagonal3Values(scale, scale, scale)
-      ..setTranslationRaw(position.dx, position.dy, 0);
-  }
+  void fitArea(Offset sceneCenter, double scale, Size viewport) =>
+      frame(sceneCenter, viewport.center(Offset.zero), scale);
 
   /// Restores the mission center and initial zoom.
   void reset() => value = Matrix4.identity();

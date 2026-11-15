@@ -25,6 +25,7 @@ class TrekTileView extends StatefulWidget {
     this.statusRight = 15,
     this.statusFooter,
     this.showStatus = true,
+    this.showResolutionLimit = true,
   });
 
   final MarsScene scene;
@@ -36,6 +37,7 @@ class TrekTileView extends StatefulWidget {
   final double statusRight;
   final Widget? statusFooter;
   final bool showStatus;
+  final bool showResolutionLimit;
   final Widget child;
 
   @override
@@ -103,14 +105,16 @@ class _TrekTileViewState extends State<TrekTileView> {
     final detailLevel = detail?.matrixFor(degrees);
 
     if (_base.isNotEmpty && _base.first.matrix != baseLevel) {
-      _previousBase = _base
+      final cached = _base
           .where((tile) => _images.containsKey(tile.uri))
           .toList();
+      if (cached.isNotEmpty) _previousBase = cached;
     }
     if (_detail.isNotEmpty && _detail.first.matrix != detailLevel) {
-      _previousDetail = _detail
+      final cached = _detail
           .where((tile) => _images.containsKey(tile.uri))
           .toList();
+      if (cached.isNotEmpty) _previousDetail = cached;
     }
     _base = globalTrekLayer.tiles(visible, baseLevel).toList();
     _detail = detail?.tiles(visible, detailLevel!).toList() ?? [];
@@ -213,6 +217,7 @@ class _TrekTileViewState extends State<TrekTileView> {
     final hasError = _failed.isNotEmpty;
     final baseError = _base.any((tile) => _failed.contains(tile.uri));
     final loading = _running.any(_wanted.containsKey);
+    final showResolution = widget.showResolutionLimit && _resolutionLimit;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -233,7 +238,7 @@ class _TrekTileViewState extends State<TrekTileView> {
         if (widget.showStatus &&
             (loading ||
                 hasError ||
-                _resolutionLimit ||
+                showResolution ||
                 widget.statusFooter != null))
           Positioned(
             bottom: widget.statusBottom,
@@ -246,7 +251,7 @@ class _TrekTileViewState extends State<TrekTileView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 spacing: 6,
                 children: [
-                  if (loading || hasError || _resolutionLimit)
+                  if (loading || hasError || showResolution)
                     _MapTileStatus(
                       loading: loading,
                       error: hasError
