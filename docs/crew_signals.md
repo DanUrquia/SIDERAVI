@@ -4,7 +4,7 @@ Open the same mission on two enrolled iPhones. The field build uses the mission'
 
 ## Destination PIN
 
-**Send PIN** shares the selected destination's Mars coordinates with the current mission's Crew. A tap without a valid selection shows **Select a destination on the map first.** The sender sees **Destination shared with Crew** after Firebase accepts the write. Each marker identifies its sender by ARES ID. ARES-01 PINs are cyan and ARES-02 PINs are amber on both maps. When close to a flag or crew marker, a short line connects the PIN symbol to its geographic point.
+**Send PIN** shares the selected destination's Mars coordinates with the current mission's Crew. A tap without a valid selection shows **Select a destination on the map first.** The sender sees **Destination shared with Crew** after Firebase accepts the write. Each marker identifies its sender by ARES ID. The local astronaut's PIN is cyan and the teammate's PIN is amber. The colors follow the astronaut viewing the map. When close to a flag or crew marker, a short line connects the PIN symbol to its geographic point.
 
 Receiving a PIN leaves the current route in place. Tap the teammate's PIN to select the point, then use **Start Navigation** when ready. A new PIN replaces the sender's prior PIN. The marker expires 60 seconds after its server timestamp and the selected destination and route remain available. Reconnect restores unexpired PINs. An offline tap with a valid selection displays the connection requirement.
 

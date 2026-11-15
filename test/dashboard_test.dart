@@ -2234,18 +2234,6 @@ void main() {
     session.updateSignals();
     await tester.pumpAndSettle();
     expect(find.text('PIN · ARES-02'), findsOneWidget);
-    for (final (id, color) in [
-      ('ARES-01', DashboardStyle.cyan),
-      ('ARES-02', DashboardStyle.amber),
-    ]) {
-      final marker = find.byKey(ValueKey('crew-pin-$id'));
-      final glyph = find.descendant(
-        of: marker,
-        matching: find.byIcon(Icons.location_on_rounded),
-      );
-      expect(tester.widget<Icon>(glyph).color, color);
-      expect(tester.widget<Text>(find.text('PIN · $id')).style?.color, color);
-    }
     expect(nav.target, target);
 
     final next = nav.map.landmarks[1].position;
@@ -2270,6 +2258,50 @@ void main() {
     expect(pin, findsNothing);
     expect(nav.target, next);
     expect(nav.guiding, isTrue);
+  });
+
+  testWidgets('PIN colors follow the astronaut viewing the map', (
+    tester,
+  ) async {
+    for (final astronaut in [DemoCrew.dan, DemoCrew.adrian]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final map = await _launch(
+        tester,
+        size: const Size(390, 844),
+        astronaut: astronaut,
+      );
+      final session = await _connectPhoneCrew(tester, map);
+      final base = map.tracking.pose.mars;
+      final updated = session.clock();
+      session.pinned.addAll({
+        'ARES-01': (
+          mars: displaceOnMars(base, const Offset(-80, 50)),
+          updated: updated,
+        ),
+        'ARES-02': (
+          mars: displaceOnMars(base, const Offset(80, 50)),
+          updated: updated,
+        ),
+      });
+      session.updateSignals();
+      await tester.pumpAndSettle();
+
+      for (final id in ['ARES-01', 'ARES-02']) {
+        final expected = id == astronaut.id
+            ? DashboardStyle.cyan
+            : DashboardStyle.amber;
+        final marker = find.byKey(ValueKey('crew-pin-$id'));
+        final glyph = find.descendant(
+          of: marker,
+          matching: find.byIcon(Icons.location_on_rounded),
+        );
+        expect(tester.widget<Icon>(glyph).color, expected);
+        expect(
+          tester.widget<Text>(find.text('PIN · $id')).style?.color,
+          expected,
+        );
+      }
+    }
   });
 
   testWidgets('Remote PIN keeps its map anchor and selects only on tap', (
