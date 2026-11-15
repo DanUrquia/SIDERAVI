@@ -124,7 +124,12 @@ class _MissionDashboardState extends State<MissionDashboard>
   Future<void> _sendPing() async {
     final type = await chooseDemoPing(context);
     if (!mounted || type == null) return;
-    _navigation.addPing(type);
+    _placePing(type);
+  }
+
+  void _placePing(DemoPingType type, {Offset? at}) {
+    if (_navigation.sos) return;
+    _navigation.addPing(type, at: at);
     _notify(
       type == DemoPingType.danger
           ? 'Warning marker placed on this device.'
@@ -135,16 +140,19 @@ class _MissionDashboardState extends State<MissionDashboard>
 
   /// Confirms activation and lets the astronaut cancel directly in the dashboard.
   Future<void> _handleSos() async {
+    if (_navigation.sos || await confirmDemoSos(context) == true) {
+      if (mounted) _toggleConfirmedSos();
+    }
+  }
+
+  void _toggleConfirmedSos() {
     if (_navigation.sos) {
       _navigation.cancelSos();
       return;
     }
-    final confirmed = await confirmDemoSos(context);
-    if (mounted && confirmed == true) {
-      _messages.currentState?.hideCurrentSnackBar();
-      _view.reset();
-      _navigation.activateSos();
-    }
+    _messages.currentState?.hideCurrentSnackBar();
+    _view.reset();
+    _navigation.activateSos();
   }
 
   /// Shows short, accessible feedback above the persistent action row.
@@ -314,12 +322,13 @@ class _MissionDashboardState extends State<MissionDashboard>
             onBack: () => Navigator.of(context).maybePop(),
             onSelect: _selectDestination,
             onNavigate: () => _navigation.start(instant: reducedMotion),
-            onReturn: () => _navigation.returnToBase(instant: reducedMotion),
+            onReturn: _navigation.returnToBase,
             onSensorTest: _openDiagnostics,
             onMovementLog: movementLog,
             onJoin: _firebase == null ? null : _joinCrew,
-            onPing: _sendPing,
-            onSos: _handleSos,
+            onPing: () =>
+                _placePing(DemoPingType.location, at: _navigation.position),
+            onSos: _toggleConfirmedSos,
           );
         }
         final map = Stack(

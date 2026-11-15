@@ -169,7 +169,7 @@ class PlanetaryConditionsPanel extends StatelessWidget {
               note: 'Demo reference',
             ),
           ),
-          const Expanded(child: _TegucigalpaClock()),
+          const Expanded(child: TegucigalpaClock()),
         ],
       ),
       Row(
@@ -352,15 +352,15 @@ class _Condition extends StatelessWidget {
 }
 
 /// Reads the device clock in fixed UTC−6 with no network dependency.
-class _TegucigalpaClock extends StatefulWidget {
-  const _TegucigalpaClock();
+class TegucigalpaClock extends StatefulWidget {
+  const TegucigalpaClock({super.key});
 
   @override
-  State<_TegucigalpaClock> createState() => _TegucigalpaClockState();
+  State<TegucigalpaClock> createState() => _TegucigalpaClockState();
 }
 
 /// Updates just the Earth-time tile during a long mission.
-class _TegucigalpaClockState extends State<_TegucigalpaClock> {
+class _TegucigalpaClockState extends State<TegucigalpaClock> {
   DateTime _now = DateTime.now().toUtc();
   late final Timer _timer;
 

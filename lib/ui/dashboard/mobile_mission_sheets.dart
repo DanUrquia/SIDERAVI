@@ -27,7 +27,7 @@ class MobileMissionsContent extends StatelessWidget {
   final List<DemoLandmark> landmarks;
   final Set<String> completed;
   final bool loading;
-  final void Function(String id, bool completed) onChange;
+  final ValueChanged<String> onChange;
   final void Function(Offset point, String label) onSelect;
   final String? storageWarning;
 
@@ -69,64 +69,130 @@ class MobileMissionsContent extends StatelessWidget {
           ],
         ),
         for (final item in objectives)
-          DecoratedBox(
-            decoration: DashboardStyle.surface(),
-            child: Column(
-              children: [
-                CheckboxListTile(
-                  key: ValueKey('objective-${item.id}'),
-                  title: Text(item.label),
-                  subtitle: Text(
-                    completed.contains(item.id) ? 'Complete' : 'Pending',
-                    style: TextStyle(
-                      color: completed.contains(item.id)
-                          ? DashboardStyle.green
-                          : DashboardStyle.muted,
-                    ),
-                  ),
-                  activeColor: DashboardStyle.orange,
-                  value: completed.contains(item.id),
-                  onChanged: loading
-                      ? null
-                      : (value) => onChange(item.id, value == true),
-                ),
-                if (waypoints[item.waypoint] case final position?)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () => onSelect(position, item.waypoint!),
-                      icon: const Icon(Icons.place_outlined),
-                      label: Text(item.waypoint!),
-                    ),
-                  ),
-              ],
-            ),
+          _ObjectiveCard(
+            key: ValueKey('objective-${item.id}'),
+            objective: item,
+            completed: completed.contains(item.id),
+            toggle: loading ? null : () => onChange(item.id),
+            selectWaypoint: switch (waypoints[item.waypoint]) {
+              final Offset point => () => onSelect(point, item.waypoint!),
+              null => null,
+            },
           ),
       ],
     );
   }
 }
 
-/// Presents the local pose, mission controls, and reference planetary conditions.
+/// A tappable completion surface with a separate optional map shortcut.
+class _ObjectiveCard extends StatelessWidget {
+  const _ObjectiveCard({
+    super.key,
+    required this.objective,
+    required this.completed,
+    required this.toggle,
+    required this.selectWaypoint,
+  });
+
+  final MissionObjective objective;
+  final bool completed;
+  final VoidCallback? toggle;
+  final VoidCallback? selectWaypoint;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = completed ? 'Completed' : 'Pending';
+    final radius = BorderRadius.circular(15);
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      button: true,
+      enabled: toggle != null,
+      toggled: completed,
+      label: objective.label,
+      value: status,
+      hint: completed ? 'Mark pending' : 'Mark completed',
+      onTap: toggle,
+      child: AnimatedContainer(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        decoration: DashboardStyle.surface(
+          color: completed ? const Color(0xFF145341) : DashboardStyle.panel,
+          border: completed ? const Color(0xFF347A63) : DashboardStyle.outline,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            excludeFromSemantics: true,
+            borderRadius: radius,
+            onTap: toggle,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(15, 12, 12, 9),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                spacing: 4,
+                children: [
+                  ExcludeSemantics(
+                    child: Text(
+                      objective.label,
+                      style: const TextStyle(
+                        color: DashboardStyle.text,
+                        fontSize: 15,
+                        height: 1.38,
+                      ),
+                    ),
+                  ),
+                  ExcludeSemantics(
+                    child: Text(
+                      status,
+                      style: TextStyle(
+                        color: completed
+                            ? const Color(0xFFB7F6DD)
+                            : DashboardStyle.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  if (selectWaypoint != null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: selectWaypoint,
+                        style: TextButton.styleFrom(
+                          foregroundColor: completed
+                              ? const Color(0xFFD1FBE9)
+                              : DashboardStyle.warm,
+                        ),
+                        icon: const Icon(Icons.place_outlined, size: 18),
+                        label: Text(objective.waypoint!),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Presents the local pose, diagnostics, and the Earth clock.
 class MobileAstronautContent extends StatelessWidget {
   const MobileAstronautContent({
     super.key,
     required this.astronaut,
-    required this.mission,
     required this.navigation,
     required this.tracking,
-    required this.onNavigate,
-    required this.onReturn,
     required this.onSensorTest,
     required this.onMovementLog,
   });
 
   final Astronaut astronaut;
-  final MarsMission mission;
   final DemoNavigation navigation;
   final AstronautTracking tracking;
-  final VoidCallback onNavigate;
-  final VoidCallback onReturn;
   final VoidCallback onSensorTest;
   final VoidCallback onMovementLog;
 
@@ -152,6 +218,12 @@ class MobileAstronautContent extends StatelessWidget {
                   '${formatDemoDistance(tracking.distanceTraveled)} · Simulated Mars',
             ),
             DashboardReadout(
+              label: 'To base',
+              value: formatDemoDistance(
+                navigation.distanceTo(navigation.map.base),
+              ),
+            ),
+            DashboardReadout(
               label: 'Total steps',
               value: tracking.measuredSteps == null
                   ? 'Unavailable'
@@ -174,13 +246,7 @@ class MobileAstronautContent extends StatelessWidget {
             ),
           ],
         ),
-        NavigationPanel(
-          navigation: navigation,
-          tracking: tracking,
-          onNavigate: onNavigate,
-          onReturn: onReturn,
-        ),
-        PlanetaryConditionsPanel(mission: mission, navigation: navigation),
+        const TegucigalpaClock(),
         DashboardPanel(
           title: 'DEVICE SENSORS',
           icon: Icons.sensors,
@@ -241,8 +307,6 @@ class MobileCrewContent extends StatelessWidget {
     required this.fresh,
     required this.onJoin,
     required this.onTeammate,
-    required this.onPing,
-    required this.onSos,
   });
 
   final Astronaut astronaut;
@@ -255,8 +319,6 @@ class MobileCrewContent extends StatelessWidget {
   final bool fresh;
   final VoidCallback? onJoin;
   final VoidCallback? onTeammate;
-  final VoidCallback onPing;
-  final VoidCallback onSos;
 
   @override
   Widget build(BuildContext context) {
@@ -348,25 +410,6 @@ class MobileCrewContent extends StatelessWidget {
                 icon: Icons.alt_route,
                 onPressed: onTeammate,
               ),
-          ],
-        ),
-        DashboardPanel(
-          title: 'MISSION TOOLS',
-          icon: Icons.build_outlined,
-          children: [
-            DashboardButton(
-              label: 'SEND PING',
-              height: 48,
-              icon: Icons.radar,
-              onPressed: navigation.sos ? null : onPing,
-            ),
-            DashboardButton(
-              label: navigation.sos ? 'CANCEL SOS' : 'SOS',
-              height: 48,
-              icon: Icons.sos,
-              emergency: true,
-              onPressed: onSos,
-            ),
           ],
         ),
       ],

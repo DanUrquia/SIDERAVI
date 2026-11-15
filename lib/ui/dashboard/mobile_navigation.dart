@@ -12,6 +12,7 @@ import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
+import 'mobile_map_controls.dart';
 import 'mobile_mission_sheets.dart';
 
 enum _Sheet {
@@ -90,6 +91,8 @@ class _MobileNavigationState extends State<MobileNavigation>
   );
   Set<String> _completed = {};
   bool _loading = true;
+  bool _saving = false;
+  bool _confirming = false;
   String? _storageWarning;
   _Sheet? _sheet;
   bool _closing = false;
@@ -120,17 +123,18 @@ class _MobileNavigationState extends State<MobileNavigation>
     });
   }
 
-  Future<void> _changeObjective(String id, bool complete) async {
+  Future<void> _changeObjective(String id) async {
+    if (_loading || _saving) return;
+    _saving = true;
     setState(() {
       _completed = {..._completed};
-      if (complete) {
-        _completed.add(id);
-      } else {
-        _completed.remove(id);
-      }
+      if (!_completed.remove(id)) _completed.add(id);
     });
     try {
-      await _storage.write(_completed);
+      await Future.wait([
+        _storage.write(_completed),
+        Future<void>.delayed(const Duration(milliseconds: 160)),
+      ]);
       if (mounted && _storageWarning != null) {
         setState(() => _storageWarning = null);
       }
@@ -144,6 +148,8 @@ class _MobileNavigationState extends State<MobileNavigation>
       if (mounted) {
         setState(() => _storageWarning = 'Checklist lasts for this visit.');
       }
+    } finally {
+      _saving = false;
     }
   }
 
@@ -211,9 +217,59 @@ class _MobileNavigationState extends State<MobileNavigation>
         ],
       ),
     );
-    if (!mounted || confirmed != true || widget.navigation.sos) return;
+    if (!mounted ||
+        confirmed != true ||
+        widget.navigation.sos ||
+        widget.navigation.atBase) {
+      return;
+    }
     widget.onReturn();
-    unawaited(_close());
+  }
+
+  Future<void> _confirmAction({
+    required String title,
+    required String message,
+    required String detail,
+    required VoidCallback onConfirmed,
+  }) async {
+    if (_confirming) return;
+    _confirming = true;
+    try {
+      final yes = await confirmMobileAction(
+        context,
+        title: title,
+        message: message,
+        detail: detail,
+      );
+      if (mounted && yes == true) onConfirmed();
+    } finally {
+      _confirming = false;
+    }
+  }
+
+  void _ping() => unawaited(
+    _confirmAction(
+      title: 'Send Location Ping?',
+      message: 'Share your current simulated Mars position with your crew?',
+      detail: 'This prototype places a location marker on this device.',
+      onConfirmed: widget.onPing,
+    ),
+  );
+
+  void _sos() {
+    if (widget.navigation.sos) {
+      widget.onSos();
+      return;
+    }
+    unawaited(
+      _confirmAction(
+        title: 'Activate SOS?',
+        message: 'Send an emergency alert to your mission crew?',
+        detail:
+            'Demo SOS highlights your position and pauses exploration on this device.',
+        onConfirmed: widget.onSos,
+      ),
+    );
   }
 
   Widget _content(_Sheet sheet) => switch (sheet) {
@@ -228,14 +284,8 @@ class _MobileNavigationState extends State<MobileNavigation>
     ),
     _Sheet.astronaut => MobileAstronautContent(
       astronaut: widget.astronaut,
-      mission: widget.mission,
       navigation: widget.navigation,
       tracking: widget.tracking,
-      onNavigate: () {
-        widget.onNavigate();
-        unawaited(_close());
-      },
-      onReturn: _returnToBase,
       onSensorTest: widget.onSensorTest,
       onMovementLog: widget.onMovementLog,
     ),
@@ -252,15 +302,14 @@ class _MobileNavigationState extends State<MobileNavigation>
       onTeammate: widget.navigation.sos || widget.peerPoint == null
           ? null
           : () => _select(widget.peerPoint!, widget.teammate.fullName),
-      onPing: widget.onPing,
-      onSos: widget.onSos,
     ),
   };
 
   @override
   Widget build(BuildContext context) {
     final insets = MediaQuery.viewPaddingOf(context);
-    final bottom = MobileNavigation.chromeBottom(context);
+    final dockBottom = insets.bottom + MobileNavigation.barMargin;
+    final dockTop = dockBottom + MobileNavigation.barHeight;
     final sheet = _sheet;
     return PopScope(
       canPop: sheet == null,
@@ -276,49 +325,80 @@ class _MobileNavigationState extends State<MobileNavigation>
               left: insets.left + 12,
               right: insets.right + 12,
               top: insets.top + 9,
-              child: _MissionHeader(
-                astronaut: widget.astronaut,
-                mission: widget.mission,
-                navigation: widget.navigation,
-                tracking: widget.tracking,
-                presence: widget.presence,
-                onBack: () => sheet == null ? widget.onBack() : _close(),
-              ),
-            ),
-            Positioned(
-              key: const ValueKey('mobile-map-camera'),
-              right: insets.right + 12,
-              bottom: bottom + 9,
+              bottom: dockTop + 8,
               child: Column(
-                spacing: 8,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                spacing: 7,
                 children: [
-                  _CameraButton(
-                    label: 'Recenter on astronaut',
-                    icon: Icons.my_location,
-                    onPressed: () {
-                      final viewport = constraints.biggest;
-                      final world = missionWorld(viewport);
-                      widget.view.recenter(
-                        world.topLeft +
-                            widget.navigation.position * world.width,
-                        viewport,
-                      );
-                    },
+                  _MissionHeader(
+                    key: const ValueKey('mobile-mission-header'),
+                    astronaut: widget.astronaut,
+                    mission: widget.mission,
+                    navigation: widget.navigation,
+                    tracking: widget.tracking,
+                    presence: widget.presence,
+                    onBack: () => sheet == null ? widget.onBack() : _close(),
                   ),
-                  _CameraButton(
-                    label: 'Follow astronaut',
-                    icon: Icons.navigation_outlined,
-                    active: widget.tracking.follow,
-                    onPressed: () =>
-                        widget.tracking.setFollow(!widget.tracking.follow),
+                  MobileMapTelemetry(
+                    mission: widget.mission,
+                    navigation: widget.navigation,
                   ),
+                  if (sheet == null)
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Align(
+                            key: const ValueKey('mobile-map-camera'),
+                            alignment: const Alignment(-1, -.52),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              spacing: 7,
+                              children: [
+                                _CameraButton(
+                                  label: 'Recenter on astronaut',
+                                  icon: Icons.my_location,
+                                  onPressed: () {
+                                    final viewport = constraints.biggest;
+                                    final world = missionWorld(viewport);
+                                    widget.view.recenter(
+                                      world.topLeft +
+                                          widget.navigation.position *
+                                              world.width,
+                                      viewport,
+                                    );
+                                  },
+                                ),
+                                _CameraButton(
+                                  label: 'Follow astronaut',
+                                  icon: Icons.navigation_outlined,
+                                  active: widget.tracking.follow,
+                                  onPressed: () => widget.tracking.setFollow(
+                                    !widget.tracking.follow,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Align(
+                            alignment: const Alignment(1, -.47),
+                            child: MobileMapActions(
+                              navigation: widget.navigation,
+                              onNavigate: widget.onNavigate,
+                              onReturn: _returnToBase,
+                              onPing: _ping,
+                              onSos: _sos,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
             if (sheet != null)
               Positioned(
-                top: insets.top + 105,
-                bottom: bottom,
+                top: insets.top + 8,
+                bottom: dockTop,
                 left: insets.left + 10,
                 right: insets.right + 10,
                 child: ClipRect(
@@ -347,8 +427,12 @@ class _MobileNavigationState extends State<MobileNavigation>
             Positioned(
               left: insets.left + MobileNavigation.barMargin,
               right: insets.right + MobileNavigation.barMargin,
-              bottom: insets.bottom + MobileNavigation.barMargin,
-              child: _SheetNavigation(selected: sheet, onTap: _open),
+              bottom: sheet == null ? dockBottom : 0,
+              child: _SheetNavigation(
+                selected: sheet,
+                onTap: _open,
+                bottomPadding: sheet == null ? 0 : dockBottom,
+              ),
             ),
           ],
         ),
@@ -359,6 +443,7 @@ class _MobileNavigationState extends State<MobileNavigation>
 
 class _MissionHeader extends StatelessWidget {
   const _MissionHeader({
+    super.key,
     required this.astronaut,
     required this.mission,
     required this.navigation,
@@ -386,10 +471,13 @@ class _MissionHeader extends StatelessWidget {
         ? navigation.status
         : tracking.quality.label;
     final target = navigation.target;
-    final destination = target == null
-        ? null
-        : '${navigation.targetLabel} · ${formatDemoDistance(tracking.coordinates.distance(navigation.position, target))}';
     final style = Theme.of(context).textTheme;
+    final destinationStyle = style.bodySmall ?? const TextStyle(fontSize: 12);
+    final showTarget = target != null && !navigation.sos;
+    final strut = StrutStyle.fromTextStyle(
+      destinationStyle,
+      forceStrutHeight: true,
+    );
     return DecoratedBox(
       decoration: DashboardStyle.surface(
         color: const Color(0xF20B1320),
@@ -433,15 +521,34 @@ class _MissionHeader extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                   ),
-                  if (destination != null && !navigation.sos)
-                    Text(
-                      destination,
-                      style: style.bodySmall?.copyWith(
-                        color: DashboardStyle.cyan,
+                  Row(
+                    key: const ValueKey('mobile-header-destination'),
+                    children: [
+                      Flexible(
+                        child: Text(
+                          showTarget
+                              ? navigation.targetLabel!
+                              : 'Destination: —',
+                          style: destinationStyle.copyWith(
+                            color: showTarget
+                                ? DashboardStyle.cyan
+                                : DashboardStyle.muted,
+                          ),
+                          strutStyle: strut,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
+                      if (showTarget)
+                        Text(
+                          ' · ${formatDemoDistance(navigation.distanceTo(target))}',
+                          style: destinationStyle.copyWith(
+                            color: DashboardStyle.cyan,
+                          ),
+                          strutStyle: strut,
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -512,21 +619,28 @@ class _CameraButton extends StatelessWidget {
 }
 
 class _SheetNavigation extends StatelessWidget {
-  const _SheetNavigation({required this.selected, required this.onTap});
+  const _SheetNavigation({
+    required this.selected,
+    required this.onTap,
+    required this.bottomPadding,
+  });
 
   final _Sheet? selected;
   final ValueChanged<_Sheet> onTap;
+  final double bottomPadding;
 
   @override
   Widget build(BuildContext context) => Material(
     color: DashboardStyle.inset,
-    elevation: 14,
+    elevation: selected == null ? 14 : 0,
     shadowColor: Colors.black,
-    shape: const StadiumBorder(side: BorderSide(color: DashboardStyle.outline)),
+    shape: selected == null
+        ? const StadiumBorder(side: BorderSide(color: DashboardStyle.outline))
+        : const RoundedRectangleBorder(),
     child: SizedBox(
-      height: MobileNavigation.barHeight,
+      height: MobileNavigation.barHeight + bottomPadding,
       child: Padding(
-        padding: const EdgeInsets.all(6),
+        padding: EdgeInsets.fromLTRB(6, 6, 6, 6 + bottomPadding),
         child: Row(
           children: [
             for (final sheet in _Sheet.values)
@@ -582,10 +696,10 @@ class _MissionSheet extends StatefulWidget {
 }
 
 class _MissionSheetState extends State<_MissionSheet> {
-  static const _minimum = .10;
-  static const _peek = .29;
-  static const _initial = .47;
-  static const _expanded = .96;
+  static const _minimum = .12;
+  static const _peek = .28;
+  static const _initial = .48;
+  static const _expanded = 1.0;
   final _extent = DraggableScrollableController();
 
   @override
@@ -635,12 +749,13 @@ class _MissionSheetState extends State<_MissionSheet> {
             clipBehavior: Clip.antiAlias,
             elevation: 12,
             shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(23)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(23)),
               side: BorderSide(color: DashboardStyle.outline),
             ),
             child: CustomScrollView(
               key: PageStorageKey(widget.sheet.name),
               controller: scroll,
+              physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverAppBar(
                   automaticallyImplyLeading: false,

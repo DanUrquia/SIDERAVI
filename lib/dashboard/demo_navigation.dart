@@ -179,9 +179,9 @@ final class DemoNavigation extends ChangeNotifier {
   }
 
   /// Places a local marker at the destination or the current position.
-  void addPing(DemoPingType type) {
+  void addPing(DemoPingType type, {Offset? at}) {
     if (_sos) return;
-    final point = _target ?? position;
+    final point = at ?? _target ?? position;
     _pings.removeWhere((ping) => ping.position == point && ping.type == type);
     if (_pings.length == 12) _pings.removeAt(0);
     _pings.add(DemoPing(type, point));

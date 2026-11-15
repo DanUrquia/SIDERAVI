@@ -438,8 +438,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
         ? const Duration(milliseconds: 220)
         : Duration.zero;
     const width = 210.0;
-    const height = 138.0;
-    const center = Offset(width / 2, height / 2);
+    final avoidPhoneLabels = widget.fullScreen && nearby.isNotEmpty;
+    final height = avoidPhoneLabels ? 264.0 : 138.0;
+    final center = Offset(width / 2, height / 2);
     final buttonSize = small && onTap == null ? 30.0 : 48.0;
     const labelWidth = 146.0;
     final chip = _MarkerChip(
@@ -466,18 +467,27 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           final scale = transform.getMaxScaleOnAxis();
           Offset? collision;
           var nearest = 34.0;
+          var lowestAnchor = anchor.dy;
           for (final point in nearby) {
             final distance = (anchor - point).distance * scale;
             if (distance < nearest) {
               nearest = distance;
               collision = point;
             }
+            if (avoidPhoneLabels && distance < 42) {
+              lowestAnchor = math.max(lowestAnchor, point.dy);
+            }
           }
+          // Give the Habitat base label room beneath its marker on phones.
           final separation = collision == null
               ? Offset.zero
               : Offset(
                   anchor.dx < collision.dx ? -48 : 48,
-                  anchor.dy < collision.dy ? -24 : 24,
+                  avoidPhoneLabels
+                      ? 68 + (lowestAnchor - anchor.dy) * scale
+                      : anchor.dy < collision.dy
+                      ? -24
+                      : 24,
                 );
           final at = center + shift + separation;
           return Transform.scale(

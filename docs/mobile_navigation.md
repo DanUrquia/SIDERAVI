@@ -2,13 +2,23 @@
 
 Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The wider landscape iPad layout still uses the map, sidebar and action row.
 
-## Map and sheets
+## Map controls and telemetry
 
-- **Missions** presents the same three scientific objectives shown in each pre-mission briefing. Progress is saved on that installation by astronaut ID, mission ID and objective ID, including after restart. Objectives are checked explicitly. Some offer a waypoint shortcut. [Scientific mission briefings](scientific_missions.md)
-- **Astronaut** shows the current simulated Mars pose, mission status, destination, movement source and position quality. It uses the existing illustrative Mars solar-time and temperature references and the device clock labeled Tegucigalpa (UTC−6). Distance traveled accumulates accepted simulated route segments during the dashboard visit and excludes the initial position and Firebase restores. The local step total sums accepted native pedometer readings while Live Sensors provides them during the visit. The reading stays unavailable until a measurement arrives. The total counts samples accepted while the mission is unpaused. The OS may batch measurements. The total uses foreground sensor windows and excludes retrospective reports and the Walking Detection Lab. Pause, resume, start route and Return to Base use the shared controller. The phone confirms Return to Base before selecting or initiating it.
-- **Crew** shows the authenticated roster and distinguishes shared, stale, offline and simulated positions. Separation uses the existing Mars spherical geometry. Relative position describes the map direction from the local astronaut. The current presence schema carries no shared step count. Join Crew uses the existing account dialog. Send Ping and confirmed demo SOS retain their local prototype behavior.
+The mission header reserves one line for the destination name and distance. It shows **Destination: —** when no destination is selected. Once selected, a long name can truncate while the distance stays visible. The header keeps the same height as the navigation state changes. When crew markers cluster near Habitat Base, the phone offsets the teammate marker to leave the base label readable and draws a tether to its map coordinate.
 
-Tap the selected bottom item again, use its close button, or drag the sheet to the bottom to dismiss it. Tap another item to switch directly. Drag up or use the extent button to expand, then scroll inside the sheet. Android Back dismisses an open sheet first. Behind the sheets, the map supports pinch, pan and destination taps. Recenter preserves zoom and centers the local glyph. Follow tracks subsequent local movement. The arrow uses calibrated relative device orientation. The phone map carries no compass widget.
+Directly below the header, three equal-width floating cards show Mars local solar time, temperature and Habitat Base elevation. The time is a demo reference, temperature is illustrative, and elevation is the existing MOLA grid estimate relative to the GMM3 Martian areoid. The elevation card's accessibility label includes the datum. The row fits under the system insets on phones. [Scientific missions and MOLA method](scientific_missions.md)
+
+Start Navigation, Return to Base, Send Ping and SOS are four orange circular buttons with dark icons in a single column on the right. Recenter and Follow sit on the left. The action column returns when the active sheet closes. The Start control requires a valid destination in Demo Movement. Return to Base asks for confirmation, then starts a route from the current position in Demo Movement or selects base in Live Sensors.
+
+Send Ping and SOS each show equal-width **NO** and **YES** controls when space permits, with initial focus on **NO**. **NO** closes the dialog. **YES** places one local location marker at the current simulated position or activates the existing local demo SOS, respectively. Demo SOS pauses exploration until dismissed and the astronaut resumes. The iPad retains its ping picker and emergency controls.
+
+## Bottom sheets
+
+Missions, Astronaut and Crew open at medium height. Drag up or use the extent button to expand to just below the top system inset, then scroll the content. Drag down through medium and peek to dismiss, tap the active tab again, or use Close. Android Back dismisses an open sheet first. The sheet has rounded top corners and square bottom corners, and it meets the dock on one continuous navy surface. The map stays mounted throughout, with pinch and pan on the exposed area.
+
+- **Missions** presents the three existing scientific objectives from the briefing. Tap any objective card to complete it. The entire card turns green and reads **Completed**. Tap again to return it to **Pending**. A waypoint shortcut can select a destination independently. Progress saves on that installation by astronaut ID, mission ID and objective ID, including after restart.
+- **Astronaut** shows the astronaut identity, simulated Mars coordinates, mission state, distance traveled, distance to base, movement source, position quality and measured steps when available. Earth time uses the device clock converted to Tegucigalpa (UTC−6). The sheet retains pause, resume and device-sensor controls. Distance traveled accumulates accepted simulated route segments and excludes the initial position and Firebase restores. The local step total sums accepted native pedometer readings while Live Sensors is active and the mission is unpaused. The OS may batch measurements. The total uses foreground sensor windows and excludes retrospective reports and the Walking Detection Lab.
+- **Crew** shows the authenticated roster and distinguishes shared, stale, offline and simulated positions. Separation uses Mars spherical geometry. Relative position describes the map direction from the local astronaut. The presence schema carries no shared step count. Join Crew uses the existing account dialog.
 
 ## Platform readiness
 
@@ -28,15 +38,23 @@ Run `flutter doctor -v` and `flutter devices`. Supply the existing SIDERA VI Fir
 
 ## Physical checklist
 
-1. Open SIDERA VI on both phones in portrait, use each astronaut's assigned mission PIN, and select Jezero. Check the imagery, status bars, cutout, dock and tappable map. Pinch from 1× to 4× and compare the local arrow and label. Pan, recenter and tap a waypoint.
-2. Switch among the three sheets while zoomed. Expand, scroll, collapse and dismiss. Check a Jezero objective, reopen the dashboard, and confirm it persisted. Start a Demo Movement route, pause, resume, and confirm Return to Base.
-3. In **Crew → Join Crew**, enter the assigned Firebase account on each phone. Confirm both show **Connected**, the remote ID and current map marker. Move each astronaut with Demo Movement and observe the other marker. Interrupt and restore connectivity on one device. Inspect stale labeling before reconnect. Test a local ping and cancel a confirmed demo SOS.
+1. Open Gale Crater on both phones, then repeat in another mission. Check the system insets, three telemetry cards, stable header height when a destination is selected, and four orange circles aligned on the right. Pinch and pan, and compare marker size before and after zoom.
+2. Open each sheet, drag to the top safe area, scroll, and dismiss. Confirm the sheet meets the dock and the Astronaut sheet shows Earth time. Tap an objective card to turn it green, restart the app to check persistence, then tap the card again to restore its prior state.
+3. Open Send Ping and SOS separately and choose **NO**. Confirm the map gains no ping and exploration remains active. For the paired Jezero session, use **Crew → Join Crew** with each assigned account and verify the other astronaut's marker. Test stale and reconnect behavior by temporarily interrupting one device's connection.
 4. In **Astronaut → Sensor Test**, compare reported capability and sample delivery. In Live Sensors, align the top edge of the phone with a visible point, calibrate the arrow, then turn the device about 90° with the top edge near the horizontal plane. Record real sample availability and any permission or freshness limitations separately from map movement.
 5. On an iPad, confirm the landscape dashboard, map gestures, navigation and diagnostics remain available.
 
 ## Verification
 
-Flutter widget tests exercise a phone's full-bleed map and safe-area dock, pinch and marker size, section switching and drag-to-dismiss, local checklist persistence, pause/resume, Return to Base confirmation, ping and confirmed SOS. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+Flutter widget tests cover the four circular controls, safe-area layout, stable header, telemetry, near-full-height scrolling sheets, fixed-size markers, objective card state and persistence, safe return, and cancellation and confirmation of the local ping and SOS actions. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+
+### Phase 6A.3 field results
+
+- **iPhone 16, ARES-01.** The physical UI walkthrough opened Gale and Jezero, canceled both Gale dialogs, expanded all three Gale sheets, and exercised pinch and pan. A separate Gale objective check restored the saved progress after terminating and reopening the app, then returned the objective to its starting state.
+- **OPPO CPH2579, ARES-02.** The physical walkthrough opened Gale and Jezero and checked the three telemetry cards, the fixed header, dialog cancellation, and the three expanded sheets. The Gale objective state survived a restart and was restored after the test. Fit area zoom and pan worked on the Gale map.
+- These checks used the local demo session. The paired Firebase field results below are from Phase 6A.
+
+### Earlier Phase 6A field results
 
 - **OPPO CPH2579, Android 15.** ADB installed and launched the DEV APK. The physical device showed the portrait Jezero map and a scrolled Crew sheet as ARES-02, with Mars Trek imagery behind them. Android's sensor service reported accelerometer, gyro, game rotation vector, rotation vector, step counter and step detector. The app registered foreground motion listeners. A controlled sensor capture, calibration and step test remain to be done.
 - **iPhone 16.** A generic development profile failed installation because it excluded the iPhone. Xcode signed a device-specific build, and CoreDevice subsequently confirmed installation and launch. Developer Mode was enabled. The portrait Jezero map and Crew sheet were visible as ARES-01 on the physical phone, with Mars Trek imagery behind them.
