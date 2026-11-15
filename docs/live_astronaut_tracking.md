@@ -93,4 +93,12 @@ npx --yes firebase-tools emulators:exec --only auth,database \
 
 The Phase 5B field check used the iPad Pro 12.9-inch (third generation) on iPadOS 26.7.3 and the iPad Air (fourth generation) on iPadOS 27.0.1. Both opened Jezero, rendered Mars Trek imagery, and displayed their own ARES marker at the same simulated base coordinate. Both markers rotated locally as their devices were handled. The Pro displayed a retry indicator for some tiles at high zoom while imagery remained visible. The Flutter tests exercise mode switching, uncertainty holds, demo navigation and map gestures, including follow and reset. The native tests check landscape transforms in the simulator. The Firebase Emulator Suite verified rules and streamed updates with two authenticated test accounts; this does not establish connectivity from the physical iPads.
 
+### Phase 5C production field check
+
+Both physical iPads authenticated as their assigned roster slots and showed **Connected** in the Jezero `field-test-01` session on `sidera-vi`. Each map displayed both ARES markers. Turning the Pro updated ARES-01's arrow on the Air, and turning the Air updated ARES-02's arrow on the Pro. When the Pro navigated to Channel Edge in Demo Movement, the Air showed its remote marker at that waypoint.
+
+Both dashboards displayed **Position Uncertain** in Live Sensors. The Air's simulated position held throughout the sampled run. The Pro's simulated position shifted about 202 m between two live snapshots, then held in the follow-up snapshots. The test did not establish physical displacement for the Pro's shift. The reading is inconclusive for stationary-noise rejection and cannot validate walking accuracy.
+
+When Wi-Fi was disabled on the Air, the Pro stayed connected and showed ARES-02's last position with an **Offline** label. The offline state was observed once the last Air update was about 20 seconds old. After Wi-Fi was restored, both dashboards showed Connected, both simulated positions matched the pre-reconnect values, and each map showed one marker per astronaut.
+
 Phase 5A established that the Wi-Fi-only iPads can supply motion at approximately 10 Hz under the tested conditions. Its Earth results did not establish reliable walking translation. Phase 5B’s stricter filter can leave the marker at base for short walks. Demonstrate navigation with Demo Movement until measured trials establish repeatable reliable displacement. Network sharing requires the project setup above.
