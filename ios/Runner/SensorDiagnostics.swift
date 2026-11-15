@@ -21,11 +21,11 @@ private final class DiagnosticLocation: NSObject, CLLocationManagerDelegate {
   }
 
   /// Requests foreground permission from the explicit Start Test action.
-  func start(includesHeading: Bool) {
+  func start(includesHeading: Bool, requestsPermission: Bool) {
     self.includesHeading = includesHeading
     running = true
     clear()
-    if manager.authorizationStatus == .notDetermined {
+    if requestsPermission && manager.authorizationStatus == .notDetermined {
       manager.requestWhenInUseAuthorization()
     }
     updateAuthorization()
@@ -410,7 +410,8 @@ private final class DiagnosticPedometer {
           "start": data.startDate.timeIntervalSince1970,
           "end": data.endDate.timeIntervalSince1970,
           "received": Date().timeIntervalSince1970,
-          "steps": data.numberOfSteps.intValue
+          "steps": data.numberOfSteps.intValue,
+          "source": "coreMotionPedometer"
         ]
         if let distance = data.distance { sample["distance"] = distance.doubleValue }
         if let cadence = data.currentCadence { sample["cadence"] = cadence.doubleValue }
@@ -462,7 +463,8 @@ private final class DiagnosticPedometer {
           "outcome": "measured",
           "start": data.startDate.timeIntervalSince1970,
           "end": data.endDate.timeIntervalSince1970,
-          "steps": data.numberOfSteps.intValue
+          "steps": data.numberOfSteps.intValue,
+          "source": "coreMotionPedometer"
         ]
         if let distance = data.distance { observation["distance"] = distance.doubleValue }
         self.captureQuery = observation
@@ -483,6 +485,7 @@ private final class DiagnosticPedometer {
     }
     var data: [String: Any] = [
       "stream": generation,
+      "source": "coreMotionPedometer",
       "running": running,
       "stepCounting": CMPedometer.isStepCountingAvailable(),
       "distance": CMPedometer.isDistanceAvailable(),
@@ -533,7 +536,8 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       }
       location?.orient(orientation)
       if call.method != "startMotion" {
-        location?.start(includesHeading: call.method == "start")
+        let diagnostic = call.method == "start"
+        location?.start(includesHeading: diagnostic, requestsPermission: diagnostic)
       }
       if call.method == "startLocation" { pedometer.start() }
       if call.method != "startLocation" {
@@ -598,6 +602,23 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       }
       motion.finishWalking(reason: args["reason"] ?? "operator", id: id)
       result(walkingBatch(motion.walkingSnapshot(id: id)))
+    case "readStrideLength", "writeStrideLength":
+      let reading = call.method == "readStrideLength"
+      let arguments = call.arguments as? [String: Any]
+      let astronaut = reading ? call.arguments as? String : arguments?["astronaut"] as? String
+      guard let astronaut, astronaut.range(of: "^ARES-[0-9]{2}$", options: .regularExpression) != nil else {
+        result(FlutterError(code: "invalid_stride", message: "Stride calibration is unavailable.", details: nil))
+        return
+      }
+      let key = "stride/\(astronaut)"
+      if reading {
+        result(UserDefaults.standard.object(forKey: key))
+      } else if let meters = arguments?["meters"] as? Double, (0.25...1.5).contains(meters) {
+        UserDefaults.standard.set(meters, forKey: key)
+        result(nil)
+      } else {
+        result(FlutterError(code: "invalid_stride", message: "Stride calibration is unavailable.", details: nil))
+      }
     case "readMissionChecklist":
       guard let key = checklistKey(call.arguments as? String) else {
         result(FlutterError(code: "invalid_checklist", message: "Mission checklist is unavailable.", details: nil))

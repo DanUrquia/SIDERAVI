@@ -37,8 +37,9 @@ internal class SensorDiagnostics(private val activity: Activity) :
     private val magnetometer = sensors.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
     private val rotation = sensors.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
         ?: sensors.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-    private val stepSensor = sensors.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-        ?: sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+    private val stepCounter = sensors.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+    private val stepDetector = sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+    private val stepSupported = stepCounter != null || stepDetector != null
     private val compassPossible = accelerometer != null && magnetometer != null
     private val orientations = mutableListOf<Map<String, Any>>()
     private val fixes = mutableListOf<Map<String, Any>>()
@@ -58,7 +59,8 @@ internal class SensorDiagnostics(private val activity: Activity) :
     private var generation = 0
     private var stepEpoch = 0.0
     private var stepStartedAt = 0L
-    private var steps = StepWindow()
+    private var steps = StepFeed(false)
+    private var stepSource: String? = null
     private var export: String? = null
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -121,6 +123,23 @@ internal class SensorDiagnostics(private val activity: Activity) :
                 prefs.edit().putStringSet(key, completed.toSet()).apply()
                 result.success(null)
             }
+            "readStrideLength", "writeStrideLength" -> {
+                val reading = call.method == "readStrideLength"
+                val astronaut = if (reading) call.arguments as? String else call.argument<String>("astronaut")
+                val meters = if (reading) null else call.argument<Double>("meters")
+                if (astronaut == null || !astronaut.matches(Regex("ARES-[0-9]{2}")) ||
+                    (!reading && (meters == null || meters !in .25..1.5))) {
+                    result.error("invalid_stride", "Stride calibration is unavailable.", null)
+                    return
+                }
+                val key = "stride/$astronaut"
+                if (reading) {
+                    result.success(prefs.getString(key, null)?.toDoubleOrNull())
+                } else {
+                    prefs.edit().putString(key, meters.toString()).apply()
+                    result.success(null)
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -163,7 +182,7 @@ internal class SensorDiagnostics(private val activity: Activity) :
 
     private fun requestLocationOrSteps() {
         if (!foreground || permissionRequest != 0) return
-        if (wantsLocation && !locationGranted &&
+        if (wantsLocation && !gpsOnly && !locationGranted &&
             (!prefs.getBoolean("askedLocation", false) ||
                 activity.shouldShowRequestPermissionRationale(ACCESS_COARSE_LOCATION))) {
             permissionRequest = locationPermission
@@ -177,7 +196,7 @@ internal class SensorDiagnostics(private val activity: Activity) :
     }
 
     private fun requestSteps() {
-        if (Build.VERSION.SDK_INT >= 29 && wantsSteps && stepSensor != null && !stepsGranted &&
+        if (Build.VERSION.SDK_INT >= 29 && wantsSteps && stepSupported && !stepsGranted &&
             permissionRequest == 0 && (!prefs.getBoolean("askedSteps", false) ||
                 activity.shouldShowRequestPermissionRationale(ACTIVITY_RECOGNITION))) {
             permissionRequest = stepPermission
@@ -216,12 +235,18 @@ internal class SensorDiagnostics(private val activity: Activity) :
                 }
             }
         }
-        if (wantsSteps && !stepsActive && stepsGranted && stepSensor != null) {
+        if (wantsSteps && !stepsActive && stepsGranted && stepSupported) {
             stepStartedAt = SystemClock.elapsedRealtimeNanos()
-            stepEpoch = System.currentTimeMillis() / 1000.0
-            steps = StepWindow()
+            stepEpoch = wallTime(stepStartedAt)
+            val counterRegistered = stepCounter?.let {
+                sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, 0)
+            } ?: false
+            val detectorRegistered = stepDetector?.let {
+                sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, 0)
+            } ?: false
+            steps = StepFeed(counterRegistered, stepStartedAt)
             generation++
-            stepsActive = sensors.registerListener(this, stepSensor, SensorManager.SENSOR_DELAY_NORMAL)
+            stepsActive = counterRegistered || detectorRegistered
         }
     }
 
@@ -232,9 +257,13 @@ internal class SensorDiagnostics(private val activity: Activity) :
     }
 
     private fun stopSteps() {
-        if (stepsActive && stepSensor != null) sensors.unregisterListener(this, stepSensor)
+        if (stepsActive) {
+            stepCounter?.let { sensors.unregisterListener(this, it) }
+            stepDetector?.let { sensors.unregisterListener(this, it) }
+        }
         stepsActive = false
         stepSamples.clear()
+        stepSource = null
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -280,18 +309,29 @@ internal class SensorDiagnostics(private val activity: Activity) :
     }
 
     private fun recordSteps(event: SensorEvent) {
-        if (!stepsActive || event.timestamp < stepStartedAt || !event.values[0].isFinite()) return
-        val total = if (event.sensor.type == Sensor.TYPE_STEP_COUNTER) {
-            steps.counter(event.values[0].toInt())
+        val value = event.values[0]
+        if (!stepsActive || !value.isFinite()) return
+        val readings = if (event.sensor.type == Sensor.TYPE_STEP_COUNTER) {
+            steps.counter(event.timestamp, value.toInt())
+        } else if (value == 1f) {
+            steps.detector(event.timestamp)
         } else {
-            steps.detectedStep()
+            emptyList()
         }
-        append(
-            stepSamples, mapOf(
-                "start" to stepEpoch, "end" to wallTime(event.timestamp).coerceAtLeast(stepEpoch),
-                "received" to System.currentTimeMillis() / 1000.0, "steps" to total,
-            ), 48
-        )
+        recordStepReadings(readings)
+    }
+
+    private fun recordStepReadings(readings: List<StepFeed.Reading>) {
+        for (reading in readings) {
+            stepSource = reading.source
+            append(
+                stepSamples, mapOf(
+                    "start" to stepEpoch, "end" to wallTime(reading.time).coerceAtLeast(stepEpoch),
+                    "received" to System.currentTimeMillis() / 1000.0, "steps" to reading.total,
+                    "source" to reading.source,
+                ), 48
+            )
+        }
     }
 
     override fun onLocationChanged(fix: Location) {
@@ -322,18 +362,23 @@ internal class SensorDiagnostics(private val activity: Activity) :
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
     private fun snapshot(): Map<String, Any> {
+        if (stepsActive) recordStepReadings(steps.flush(SystemClock.elapsedRealtimeNanos()))
         val stepAuth = when {
-            stepSensor == null -> "unsupported"
+            !stepSupported -> "unsupported"
             stepsGranted -> "authorized"
             prefs.getBoolean("askedSteps", false) -> "denied"
             else -> "notDetermined"
         }
         val steps = mutableMapOf<String, Any>(
-            "stepCounting" to (stepSensor != null), "distance" to false, "cadence" to false,
+            "stepCounting" to (stepSupported), "distance" to false, "cadence" to false,
             "authorization" to stepAuth, "stream" to generation,
             "samples" to drain(stepSamples),
         )
         if (stepsActive) steps["started"] = stepEpoch
+        stepSource?.let { steps["source"] = it }
+        if (foreground && wantsSteps && stepsGranted && stepSupported && !stepsActive) {
+            steps["error"] = mapOf("domain" to "SensorManager", "code" to "registrationFailed")
+        }
         val services = if (Build.VERSION.SDK_INT >= 28) location.isLocationEnabled
             else location.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                 location.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
@@ -349,7 +394,7 @@ internal class SensorDiagnostics(private val activity: Activity) :
                 else -> "Not determined"
             },
             "precise" to granted(ACCESS_FINE_LOCATION), "locations" to drain(fixes),
-            "orientations" to drain(orientations), "stepCounting" to (stepSensor != null),
+            "orientations" to drain(orientations), "stepCounting" to (stepSupported),
             "pedometerDistance" to false, "pedometerAuthorization" to when (stepAuth) {
                 "authorized" -> 3
                 "denied" -> 2

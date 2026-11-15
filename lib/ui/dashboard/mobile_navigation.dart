@@ -437,9 +437,7 @@ class _MissionHeader extends StatelessWidget {
       ConnectionStatus.reconnecting => DashboardStyle.amber,
     };
     final live = tracking.mode == TrackingMode.live;
-    final status = navigation.statusFor(
-      positionCertain: tracking.positionCertain,
-    );
+    final status = navigation.status;
     final remaining = navigation.remainingMeters;
     final style = Theme.of(context).textTheme;
     final destinationStyle = style.bodySmall ?? const TextStyle(fontSize: 12);

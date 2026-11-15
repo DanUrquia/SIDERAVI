@@ -48,17 +48,24 @@ double surfaceDistance(Offset from, Offset to, double radius) {
   return radius * 2 * math.asin(math.sqrt(a.clamp(0, 1)));
 }
 
-/// Returns east/north displacement from a spherical Earth arc and initial bearing.
-Offset earthDisplacement(Offset from, Offset to) {
-  const earthRadius = 6371008.8;
+/// Returns the initial bearing clockwise from north on a sphere.
+double initialBearing(Offset from, Offset to) {
   final lat1 = from.dy * _radians;
   final lat2 = to.dy * _radians;
   final lon = MarsProjection.signedLongitude(to.dx - from.dx) * _radians;
-  final bearing = math.atan2(
-    math.sin(lon) * math.cos(lat2),
-    math.cos(lat1) * math.sin(lat2) -
-        math.sin(lat1) * math.cos(lat2) * math.cos(lon),
-  );
+  return (math.atan2(
+            math.sin(lon) * math.cos(lat2),
+            math.cos(lat1) * math.sin(lat2) -
+                math.sin(lat1) * math.cos(lat2) * math.cos(lon),
+          ) /
+          _radians) %
+      360;
+}
+
+/// Returns east/north displacement from a spherical Earth arc and initial bearing.
+Offset earthDisplacement(Offset from, Offset to) {
+  const earthRadius = 6371008.8;
+  final bearing = initialBearing(from, to) * _radians;
   final distance = surfaceDistance(from, to, earthRadius);
   return Offset(distance * math.sin(bearing), distance * math.cos(bearing));
 }

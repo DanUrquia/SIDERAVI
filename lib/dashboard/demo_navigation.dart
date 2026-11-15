@@ -26,7 +26,7 @@ final class DemoPing {
 
 /// Identifies the writer responsible for an actual simulated position change.
 enum NavigationPositionSource {
-  coreLocation,
+  pedestrianDeadReckoning,
   demoMovement,
   firebaseRestore,
   localNavigation,
@@ -51,10 +51,7 @@ final class DemoNavigation extends ChangeNotifier {
 
   final MissionMapConfig map;
   static const returnThresholdMeters = 100.0;
-  static const _arrivalRadius = 12.0;
-  static const _arrivalMaxAccuracy = 6.0;
-  static const _arrivalMinimumSeconds = 2.0;
-  static const _arrivalMaximumSeconds = 8.0;
+  static const _arrivalRadius = 8.0;
   final List<DemoPing> _pings = [];
   Offset _position;
   NavigationPositionSource _positionSource =
@@ -68,7 +65,6 @@ final class DemoNavigation extends ChangeNotifier {
   bool _acceptsDemoMovement = true;
   bool _liveArrived = false;
   int _liveArrivalCount = 0;
-  ({double time, double callback})? _arrivalCandidate;
 
   Offset get position => _position;
   NavigationPositionSource get positionSource => _positionSource;
@@ -149,7 +145,6 @@ final class DemoNavigation extends ChangeNotifier {
   void _setTarget(Offset point, String label) {
     _started = false;
     _liveArrived = false;
-    clearLiveArrivalEvidence();
     _target = point;
     _targetLabel = label;
     final delta = point - position;
@@ -171,7 +166,6 @@ final class DemoNavigation extends ChangeNotifier {
     _acceptsDemoMovement = enabled;
     _started = false;
     _liveArrived = false;
-    clearLiveArrivalEvidence();
     notifyListeners();
   }
 
@@ -183,57 +177,21 @@ final class DemoNavigation extends ChangeNotifier {
     if (live && source == NavigationPositionSource.firebaseRestore) return;
     if (_position == point) return;
     _updatePosition(point, source);
-    clearLiveArrivalEvidence();
     if (!live) _started = false;
     notifyListeners();
   }
 
-  /// Consumes one validated foreground fix from the physical movement guard.
-  /// A close follow-up fix can confirm arrival without changing position.
-  bool observeLiveFix({
-    required double time,
-    required double accuracy,
-    required double? callback,
-    Offset? measuredPosition,
-    double metersFromAnchor = 0,
-  }) {
-    if (!live || paused || sos) return false;
-    if (measuredPosition != null) {
-      _updatePosition(measuredPosition, NavigationPositionSource.coreLocation);
+  /// Updates the estimate from one accepted native step interval.
+  void applyStepPosition(Offset point) {
+    if (!live || paused || sos || point == position) return;
+    _updatePosition(point, NavigationPositionSource.pedestrianDeadReckoning);
+    if (_started && remainingMeters! <= _arrivalRadius) {
+      _liveArrived = true;
+      _liveArrivalCount++;
+      _started = false;
     }
-    final remaining = remainingMeters;
-    final withinTolerance =
-        _started &&
-        remaining != null &&
-        callback != null &&
-        accuracy <= _arrivalMaxAccuracy &&
-        remaining + accuracy + metersFromAnchor <= _arrivalRadius;
-    final candidate = _arrivalCandidate;
-    bool reliableNearTarget = false;
-    if (!withinTolerance) {
-      clearLiveArrivalEvidence();
-    } else if (candidate == null ||
-        time - candidate.time > _arrivalMaximumSeconds) {
-      clearLiveArrivalEvidence();
-      if (measuredPosition != null) {
-        _arrivalCandidate = (time: time, callback: callback);
-      }
-    } else {
-      reliableNearTarget = true;
-      if (time - candidate.time >= _arrivalMinimumSeconds &&
-          callback != candidate.callback) {
-        _liveArrived = true;
-        _liveArrivalCount++;
-        _started = false;
-        clearLiveArrivalEvidence();
-        if (measuredPosition == null) notifyListeners();
-      }
-    }
-    if (measuredPosition != null) notifyListeners();
-    return reliableNearTarget || measuredPosition != null;
+    notifyListeners();
   }
-
-  void clearLiveArrivalEvidence() => _arrivalCandidate = null;
 
   /// Selects base and starts a fresh return route.
   void returnToBase({bool instant = false}) {
@@ -256,7 +214,6 @@ final class DemoNavigation extends ChangeNotifier {
   void togglePause() {
     if (_sos) return;
     _paused = !_paused;
-    clearLiveArrivalEvidence();
     notifyListeners();
   }
 
@@ -302,7 +259,6 @@ final class DemoNavigation extends ChangeNotifier {
     if (_sos) return;
     _paused = true;
     _sos = true;
-    clearLiveArrivalEvidence();
     notifyListeners();
   }
 

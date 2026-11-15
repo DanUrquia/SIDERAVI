@@ -17,10 +17,10 @@ enum TrackingMode {
 /// Location quality reflects public movement decisions, without Earth readings.
 enum PositionQuality {
   simulated('SIMULATED POSITION'),
-  waiting('AWAITING EARTH FIX'),
-  unavailable('EARTH LOCATION UNAVAILABLE'),
+  waiting('WAITING FOR STEPS'),
+  unavailable('STEP SENSORS UNAVAILABLE'),
   uncertain('POSITION UNCERTAIN'),
-  accepted('DISPLACEMENT ACCEPTED'),
+  accepted('ESTIMATED POSITION'),
   paused('TRACKING PAUSED');
 
   const PositionQuality(this.label);

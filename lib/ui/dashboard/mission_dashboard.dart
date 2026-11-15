@@ -76,6 +76,7 @@ class _MissionDashboardState extends State<MissionDashboard>
       navigation: _navigation,
       coordinates: MissionCoordinates(widget.mission),
       sensors: widget.sensors,
+      astronautId: widget.astronaut.id,
     );
     _presence = MissionPresence(
       key: (

@@ -17,9 +17,11 @@ enum PedometerState {
   final String label;
 }
 
-/// A timestamped observation from CMPedometer, with deduplicated increments.
+/// A timestamped native reading with deduplicated cumulative increments.
 typedef PedometerObservation = ({
   double start,
+  double intervalStart,
+  String? source,
   double end,
   double? received,
   int steps,
@@ -38,6 +40,7 @@ final class PedometerMonitor extends ChangeNotifier {
   bool distanceSupported = false;
   bool cadenceSupported = false;
   String authorization = 'unknown';
+  String? source;
   Map<String, Object?>? error;
   PedometerState state = PedometerState.idle;
   PedometerObservation? latest;
@@ -117,6 +120,7 @@ final class PedometerMonitor extends ChangeNotifier {
       latest,
       ageSeconds,
       authorization,
+      source,
       stepSupported,
       distanceSupported,
       cadenceSupported,
@@ -125,6 +129,7 @@ final class PedometerMonitor extends ChangeNotifier {
       captureDistance,
     );
     final snapshot = data ?? const {};
+    source = snapshot['source'] as String?;
     stepSupported = snapshot['stepCounting'] == true;
     distanceSupported = snapshot['distance'] == true;
     cadenceSupported = snapshot['cadence'] == true;
@@ -185,6 +190,7 @@ final class PedometerMonitor extends ChangeNotifier {
           latest,
           ageSeconds,
           authorization,
+          source,
           stepSupported,
           distanceSupported,
           cadenceSupported,
@@ -210,14 +216,13 @@ final class PedometerMonitor extends ChangeNotifier {
         end >= _streamStart! &&
         end <= now + 1;
     final duplicate = previousEnd != null && end <= previousEnd;
-    final cumulativeReset =
-        steps < _previousSteps ||
-        (distance != null &&
-            _previousDistance != null &&
-            distance < _previousDistance!);
+    final cumulativeReset = steps < _previousSteps;
     final counted = validWindow && !duplicate && !cumulativeReset;
+    final previousDistance = _previousDistance;
     final result = (
       start: start,
+      intervalStart: previousEnd ?? _streamStart!,
+      source: raw['source'] as String? ?? source,
       end: end,
       received: finiteReading(raw, 'received'),
       steps: steps,
@@ -225,9 +230,12 @@ final class PedometerMonitor extends ChangeNotifier {
       cadence: _nonnegative(raw, 'cadence'),
       incrementalSteps: counted ? steps - _previousSteps : 0,
       incrementalDistance:
-          !counted || distance == null || _previousDistance == null
-          ? null
-          : distance - _previousDistance!,
+          counted &&
+              distance != null &&
+              previousDistance != null &&
+              distance >= previousDistance
+          ? distance - previousDistance
+          : null,
       decision: !validWindow
           ? 'invalidWindow'
           : duplicate
@@ -238,9 +246,7 @@ final class PedometerMonitor extends ChangeNotifier {
     );
     if (!validWindow || duplicate) return result;
     _previousSteps = steps;
-    if (distance != null || cumulativeReset) {
-      _previousDistance = distance;
-    }
+    _previousDistance = distance ?? (steps == 0 ? 0 : null);
     latest = result;
     if (result.incrementalSteps > 0) _lastStepAt = end;
     final captureStart = _captureStart;

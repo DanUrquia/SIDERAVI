@@ -4,6 +4,7 @@ import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/firebase_presence.dart';
 import '../../tracking/mission_presence.dart';
 import 'dashboard_style.dart';
+import 'walking_calibration.dart';
 
 /// Adds movement, calibration, map follow and connection controls to the dashboard.
 class TrackingControls extends StatelessWidget {
@@ -38,10 +39,16 @@ class TrackingControls extends StatelessWidget {
           ),
         ),
       DashboardButton(
-        label: 'CALIBRATE',
+        label: tracking.navigation.live
+            ? 'CALIBRATE WALKING DIRECTION'
+            : 'CALIBRATE',
         height: 46,
         icon: Icons.explore_outlined,
-        onPressed: tracking.calibrate,
+        onPressed: !tracking.navigation.live
+            ? tracking.calibrate
+            : tracking.canCalibrateWalking
+            ? () => confirmWalkingDirection(context, tracking)
+            : null,
       ),
       Semantics(
         selected: tracking.follow,
@@ -72,9 +79,7 @@ class TrackingControls extends StatelessWidget {
         ),
       ),
       DashboardButton(
-        label: tracking.requiresRebaseline && tracking.mode == TrackingMode.live
-            ? 'REVIEW POSITION HOLD'
-            : 'MOVEMENT LOG',
+        label: 'MOVEMENT LOG',
         height: 46,
         icon: Icons.receipt_long_outlined,
         onPressed: onMovementLog,

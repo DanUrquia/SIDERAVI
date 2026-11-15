@@ -9,6 +9,7 @@ import '../../tracking/mission_presence.dart';
 import '../mission_theme.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
+import 'walking_calibration.dart';
 
 /// Displays the mission briefing and device-local progress.
 class MobileMissionsContent extends StatelessWidget {
@@ -207,20 +208,18 @@ class MobileAstronautContent extends StatelessWidget {
           title: astronaut.id,
           children: [
             Text(astronaut.fullName, style: MissionTheme.display(22)),
-            DashboardReadout(
-              label: 'Mission status',
-              value: navigation.statusFor(
-                positionCertain: tracking.positionCertain,
-              ),
-            ),
+            DashboardReadout(label: 'Mission status', value: navigation.status),
             DashboardReadout(
               label: 'Simulated Mars',
               value: formatMarsPosition(tracking.pose.mars),
             ),
             DashboardReadout(
-              label: 'Distance traveled',
-              value:
-                  '${formatDemoDistance(tracking.distanceTraveled)} · Simulated Mars',
+              label: navigation.live
+                  ? 'Estimated distance traveled'
+                  : 'Distance traveled',
+              value: navigation.live
+                  ? '${tracking.distanceTraveled.toStringAsFixed(1)} m'
+                  : '${formatDemoDistance(tracking.distanceTraveled)} · Simulated Mars',
             ),
             DashboardReadout(
               label: 'To base',
@@ -239,10 +238,11 @@ class MobileAstronautContent extends StatelessWidget {
               label: 'Movement source',
               value: tracking.mode.label,
             ),
-            DashboardReadout(
-              label: 'Position confidence',
-              value: tracking.quality.label,
-            ),
+            if (navigation.live)
+              DashboardReadout(
+                label: 'Step navigation',
+                value: tracking.stepStatus,
+              ),
             const SizedBox(height: 2),
             DashboardButton(
               label: navigation.paused ? 'RESUME MISSION' : 'PAUSE MISSION',
@@ -257,15 +257,35 @@ class MobileAstronautContent extends StatelessWidget {
           title: 'DEVICE SENSORS',
           icon: Icons.sensors,
           children: [
-            if (navigation.live)
-              const Text(
-                'Live Sensors uses precise location. Hold or carry the phone normally.',
+            if (navigation.live) ...[
+              DashboardReadout(
+                label: 'Sensor source',
+                value: tracking.stepSource,
               ),
+              ValueListenableBuilder<double?>(
+                valueListenable: tracking.heading,
+                builder: (_, _, _) {
+                  final bearing = tracking.walkingBearing;
+                  return DashboardReadout(
+                    label: 'Walking direction',
+                    value: bearing == null
+                        ? 'Uncalibrated'
+                        : '${bearing.round() % 360}° Mars',
+                  );
+                },
+              ),
+              DashboardReadout(
+                label: 'Stride length',
+                value: '${tracking.stride.toStringAsFixed(2)} m per step',
+              ),
+            ],
             for (final mode in TrackingMode.values)
               Semantics(
                 selected: tracking.mode == mode,
                 child: DashboardButton(
-                  label: mode.label,
+                  label: mode == TrackingMode.live
+                      ? 'LIVE SENSORS · STEP NAVIGATION'
+                      : mode.label,
                   height: 48,
                   primary: tracking.mode == mode,
                   icon: mode == TrackingMode.live
@@ -274,12 +294,32 @@ class MobileAstronautContent extends StatelessWidget {
                   onPressed: () => tracking.selectMode(mode),
                 ),
               ),
-            DashboardButton(
-              label: 'CALIBRATE ARROW',
-              height: 48,
-              icon: Icons.navigation_outlined,
-              onPressed: tracking.calibrate,
-            ),
+            if (navigation.live) ...[
+              if (navigation.target == null)
+                const Text(
+                  'Select a destination to calibrate your walking direction.',
+                ),
+              DashboardButton(
+                label: 'CALIBRATE WALKING DIRECTION',
+                height: 48,
+                icon: Icons.navigation_outlined,
+                onPressed: tracking.canCalibrateWalking
+                    ? () => confirmWalkingDirection(context, tracking)
+                    : null,
+              ),
+              DashboardButton(
+                label: 'SET STRIDE LENGTH',
+                height: 48,
+                icon: Icons.straighten,
+                onPressed: () => configureStride(context, tracking),
+              ),
+            ] else
+              DashboardButton(
+                label: 'CALIBRATE ARROW',
+                height: 48,
+                icon: Icons.navigation_outlined,
+                onPressed: tracking.calibrate,
+              ),
             DashboardButton(
               label: 'SENSOR TEST',
               height: 48,
@@ -287,11 +327,7 @@ class MobileAstronautContent extends StatelessWidget {
               onPressed: onSensorTest,
             ),
             DashboardButton(
-              label:
-                  tracking.requiresRebaseline &&
-                      tracking.mode == TrackingMode.live
-                  ? 'REVIEW POSITION HOLD'
-                  : 'MOVEMENT LOG',
+              label: 'MOVEMENT LOG',
               height: 48,
               icon: Icons.receipt_long_outlined,
               onPressed: onMovementLog,

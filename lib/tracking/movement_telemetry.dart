@@ -107,19 +107,22 @@ final class MovementTelemetry extends ChangeNotifier {
       'observedMeters': decision.distance,
       'combinedUncertaintyMeters': decision.uncertainty,
       'estimatedMetersPerSecond': decision.estimatedSpeed,
-      'appliedMarsMeters': decision.step?.distance ?? 0,
+      'appliedMarsMeters': 0,
       'decision': decision.reason.name,
     });
   }
 
-  /// Records measured activity with an explicit diagnostic-only position decision.
+  /// Records measured activity and its estimated Mars displacement.
   void pedometer(
     DateTime time,
     PedometerObservation sample, {
     required double? relativeHeading,
     required String authorization,
+    required double appliedMeters,
   }) => event(time, 'pedometerSample', {
     'start': sample.start,
+    'intervalStart': sample.intervalStart,
+    'source': sample.source,
     'end': sample.end,
     'received': sample.received,
     'authorization': authorization,
@@ -130,8 +133,8 @@ final class MovementTelemetry extends ChangeNotifier {
     'cadenceStepsPerSecond': sample.cadence,
     'decision': sample.decision,
     'relativeDeviceHeadingDegrees': relativeHeading,
-    'directionSource': 'measurementOnly',
-    'appliedMarsMeters': 0,
+    'directionSource': appliedMeters > 0 ? 'calibratedDeviceAttitude' : null,
+    'appliedMarsMeters': appliedMeters,
   });
 
   /// Records each local pose change with its specific writer.

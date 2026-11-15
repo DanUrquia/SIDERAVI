@@ -898,7 +898,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(nav.position, nav.map.base);
     expect(tester.getRect(header), headerRect);
-    expect(find.text('Position uncertain · Paused'), findsOneWidget);
+    expect(find.text('Navigating'), findsOneWidget);
     final from = world.topLeft + nav.map.base * world.width;
     final to = world.topLeft + destination * world.width;
     List<List<dynamic>> segments() {
@@ -925,17 +925,13 @@ void main() {
     expect(segments().first.first, from);
     expect(segments().last[1], to);
     final arrivalPosition = east(20);
-    nav.observeLiveFix(
-      time: 1,
-      accuracy: 2,
-      callback: 1,
-      measuredPosition: arrivalPosition,
-    );
+    final approaching = east(14);
+    nav.applyStepPosition(approaching);
     await tester.pumpAndSettle();
-    final current = world.topLeft + arrivalPosition * world.width;
+    final current = world.topLeft + approaching * world.width;
     expect(segments().first.first, current);
     expect(segments().last[1], to);
-    nav.observeLiveFix(time: 3, accuracy: 2, callback: 3);
+    nav.applyStepPosition(arrivalPosition);
     await tester.pumpAndSettle();
     expect(find.text('You have arrived at your destination.'), findsOneWidget);
     expect(nav.position, arrivalPosition);
@@ -945,7 +941,7 @@ void main() {
     expect(tester.getRect(header), headerRect);
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    nav.observeLiveFix(time: 6, accuracy: 2, callback: 6);
+    nav.applyStepPosition(east(21));
     await tester.pumpAndSettle();
     expect(find.text('You have arrived at your destination.'), findsNothing);
     expect(tester.takeException(), isNull);

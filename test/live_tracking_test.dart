@@ -262,36 +262,40 @@ void main() {
         expect(nav.moving, isFalse);
         expect(nav.position, nav.map.base);
         expect(nav.canNavigate, isFalse);
-        now = now.add(const Duration(seconds: 10));
-        sensors.locations.addAll([_meters(0, 101), _meters(4, 103)]);
+        sensors.stepWindow = 100;
+        sensors.steps.add(_steps(100, 101, 5));
+        now = DateTime.fromMillisecondsSinceEpoch(101000);
+        sensors.motion.add(_attitude(101, 179));
+        sensors.locations.addAll([_meters(0, 100), _meters(22, 101)]);
         await _tick(tester);
-        expect(tracking.quality, PositionQuality.uncertain);
+        expect(tracking.measuredSteps, 5);
         expect(nav.position, nav.map.base);
-        PositionQuality? publishedQuality;
-        nav.addListener(() {
-          if (nav.positionSource == NavigationPositionSource.coreLocation) {
-            publishedQuality = tracking.quality;
-          }
-        });
-        now = now.add(const Duration(seconds: 10));
-        sensors.locations.addAll([
-          _meters(23, 111, walking: true),
-          _meters(28, 115, walking: true),
-          _meters(34, 119, walking: true),
-        ]);
+        expect(tracking.quality, PositionQuality.waiting);
+        expect(await tracking.calibrateWalkingDirection(nav.target!), isTrue);
+        expect(sensors.commands.last, 'restartPedometer');
+        sensors.stream++;
+        sensors.stepWindow = 101.1;
+        now = DateTime.fromMillisecondsSinceEpoch(102000);
+        sensors.motion.add(_attitude(102, 179));
+        sensors.steps.add(_steps(101.1, 102, 10));
         await _tick(tester);
-        expect(tracking.quality, PositionQuality.accepted);
-        expect(
-          tracking.coordinates.distance(nav.map.base, nav.position),
-          closeTo(14, .03),
-        );
-        expect(nav.positionSource, NavigationPositionSource.coreLocation);
-        expect(publishedQuality, PositionQuality.accepted);
-        expect(nav.guiding, isTrue);
         final position = nav.position;
-        sensors.locations.add(_meters(34, 119, walking: true));
+        expect(tracking.distanceTraveled, closeTo(7, .001));
+        expect(tracking.measuredSteps, 15);
+        expect(
+          nav.positionSource,
+          NavigationPositionSource.pedestrianDeadReckoning,
+        );
+        expect(nav.guiding, isTrue);
+
+        now = DateTime.fromMillisecondsSinceEpoch(103000);
+        sensors.motion.add(_attitude(103, -179));
+        sensors.steps.addAll([_steps(101.1, 102, 10), _steps(101.1, 103, 10)]);
+        sensors.locations.add(_meters(200, 103, walking: true));
         await _tick(tester);
+        expect(tracking.walkingBearing, isNotNull);
         expect(nav.position, position);
+        expect(tracking.measuredSteps, 15);
 
         await tracking.selectMode(TrackingMode.demo);
         expect(sensors.commands.last, 'stopLocation');
@@ -323,12 +327,7 @@ void main() {
           Offset(meters, 0),
         ),
       );
-      void fix(double meters, double time) => nav.observeLiveFix(
-        time: time,
-        accuracy: 3,
-        callback: time,
-        measuredPosition: east(meters),
-      );
+      void advanceTo(double meters) => nav.applyStepPosition(east(meters));
 
       final arbitrary = east(175.3);
       expect(nav.select(arbitrary, 'Map waypoint'), isTrue);
@@ -348,14 +347,14 @@ void main() {
       expect(nav.position, nav.map.base);
       expect(nav.canNavigate, isFalse);
 
-      fix(100, 2);
+      advanceTo(100);
       expect(nav.remainingMeters, closeTo(75.3, .001));
       expect(nav.canReturnToBase, isFalse);
-      fix(101, 3);
+      advanceTo(101);
       expect(nav.canReturnToBase, isTrue);
-      fix(105, 4);
+      advanceTo(105);
       final nearer = nav.remainingMeters!;
-      fix(102, 5);
+      advanceTo(102);
       expect(nav.remainingMeters, greaterThan(nearer));
       final beforeReturn = nav.position;
       nav.returnToBase(instant: true);
@@ -365,25 +364,21 @@ void main() {
       expect(nav.remainingMeters, closeTo(102, .001));
       expect(nav.canReturnToBase, isFalse);
 
-      fix(113, 6);
+      advanceTo(113);
       expect(nav.remainingMeters, closeTo(113, .001));
-      fix(7, 9);
+      advanceTo(7);
       final withinBase = nav.position;
-      expect(nav.arrived, isFalse);
-      nav.observeLiveFix(time: 12, accuracy: 3, callback: 9);
-      expect(nav.arrived, isFalse);
-      nav.observeLiveFix(time: 13, accuracy: 3, callback: 13);
       expect(nav.state(), NavigationState.arrivedAtBase);
       expect(nav.position, withinBase);
       expect(nav.routeTarget, isNull);
       expect(nav.liveArrivalCount, 1);
-      nav.observeLiveFix(time: 14, accuracy: 3, callback: 14);
+      advanceTo(6);
       expect(nav.liveArrivalCount, 1);
     },
   );
 
   testWidgets(
-    'Location guard confirms destination from distinct fixes and publishes only the measured Mars pose',
+    'Calibrated step batches publish the Mars pose and arrive without snapping',
     (tester) async {
       final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
       final sensors = _Sensors();
@@ -407,16 +402,19 @@ void main() {
         clock: () => now,
       );
       nav.addListener(presence.pulse);
-      Future<void> fix(
-        double meters,
-        double time, {
-        bool walking = false,
-        int? batch,
+      Future<void> read(
+        double time,
+        double yaw, {
+        int? steps,
+        double? distance,
       }) async {
         now = DateTime.fromMillisecondsSinceEpoch((time * 1000).round());
-        sensors.locations.add(
-          _meters(meters, time, accuracy: 2, walking: walking, batch: batch),
-        );
+        sensors.motion.add(_attitude(time, yaw));
+        if (steps != null) {
+          sensors.steps.add(
+            _steps(sensors.stepWindow, time, steps, distance: distance),
+          );
+        }
         await _tick(tester);
       }
 
@@ -435,37 +433,36 @@ void main() {
         );
         nav.select(target, 'Map waypoint');
         nav.start(instant: true);
-        await fix(0, 101);
-        await fix(1, 106);
+        sensors.locationAuthorization = 'Denied';
+        sensors.stepWindow = 101.1;
+        await read(101, 0);
         expect(nav.remainingMeters, closeTo(25, .001));
-        expect(
-          nav.state(positionCertain: tracking.positionCertain),
-          NavigationState.positionUncertain,
-        );
-        expect(nav.liveArrivalCount, 0);
-        await fix(10, 111, walking: true);
-        await fix(17, 117, walking: true);
-        await fix(24, 123, walking: true);
-        expect(nav.remainingMeters, closeTo(5, .01));
-        expect(nav.arrived, isFalse);
+        expect(await tracking.calibrateWalkingDirection(target), isTrue);
+        await read(102, 0, steps: 10);
+        expect(nav.remainingMeters, closeTo(18, .01));
+        expect(tracking.distanceTraveled, closeTo(7, .01));
+        await read(103, 180, steps: 15);
+        expect(nav.remainingMeters, closeTo(21.5, .01));
+        expect(tracking.distanceTraveled, closeTo(10.5, .01));
+        await read(104, 0, steps: 20, distance: 15);
+        expect(nav.remainingMeters, closeTo(18, .01));
+        await read(105, 0, steps: 30, distance: 26);
+        expect(nav.remainingMeters, closeTo(7, .01));
+        expect(tracking.distanceTraveled, closeTo(25, .01));
         final measuredPosition = nav.position;
         expect(connection.writes.last.pose.mars, tracking.pose.mars);
         expect(connection.writes.last.pose.quality, PositionQuality.accepted);
+        expect(connection.writes.last.pose.mode, TrackingMode.live);
         expect(
           connection.writes.last.pose.mars,
           isNot(coordinates.toMars(target)),
         );
-        await fix(24, 124);
-        await fix(24, 125, batch: 123);
-        expect(nav.arrived, isFalse);
-        await fix(24, 126);
         expect(nav.state(), NavigationState.arrivedAtDestination);
-        expect(nav.position, measuredPosition);
         expect(nav.target, target);
         expect(nav.routeTarget, isNull);
         expect(nav.guiding, isFalse);
         expect(nav.liveArrivalCount, 1);
-        await fix(24, 127);
+        await read(106, 0, steps: 30, distance: 26);
         expect(nav.position, measuredPosition);
         expect(nav.liveArrivalCount, 1);
       } finally {
@@ -478,7 +475,7 @@ void main() {
   );
 
   testWidgets(
-    'Pause, foreground restart and GPS discontinuity invalidate arrival evidence',
+    'Pause, resume, frame changes and motion gaps require fresh calibration',
     (tester) async {
       final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
       final sensors = _Sensors();
@@ -489,9 +486,15 @@ void main() {
         sensors: sensors,
         clock: () => now,
       );
-      Future<void> fixes(double time, List<Sample> locations) async {
+      Future<void> read(
+        double time,
+        int steps, {
+        String frame = 'portrait',
+        double? yaw = 0,
+      }) async {
         now = DateTime.fromMillisecondsSinceEpoch((time * 1000).round());
-        sensors.locations.addAll(locations);
+        sensors.motion.add(_attitude(time, yaw, frame));
+        sensors.steps.add(_steps(sensors.stepWindow, time, steps));
         await _tick(tester);
       }
 
@@ -499,50 +502,46 @@ void main() {
         await tracking.resume();
         await tracking.selectMode(TrackingMode.live);
         final coordinates = nav.map.coordinates;
-        nav.select(
-          coordinates.toGrid(
-            displaceOnMars(
-              coordinates.toMars(nav.position),
-              const Offset(25, 0),
-            ),
-          ),
-          'Waypoint',
+        final target = coordinates.toGrid(
+          displaceOnMars(coordinates.toMars(nav.position), const Offset(25, 0)),
         );
+        nav.select(target, 'Waypoint');
         nav.start();
-        await fixes(101, [_meters(0, 101, accuracy: 2)]);
-        for (final (meters, time) in [
-          (10.0, 111.0),
-          (17.0, 117.0),
-          (24.0, 123.0),
-        ]) {
-          await fixes(time, [
-            _meters(meters, time, accuracy: 2, walking: true),
-          ]);
-        }
-        expect(nav.remainingMeters, closeTo(5, .01));
+        await read(101, 0);
+        expect(await tracking.calibrateWalkingDirection(target), isTrue);
+        sensors.stream++;
+        sensors.stepWindow = 101.1;
+        await read(102, 5);
+        expect(nav.remainingMeters, closeTo(21.5, .01));
         final measured = nav.position;
         nav.togglePause();
-        await fixes(126, [_meters(24, 126, accuracy: 2)]);
+        await read(103, 10);
         expect(nav.state(), NavigationState.paused);
         expect(nav.position, measured);
         nav.togglePause();
+        await read(104, 15);
+        expect(nav.position, measured);
+        expect(await tracking.calibrateWalkingDirection(target), isTrue);
         await tracking.suspend();
         await tracking.resume();
-        await fixes(129, [
-          _meters(24, 125, accuracy: 2),
-          _meters(24, 129, accuracy: 2),
-        ]);
+        sensors.stream++;
+        sensors.stepWindow = 104.1;
+        await read(105, 5);
+        expect(nav.position, measured);
+        expect(await tracking.calibrateWalkingDirection(target), isTrue);
+        sensors.stream++;
+        sensors.stepWindow = 105.1;
+        await read(106, 3, frame: 'landscape');
+        expect(nav.position, measured);
+        expect(await tracking.calibrateWalkingDirection(target), isTrue);
+        sensors.stream++;
+        sensors.stepWindow = 106.1;
+        await read(107, 4, frame: 'landscape', yaw: null);
+        expect(nav.position, measured);
+        await read(111, 5, frame: 'landscape');
+        expect(nav.position, measured);
         expect(nav.guiding, isTrue);
-        expect(nav.arrived, isFalse);
-        expect(nav.position, measured);
-        await fixes(135, [_meters(100, 135, accuracy: 2, walking: true)]);
-        expect(tracking.requiresRebaseline, isTrue);
-        expect(
-          nav.state(positionCertain: tracking.positionCertain),
-          NavigationState.positionUncertain,
-        );
         expect(nav.liveArrivalCount, 0);
-        expect(nav.position, measured);
       } finally {
         tracking.dispose();
         nav.dispose();
@@ -551,7 +550,7 @@ void main() {
   );
 
   testWidgets(
-    'Restoration, a position hold, and reconnect preserve provenance',
+    'Restoration, optional GPS diagnostics, and reconnect preserve provenance',
     (tester) async {
       final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
       final sensors = _Sensors();
@@ -585,8 +584,7 @@ void main() {
         now = DateTime.fromMillisecondsSinceEpoch(107000);
         sensors.locations.addAll([_meters(0, 101), _meters(202, 106)]);
         await _tick(tester);
-        expect(tracking.requiresRebaseline, isTrue);
-        expect(tracking.quality, PositionQuality.uncertain);
+        expect(tracking.quality, PositionQuality.waiting);
         expect(nav.position, trusted);
 
         tracking.noteConnection(ConnectionStatus.reconnecting);
@@ -595,13 +593,11 @@ void main() {
         expect(nav.position, trusted);
         await tracking.suspend();
         await tracking.resume();
-        expect(tracking.requiresRebaseline, isTrue);
         expect(nav.position, trusted);
         tracking.rebaseline();
         now = DateTime.fromMillisecondsSinceEpoch(110000);
         sensors.locations.add(_meters(205, 109));
         await _tick(tester);
-        expect(tracking.requiresRebaseline, isFalse);
         expect(nav.position, trusted);
 
         await tracking.exportCapture();
@@ -840,6 +836,19 @@ AstronautPose _pose({double lon = 77, double heading = 0}) => (
   quality: PositionQuality.uncertain,
 );
 
+Sample _attitude(double time, double? yaw, [String frame = 'portrait']) => {
+  'time': time,
+  'yaw': yaw,
+  'frame': frame,
+};
+
+Sample _steps(double start, double end, int total, {double? distance}) => {
+  'start': start,
+  'end': end,
+  'steps': total,
+  if (distance != null) 'distance': distance,
+};
+
 Future<void> _tick(WidgetTester tester, {int ms = 100}) async {
   await tester.pump(Duration(milliseconds: ms));
   await tester.pump();
@@ -849,6 +858,10 @@ final class _Sensors implements SensorService {
   final commands = <String>[];
   final locations = <Sample>[];
   final motion = <Sample>[];
+  final steps = <Sample>[];
+  int stream = 1;
+  double stepWindow = 100;
+  String locationAuthorization = 'Authorized';
   String? exported;
 
   @override
@@ -860,14 +873,23 @@ final class _Sensors implements SensorService {
   @override
   Future<Sample> snapshot() async {
     final batch = {
-      'authorization': 'Authorized',
+      'authorization': locationAuthorization,
       'services': true,
       'precise': true,
       'locations': locations.toList(growable: false),
       'orientations': motion.toList(growable: false),
+      'pedometer': {
+        'source': 'coreMotionPedometer',
+        'stepCounting': true,
+        'authorization': 'authorized',
+        'stream': stream,
+        'started': stepWindow,
+        'samples': steps.toList(growable: false),
+      },
     };
     locations.clear();
     motion.clear();
+    steps.clear();
     return batch;
   }
 }

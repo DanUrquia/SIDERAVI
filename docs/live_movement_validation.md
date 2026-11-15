@@ -1,5 +1,7 @@
 # Phase 5D live movement validation
 
+The location guard below is retained for optional diagnostics. [Phase 6B.2 step navigation](real_navigation_validation.md) drives the live Mars position.
+
 ## What the existing evidence establishes
 
 Phase 5C recorded an approximately 202 m change in the Pro's shared simulated position between two Live Sensors snapshots. The snapshots contain simulated coordinates, the current mode and quality, and server timestamps. They contain no raw Earth fixes, history of accepted steps, or position writer. Both displayed samples said **Position Uncertain**. The exact cause of the historical shift remains unconfirmed.

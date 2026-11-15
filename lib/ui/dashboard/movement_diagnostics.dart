@@ -80,12 +80,6 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   'A capture can contain precise Earth coordinates. It stays on '
                   'this device until you export it.',
                 ),
-                if (tracking.requiresRebaseline)
-                  const Text(
-                    'Position held after a location jump. Rebaseline to assess '
-                    'new fixes from this spot.',
-                    style: TextStyle(color: DashboardStyle.amber),
-                  ),
                 Text('${tracking.mode.label} · ${tracking.quality.label}'),
                 Text(
                   log.recording
@@ -103,6 +97,14 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                 Text('Core Motion · ${capability('motion')}'),
                 Text('Accelerometer · ${capability('accelerometer')}'),
                 Text('Compass · ${capability('compass')}'),
+                if (tracking.mode == TrackingMode.live) ...[
+                  Text(tracking.stepStatus),
+                  Text('Source · ${tracking.stepSource}'),
+                  Text('Detected steps · ${tracking.measuredSteps ?? 0}'),
+                  Text(
+                    'Estimated Mars travel · ${tracking.distanceTraveled.toStringAsFixed(1)} m',
+                  ),
+                ],
                 _PedometerReadout(pedometer),
                 if (tracking.mode == TrackingMode.demo)
                   DashboardButton(
@@ -144,8 +146,7 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   ],
                 ),
                 const Text(
-                  'Rebaseline keeps the Mars position and uses the next '
-                  'fresh Earth fix as the new baseline.',
+                  'Rebaseline resets the optional Earth location log baseline.',
                 ),
               ],
             ),

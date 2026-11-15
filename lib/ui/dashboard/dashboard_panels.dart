@@ -113,7 +113,7 @@ class NavigationPanel extends StatelessWidget {
           value: distance(navigation.map.base),
         ),
         Text(
-          navigation.statusFor(positionCertain: tracking.positionCertain),
+          navigation.status,
           style: const TextStyle(
             color: DashboardStyle.warm,
             fontWeight: FontWeight.w700,
