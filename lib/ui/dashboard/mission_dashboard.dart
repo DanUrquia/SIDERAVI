@@ -270,10 +270,15 @@ class _MissionDashboardState extends State<MissionDashboard>
   }
 
   Future<void> _sendCrewPin() async {
-    final result = await _presence.sendPin();
+    final target = _navigation.selectedDestination;
+    if (target == null || !target.isFinite || !_map.contains(target)) {
+      _notify('Select a destination on the map first.');
+      return;
+    }
+    final result = await _presence.sendPin(_map.coordinates.toMars(target));
     if (!mounted) return;
     _notify(switch (result) {
-      CrewActionResult.sent => 'PIN shared with Crew.',
+      CrewActionResult.sent => 'Destination shared with Crew.',
       CrewActionResult.offline => 'Connect to Crew to share a PIN.',
       CrewActionResult.busy => 'A Crew update is in progress.',
       _ => 'PIN delivery could not be confirmed.',

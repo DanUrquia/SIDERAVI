@@ -258,6 +258,22 @@ for (const mission of missionIds) {
 
   const id = randomUUID().replaceAll('-', '');
   const open = {id, sender: 'ARES-01', ...location, state: 'active', started: serverTime};
+  const ownPresence = sessionPath + '/presence/ARES-01';
+  const savedPresence = await expectStatus(ownPresence, danToken, 200);
+  const destination = {marsLon: -5.167, marsLat: -2.292};
+  const nearbyMission = missionIds[(missionIds.indexOf(mission) + 1) % missionIds.length];
+  const otherMissionPin = sessionAt(nearbyMission) + '/signals/pins/ARES-01';
+  const priorOtherPin = await expectStatus(otherMissionPin, danToken, 200);
+  await sse(signals, peerToken,
+    () => expectStatus(pin, danToken, 200, write({...destination, updated: serverTime})),
+    '"marsLon":-5.167');
+  const received = await expectStatus(pin, peerToken, 200);
+  assert.deepEqual(received, {...destination, updated: received.updated});
+  assert.ok(Number.isInteger(received.updated));
+  assert.deepEqual(await expectStatus(ownPresence, danToken, 200), savedPresence);
+  assert.equal((await expectStatus(signals, danToken, 200)).pins['ARES-02'].marsLat, peerPin.marsLat);
+  assert.deepEqual(await expectStatus(otherMissionPin, danToken, 200), priorOtherPin);
+
   await expectStatus(incident, peerToken, 401, write(open));
   await expectStatus(incident, danToken, 401, write({...open, marsLat: 50}));
   await sse(signals, peerToken,

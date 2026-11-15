@@ -2134,7 +2134,7 @@ void main() {
       await tester.pumpAndSettle();
       await _tapTooltip(tester, 'Send PIN');
       expect(find.text('Connect to Crew to share a PIN.'), findsOneWidget);
-      expect(find.text('PIN shared with Crew.'), findsNothing);
+      expect(find.text('Destination shared with Crew.'), findsNothing);
       expect(nav.pings, isEmpty);
       expect(nav.position, nav.map.base);
 
@@ -2154,63 +2154,175 @@ void main() {
     },
   );
 
-  testWidgets('Connected phone publishes PIN only after acknowledgment', (
+  testWidgets('Connected phone needs an explicit destination to send a PIN', (
+    tester,
+  ) async {
+    final map = await _launch(tester, size: const Size(390, 844));
+    final session = await _connectPhoneCrew(tester, map);
+    final nav = map.navigation;
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    expect(nav.selectedDestination, isNull);
+    expect(nav.select(Offset.zero, 'Outside the mission'), isFalse);
+    await _tapTooltip(tester, 'Send PIN');
+    expect(find.text('Select a destination on the map first.'), findsOneWidget);
+    expect(session.pinWrites, isEmpty);
+    expect(session.pinned, isEmpty);
+    expect(find.byKey(const ValueKey('crew-pin-ARES-01')), findsNothing);
+    expect(nav.position, nav.map.base);
+    expect(nav.guiding, isFalse);
+
+    // A route to a crew SOS is distinct from a user-selected destination.
+    nav.setRescueWaypoint(nav.map.landmarks.first.position);
+    await _tapTooltip(tester, 'Send PIN');
+    expect(find.text('Select a destination on the map first.'), findsWidgets);
+    expect(session.pinWrites, isEmpty);
+    expect(nav.target, nav.map.landmarks.first.position);
+  });
+
+  testWidgets('PIN sends the selected coordinates and expires independently', (
     tester,
   ) async {
     var now = DateTime.utc(2026, 11, 15, 18);
-    final map = await _launch(
-      tester,
-      size: const Size(390, 844),
-      clock: () => now,
-    );
+    const size = Size(390, 844);
+    final map = await _launch(tester, size: size, clock: () => now);
     final session = await _connectPhoneCrew(tester, map);
+    final nav = map.navigation;
     session.updateSignals();
     await tester.pumpAndSettle();
     final base = map.tracking.pose.mars;
     final moved = displaceOnMars(base, const Offset(11, 0));
-    map.navigation.applyStepPosition(map.tracking.coordinates.toGrid(moved));
+    nav.applyStepPosition(map.tracking.gridPosition(moved));
+    final target = nav.map.landmarks.first.position;
+    final destination = nav.map.coordinates.toMars(target);
+    expect(nav.select(target, 'Survey'), isTrue);
     await tester.pumpAndSettle();
+    final presenceWrites = session.writes.length;
 
     final gate = Completer<void>();
     session.pinGate = gate;
     await _tapTooltip(tester, 'Send PIN');
-    expect(session.pinWrites.single.mars, moved);
+    expect(session.pinWrites.single, destination);
+    expect(session.pinWrites.single, isNot(moved));
     expect(map.tracking.pose.mars, moved);
-    expect(find.text('PIN shared with Crew.'), findsNothing);
+    expect(nav.target, target);
+    expect(nav.guiding, isFalse);
+    expect(find.text('Destination shared with Crew.'), findsNothing);
+    final pin = find.byKey(const ValueKey('crew-pin-ARES-01'));
+    expect(pin, findsNothing);
     gate.complete();
     await tester.pumpAndSettle();
-    expect(find.text('PIN shared with Crew.'), findsOneWidget);
-    expect(find.byKey(const ValueKey('crew-pin-ARES-01')), findsOneWidget);
+    expect(find.text('Destination shared with Crew.'), findsOneWidget);
+    expect(session.writes, hasLength(presenceWrites));
+    expect(pin, findsOneWidget);
+    final world = missionWorld(size);
+    final anchor = MatrixUtils.transformPoint(
+      map.view.value,
+      world.topLeft + target * world.width,
+    );
+    expect((tester.getCenter(pin) - anchor).distance, lessThan(.001));
+    expect(
+      find.descendant(
+        of: pin,
+        matching: find.byKey(const ValueKey('pin-anchor-tether')),
+      ),
+      findsOneWidget,
+    );
 
     final other = displaceOnMars(base, const Offset(0, 18));
     session.pinned['ARES-02'] = (mars: other, updated: now);
     session.updateSignals();
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
-          .sharedPins['ARES-02'],
-      map.tracking.gridPosition(other),
-    );
     expect(find.text('PIN · ARES-02'), findsOneWidget);
+    expect(nav.target, target);
 
-    final movedAgain = displaceOnMars(base, const Offset(20, 0));
-    map.navigation.applyStepPosition(
-      map.tracking.coordinates.toGrid(movedAgain),
-    );
+    final next = nav.map.landmarks[1].position;
+    expect(nav.select(next, 'Second survey'), isTrue);
     now = now.add(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
     await _tapTooltip(tester, 'Send PIN');
-    expect(session.pinWrites.last.mars, movedAgain);
-    expect(find.byKey(const ValueKey('crew-pin-ARES-01')), findsOneWidget);
+    expect(session.pinWrites.last, nav.map.coordinates.toMars(next));
+    expect(session.pinned['ARES-01']!.mars, session.pinWrites.last);
+    expect(session.pinned['ARES-02']!.mars, other);
+    expect(pin, findsOneWidget);
+    nav.start();
     now = now.add(const Duration(seconds: 31));
     await tester.pump(const Duration(milliseconds: 250));
     await tester.pumpAndSettle();
     expect(find.text('PIN · ARES-02'), findsNothing);
-    expect(find.text('PIN · ARES-01'), findsOneWidget);
+    expect(pin, findsOneWidget);
     now = now.add(const Duration(seconds: 30));
     await tester.pump(const Duration(milliseconds: 250));
+    session.updateSignals();
     await tester.pumpAndSettle();
-    expect(find.text('PIN · ARES-01'), findsNothing);
+    expect(pin, findsNothing);
+    expect(nav.target, next);
+    expect(nav.guiding, isTrue);
+  });
+
+  testWidgets('Remote PIN keeps its map anchor and selects only on tap', (
+    tester,
+  ) async {
+    const size = Size(390, 844);
+    final map = await _launch(tester, size: size, astronaut: DemoCrew.adrian);
+    final session = await _connectPhoneCrew(tester, map);
+    final navigation = map.navigation;
+    final prior = navigation.map.landmarks.first.position;
+    expect(navigation.select(prior, 'Existing destination'), isTrue);
+    navigation.start();
+    final origin = navigation.position;
+    final coordinate = displaceOnMars(
+      map.tracking.pose.mars,
+      const Offset(78, 65),
+    );
+    final point = map.tracking.gridPosition(coordinate);
+    session.pinned['ARES-01'] = (mars: coordinate, updated: session.clock());
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    expect(navigation.target, prior);
+    expect(navigation.guiding, isTrue);
+    expect(
+      tester
+          .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
+          .sharedPins['ARES-01'],
+      point,
+    );
+
+    final pin = find.byKey(const ValueKey('crew-pin-ARES-01'));
+    final tap = find.byTooltip('Select PIN from ARES-01');
+    final world = missionWorld(size);
+    void expectAnchor() {
+      final position = MatrixUtils.transformPoint(
+        map.view.value,
+        world.topLeft + point * world.width,
+      );
+      expect((tester.getCenter(pin) - position).distance, lessThan(.001));
+    }
+
+    expectAnchor();
+    await tester.tap(find.text('Fit area · 500 m radius'));
+    await tester.pumpAndSettle();
+    expectAnchor();
+    await tester.dragFrom(const Offset(160, 480), const Offset(22, 16));
+    await tester.pumpAndSettle();
+    expectAnchor();
+    await _tapTooltip(tester, 'Recenter on astronaut');
+    expectAnchor();
+    map.tracking.heading.value = 65;
+    await _tapTooltip(tester, 'Heading-up');
+    expect(map.view.rotation, isNot(0));
+    expectAnchor();
+    expect(tap.hitTestable(), findsOneWidget);
+    await tester.tap(tap);
+    await tester.pumpAndSettle();
+    expect(navigation.target, point);
+    expect(navigation.targetLabel, 'PIN · ARES-01');
+    expect(navigation.guiding, isFalse);
+    expect(navigation.position, origin);
+    expect(tap.hitTestable(), findsOneWidget);
+    await _tapTooltip(tester, 'North-up');
+    expectAnchor();
+    expect(map.view.rotation, closeTo(0, 1e-12));
   });
 
   testWidgets('Sender can cancel shared SOS and keep moving', (tester) async {
@@ -2814,7 +2926,7 @@ final class _PhonePresence implements CrewSignalConnection {
   final crew = StreamController<PresenceSnapshot>();
   final signals = StreamController<CrewSignals>();
   final pinned = <String, CrewPin>{};
-  final pinWrites = <AstronautPose>[];
+  final pinWrites = <Offset>[];
   final finished = <SosState>[];
   CrewSos? alert;
   Completer<void>? pinGate;
@@ -2853,10 +2965,10 @@ final class _PhonePresence implements CrewSignalConnection {
   Stream<CrewSignals> get signalSnapshots => signals.stream;
 
   @override
-  Future<void> sendPin(AstronautPose pose) async {
-    pinWrites.add(pose);
+  Future<void> sendPin(Offset destination) async {
+    pinWrites.add(destination);
     await pinGate?.future;
-    pinned[key.astronaut] = (mars: pose.mars, updated: clock());
+    pinned[key.astronaut] = (mars: destination, updated: clock());
     updateSignals();
   }
 

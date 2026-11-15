@@ -1,10 +1,12 @@
 # Crew PIN and SOS
 
-Open the same mission on two enrolled iPhones. The field build uses the mission's existing `field-test-01` session and automatically connects Crew. The **Send PIN** and **SOS** controls share that session.
+Open the same mission on two enrolled iPhones. The field build uses the mission's existing `field-test-01` session and automatically connects Crew.
 
-## Position PIN
+## Destination PIN
 
-**Send PIN** captures the current PDR-estimated Mars position and publishes it with the current crew pose in a single database update. The sender sees **PIN shared with Crew** after Firebase acknowledges the write. Each map shows the newest PIN for each astronaut, with the sender's ARES ID. A PIN stays at that captured location and expires 60 seconds after its server timestamp. An offline tap displays the connection requirement. A failed send is reported as unconfirmed. Reconnect loads existing unexpired PINs and leaves unsent taps behind.
+**Send PIN** shares the selected destination's Mars coordinates with the current mission's Crew. A tap without a valid selection shows **Select a destination on the map first.** The sender sees **Destination shared with Crew** after Firebase accepts the write. The cyan marker identifies its sender by ARES ID. When close to a flag or crew marker, a short line connects the PIN symbol to its geographic point.
+
+Receiving a PIN leaves the current route in place. Tap the teammate's PIN to select the point, then use **Start Navigation** when ready. A new PIN replaces the sender's prior PIN. The marker expires 60 seconds after its server timestamp and the selected destination and route remain available. Reconnect restores unexpired PINs. An offline tap with a valid selection displays the connection requirement.
 
 ## Crew rescue
 
@@ -25,17 +27,23 @@ All paths are relative to `missions/{missionId}/sessions/{sessionId}`.
 | `signals/pins/{ARES-id}` | `marsLon`, `marsLat`, `updated` |
 | `signals/sos` | `id`, `sender`, `marsLon`, `marsLat`, `started`, `state`. Terminal records include `finishedBy` and `finished`. |
 
-The PIN key identifies the astronaut. Timestamps come from Firebase. PINs use an atomic multipath update of the PIN and the sender's existing pose. SOS uses a conditional update with the current ETag. The server rejects replacing an active incident or changing the captured position during cancellation or resolution. A new alert can replace the latest terminal record. [Firebase Realtime Database conditional writes](https://firebase.google.com/docs/database/rest/save-data)
+The PIN key identifies the astronaut. Timestamps come from Firebase. The client writes the selected coordinate to the sender's PIN path. Presence continues updating independently. SOS uses a conditional update with the current ETag. The server rejects replacing an active incident or changing the captured position during cancellation or resolution. A new alert can replace the latest terminal record. [Firebase Realtime Database conditional writes](https://firebase.google.com/docs/database/rest/save-data)
 
 The same authenticated mission membership authorizes signal reads. An astronaut can write their own PIN and create or cancel an SOS as their assigned slot. Resolution requires an authenticated teammate with a recent, online, accepted live pose after activation and within a conservative Mars coordinate envelope. The app separately checks the exact five-meter distance and accepted movement across the boundary. Signed-in devices report their own PDR estimates. Server validation checks those estimates against the alert and cannot attest to physical arrival. No Earth location or account credentials are written to signals.
 
 ## Field procedure
 
-1. Open Endeavour on both enrolled devices. Walk with one physical phone while the other stays still, send **PIN**, and compare its marker against the published Mars coordinates. Repeat in reverse.
+1. Open Endeavour on both enrolled devices. Tap **Send PIN** before selecting a destination and check the prompt. Select a waypoint, send **PIN**, and compare its location on both phones. Tap the received PIN on the teammate’s map to select it. Repeat in reverse.
 2. Send SOS from one phone. Check the sender status, the other phone's modal and rescue waypoint, and both red boundaries. Cancel and confirm both return to normal.
 3. Start outside the five-meter radius and walk toward the waypoint with the rescuer's physical phone. Observe the transition to resolved and the restored boundary. A simulator can verify synchronization, presentation, and cancellation. Its step count is unavailable for physical arrival.
 
 See [device enrollment](live_astronaut_tracking.md) for the field phones. Dan and Keren already own the two field slots. An operator must explicitly provision a replacement device or use an isolated test session.
+
+## Phase 6G.1 verification
+
+Flutter tests exercise the destination requirement, acknowledged delivery, the compact anchored marker, a teammate's explicit tap, pan, zoom, both heading modes and expiry while guidance remains active. The Firebase emulator verifies that destination coordinates differ from the stored sender pose and reach the teammate stream, with writes scoped to the sender's slot and mission. The existing SOS capture and resolution tests still pass.
+
+The DEV build was installed and launched in place on Dan's iPhone 16 and the iPhone 18 Pro simulator. The simulator showed the destination prompt in Endeavour as ARES-02. Keren's iPhone 14 Plus was unavailable for installation and paired field testing.
 
 ## Phase 6F verification
 

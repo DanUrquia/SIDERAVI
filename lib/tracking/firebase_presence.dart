@@ -329,18 +329,12 @@ final class _FirebaseConnection implements CrewSignalConnection {
   }
 
   @override
-  Future<void> sendPin(AstronautPose pose) async {
+  Future<void> sendPin(Offset destination) async {
     await _request(
       _http,
-      'PATCH',
-      await _uri(const []),
-      body: jsonEncode({
-        'presence/${key.astronaut}': _pose(pose, true),
-        'signals/pins/${key.astronaut}': {
-          ..._location(pose.mars),
-          'updated': _serverTime,
-        },
-      }),
+      'PUT',
+      await _uri(['signals', 'pins', '${key.astronaut}.json']),
+      body: jsonEncode({..._location(destination), 'updated': _serverTime}),
     );
   }
 

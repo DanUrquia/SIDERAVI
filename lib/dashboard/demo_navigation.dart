@@ -72,6 +72,7 @@ final class DemoNavigation extends ChangeNotifier {
   Offset get position => _position;
   NavigationPositionSource get positionSource => _positionSource;
   bool get rescuing => _rescueWaypoint != null;
+  Offset? get selectedDestination => _target;
   Offset? get target => _rescueWaypoint ?? _target;
   String? get targetLabel => rescuing ? 'Rescue waypoint' : _targetLabel;
   bool get paused => _paused;

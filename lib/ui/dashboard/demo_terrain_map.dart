@@ -572,10 +572,21 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                               small: true,
                               showCompactLabel: true,
                               above: true,
+                              description: pin.key == widget.astronautId
+                                  ? null
+                                  : 'Select PIN from ${pin.key}',
+                              onTap: pin.key == widget.astronautId
+                                  ? null
+                                  : () => widget.onSelect(
+                                      pin.value,
+                                      'PIN · ${pin.key}',
+                                    ),
                               signalNeighbors: [
                                 localAnchor,
                                 if (peerAnchor != null) peerAnchor,
                                 baseAnchor,
+                                if (navigation.target case final target?)
+                                  _project(world, target),
                                 if (widget.sharedSos case final sos?)
                                   _project(world, sos.point),
                                 for (final other in widget.sharedPins.entries)
@@ -583,9 +594,10 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                                     _project(world, other.value),
                               ],
                               signalOffset: Offset(
-                                pin.key == 'ARES-01' ? -44 : 44,
-                                -72,
+                                pin.key == 'ARES-01' ? -49 : 49,
+                                -34,
                               ),
+                              tetherSignal: true,
                             ),
                           if (widget.sharedSos case final sos?)
                             _marker(
@@ -863,6 +875,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     bool showCompactLabel = false,
     List<Offset> signalNeighbors = const [],
     Offset signalOffset = Offset.zero,
+    bool tetherSignal = false,
     bool above = false,
     bool emergency = false,
     bool localAstronaut = false,
@@ -948,6 +961,11 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
               )
               ? signalOffset
               : Offset.zero;
+          final tether = collision != null
+              ? separation
+              : tetherSignal
+              ? signalShift
+              : Offset.zero;
           final at =
               center +
               shift +
@@ -961,17 +979,21 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                if (collision != null)
+                if (tether != Offset.zero)
                   Positioned(
                     left: center.dx,
                     top: center.dy,
                     child: IgnorePointer(
-                      key: const ValueKey('marker-collision-tether'),
+                      key: ValueKey(
+                        collision == null
+                            ? 'pin-anchor-tether'
+                            : 'marker-collision-tether',
+                      ),
                       child: Transform.rotate(
-                        angle: separation.direction,
+                        angle: tether.direction,
                         alignment: Alignment.centerLeft,
                         child: SizedBox(
-                          width: separation.distance,
+                          width: tether.distance,
                           height: 2,
                           child: ColoredBox(color: color),
                         ),

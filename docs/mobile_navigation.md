@@ -26,7 +26,7 @@ Start Navigation, Return to Base, Send PIN and SOS are four orange circular butt
 
 Solar Cycle sits to the left of Fit Area in a row of equal-height cards above the dock. Very narrow viewports stack the cards vertically. Fit Area retains the mission radius, measured scale, NASA Mars Trek attribution and the terrain warning during direct guidance. The action rail occupies the space above the cards. Map tile status appears above the footer at the left, and Retry re-requests the failed tiles. The cards hide while a sheet is open. During active SOS, the map hides the solar card and retains the scale, attribution and applicable guidance warning. [Solar and temperature methods](scientific_missions.md)
 
-**Send PIN** immediately publishes the current Mars estimate and shows a temporary marker in Crew. **SOS** asks for confirmation and opens a shared rescue at the captured position. The red mission boundary and rescue waypoint remain active until cancellation or accepted estimated arrival. [PIN and SOS behavior](crew_signals.md)
+**Send PIN** shares the selected destination as a temporary map marker. A teammate can tap the PIN to select that point. **SOS** asks for confirmation and opens a shared rescue at the captured position. The red mission boundary and rescue waypoint remain active until cancellation or accepted estimated arrival. [PIN and SOS behavior](crew_signals.md)
 
 ## Bottom sheets
 

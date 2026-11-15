@@ -72,7 +72,7 @@ abstract interface class PresenceConnection {
 /// Signal operations share the same connection, credentials and mission scope.
 abstract interface class CrewSignalConnection implements PresenceConnection {
   Stream<CrewSignals> get signalSnapshots;
-  Future<void> sendPin(AstronautPose pose);
+  Future<void> sendPin(Offset destination);
   Future<bool> startSos(Offset mars);
   Future<bool> finishSos(String eventId, SosState state);
 }
@@ -225,13 +225,11 @@ final class MissionPresence extends ChangeNotifier {
   bool get canSendSignals =>
       _signalsReady && status == ConnectionStatus.connected;
 
-  Future<CrewActionResult> sendPin() {
-    final captured = pose();
-    return _send((connection) async {
-      await connection.sendPin(captured);
-      return true;
-    });
-  }
+  Future<CrewActionResult> sendPin(Offset destination) =>
+      _send((connection) async {
+        await connection.sendPin(destination);
+        return true;
+      }, refreshPose: false);
 
   Future<CrewActionResult> startSos() {
     final captured = pose();
@@ -251,8 +249,9 @@ final class MissionPresence extends ChangeNotifier {
   });
 
   Future<CrewActionResult> _send(
-    Future<bool> Function(CrewSignalConnection) operation,
-  ) async {
+    Future<bool> Function(CrewSignalConnection) operation, {
+    bool refreshPose = true,
+  }) async {
     final connection = _connection;
     if (!canSendSignals || connection is! CrewSignalConnection) {
       return CrewActionResult.offline;
@@ -264,8 +263,8 @@ final class MissionPresence extends ChangeNotifier {
     final result = await command;
     if (identical(_command, command)) _command = null;
     if (_current(epoch)) {
-      // A fresh heartbeat corrects any pose change since the captured command.
-      _lastPose = null;
+      // SOS can publish an explicitly captured pose. Refresh it after the command.
+      if (refreshPose) _lastPose = null;
       pulse();
     }
     return result;
