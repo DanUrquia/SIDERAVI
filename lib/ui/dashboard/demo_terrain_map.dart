@@ -12,11 +12,12 @@ import '../../missions/mission.dart';
 import '../../sensors/sensor_measurements.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
+import '../../tracking/tracking_geometry.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
 import 'trek_tile_view.dart';
 
-/// Offers pinch, pan and destination selection on a north-up demo grid.
+/// Offers pan, pinch, and geographic destination selection.
 class DemoTerrainMap extends StatefulWidget {
   /// Composes the interchangeable terrain and local navigation layers.
   const DemoTerrainMap({
@@ -71,16 +72,23 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
   static const _openingDuration = Duration(milliseconds: 1600);
   static const _followDuration = Duration(milliseconds: 220);
   static const _openingScaleBarMeters = 200.0;
+  static const _headingDeadband = 1.5 * math.pi / 180;
 
   late final AnimationController _camera;
   Timer? _openingTimer;
+  Timer? _gestureSettle;
   MarsScene? _scene;
   bool _openingZoom = false;
   bool _writingCamera = false;
   bool _interacting = false;
   ({Size viewport, Offset pixel})? _followTarget;
-  Offset _panStart = Offset.zero;
-  Offset _panEnd = Offset.zero;
+  Offset _cameraAnchor = Offset.zero;
+  Offset _screenStart = Offset.zero;
+  Offset _screenEnd = Offset.zero;
+  double _rotationStart = 0;
+  double _rotationEnd = 0;
+  double _requestedRotation = 0;
+  bool _centeringAstronaut = false;
   Offset _openingAnchor = Offset.zero;
   double _openingScale = 1;
   double _walkingScale = 1;
@@ -92,6 +100,8 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
       ..addListener(_cameraFrame)
       ..addStatusListener(_cameraStatus);
     view.addListener(_cameraChanged);
+    view.headingUp.addListener(_headingModeChanged);
+    tracking.heading.addListener(_attitudeChanged);
     if (widget.fullScreen && widget.showMapHud) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !widget.showMapHud) return;
@@ -105,8 +115,15 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.view != view) {
       oldWidget.view.removeListener(_cameraChanged);
+      oldWidget.view.headingUp.removeListener(_headingModeChanged);
       view.addListener(_cameraChanged);
+      view.headingUp.addListener(_headingModeChanged);
+      _requestedRotation = view.rotation;
       _manualCameraInput();
+    }
+    if (oldWidget.tracking != tracking) {
+      oldWidget.tracking.heading.removeListener(_attitudeChanged);
+      tracking.heading.addListener(_attitudeChanged);
     }
     if (!widget.showMapHud || !widget.fullScreen) _cancelOpeningZoom();
   }
@@ -169,13 +186,13 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
         )!;
         view.frame(target, screen, scale);
       } else {
-        final position = Offset.lerp(
-          _panStart,
-          _panEnd,
-          Curves.easeOut.transform(_camera.value),
-        )!;
-        view.value = Matrix4.copy(view.value)
-          ..setTranslationRaw(position.dx, position.dy, 0);
+        final progress = Curves.easeOut.transform(_camera.value);
+        view.frame(
+          _cameraAnchor,
+          Offset.lerp(_screenStart, _screenEnd, progress)!,
+          view.value.getMaxScaleOnAxis(),
+          angle: _rotationStart + (_rotationEnd - _rotationStart) * progress,
+        );
       }
     } finally {
       _writingCamera = false;
@@ -207,21 +224,115 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
   }
 
   void _cameraChanged() {
-    if (!_writingCamera) _manualCameraInput();
+    if (_writingCamera) return;
+    _manualCameraInput();
+    _gestureSettle?.cancel();
+    if (!_interacting &&
+        _shortArc(_requestedRotation - view.rotation).abs() >= .00001) {
+      // InteractiveViewer can keep panning briefly after the last touch.
+      _gestureSettle = Timer(const Duration(milliseconds: 95), () {
+        _gestureSettle = null;
+        _settleHeading();
+      });
+    }
   }
 
-  /// Reframes accepted position changes without changing the user's scale.
+  bool get _headingUp => widget.fullScreen && view.headingUp.value;
+
+  void _headingModeChanged() {
+    final scene = _scene;
+    if (!widget.fullScreen || scene == null) return;
+    _gestureSettle?.cancel();
+    _gestureSettle = null;
+    _manualCameraInput();
+    final viewport = scene.viewport;
+    final center = viewport.center(Offset.zero);
+    final heading = tracking.heading.value;
+    _requestedRotation = _headingUp
+        ? heading == null
+              ? view.rotation
+              : -heading * math.pi / 180
+        : 0;
+    if (_headingUp) {
+      final pixel = _project(missionWorld(viewport), navigation.position);
+      _followTarget = (viewport: viewport, pixel: pixel);
+      tracking.setFollow(true);
+      _animateCamera(pixel, center, centeringAstronaut: true);
+    } else {
+      _animateCamera(view.toScene(center), center);
+    }
+  }
+
+  void _attitudeChanged() {
+    if (!_headingUp) return;
+    final heading = tracking.heading.value;
+    if (heading == null || !heading.isFinite) return;
+    final rotation = -heading * math.pi / 180;
+    if (_shortArc(rotation - _requestedRotation).abs() >= _headingDeadband) {
+      _requestedRotation = rotation;
+    }
+    _settleHeading();
+  }
+
+  void _settleHeading() {
+    final scene = _scene;
+    if (!widget.fullScreen ||
+        _interacting ||
+        _gestureSettle?.isActive == true ||
+        scene == null) {
+      return;
+    }
+    final activeRotation = _camera.isAnimating ? _rotationEnd : view.rotation;
+    if (_shortArc(_requestedRotation - activeRotation).abs() < .00001) return;
+    final center = scene.viewport.center(Offset.zero);
+    final focus = _camera.isAnimating && _centeringAstronaut
+        ? _followTarget?.pixel
+        : null;
+    _animateCamera(
+      focus ?? view.toScene(center),
+      center,
+      centeringAstronaut: focus != null,
+    );
+  }
+
+  double _shortArc(double radians) =>
+      (radians + math.pi) % (2 * math.pi) - math.pi;
+
+  /// Moves the existing terrain transform around a geographic anchor.
+  void _animateCamera(
+    Offset anchor,
+    Offset screen, {
+    bool centeringAstronaut = false,
+  }) {
+    final start = MatrixUtils.transformPoint(view.value, anchor);
+    final rotation = view.rotation;
+    final turn = _shortArc(_requestedRotation - rotation);
+    if ((start - screen).distanceSquared < .000001 && turn.abs() < .00001) {
+      return;
+    }
+    _cameraAnchor = anchor;
+    _screenStart = start;
+    _screenEnd = screen;
+    _rotationStart = rotation;
+    _rotationEnd = rotation + turn;
+    _centeringAstronaut = centeringAstronaut;
+    _startCamera(_followDuration);
+  }
+
+  /// Follows accepted positions while allowing temporary manual exploration.
   void _follow(Size viewport, Offset pixel) {
     if (!tracking.follow) {
-      if (_followTarget != null && !_openingZoom) _camera.stop();
+      if (_followTarget != null && _centeringAstronaut && !_openingZoom) {
+        _camera.stop();
+      }
       _followTarget = null;
       return;
     }
+    if (_interacting) return;
     _cancelOpeningZoom();
     final target = (viewport: viewport, pixel: pixel);
     if (_followTarget == target) return;
     _followTarget = target;
-    if (_interacting) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           !tracking.follow ||
@@ -229,19 +340,30 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           _interacting) {
         return;
       }
-      final translation = view.value.getTranslation();
-      _panStart = Offset(translation.x, translation.y);
-      _panEnd =
-          viewport.center(Offset.zero) - pixel * view.value.getMaxScaleOnAxis();
-      if ((_panEnd - _panStart).distanceSquared < .000001) return;
-      _startCamera(_followDuration);
+      _animateCamera(
+        pixel,
+        viewport.center(Offset.zero),
+        centeringAstronaut: true,
+      );
     });
+  }
+
+  void _endInteraction() {
+    _interacting = false;
+    _settleHeading();
+    if (_scene case final scene?) {
+      final viewport = scene.viewport;
+      _follow(viewport, _project(missionWorld(viewport), navigation.position));
+    }
   }
 
   @override
   void dispose() {
     _openingTimer?.cancel();
+    _gestureSettle?.cancel();
     view.removeListener(_cameraChanged);
+    view.headingUp.removeListener(_headingModeChanged);
+    tracking.heading.removeListener(_attitudeChanged);
     _camera.dispose();
     super.dispose();
   }
@@ -319,6 +441,8 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                   },
                   child: Listener(
                     onPointerDown: (_) => _manualCameraInput(),
+                    onPointerUp: (_) => _settleHeading(),
+                    onPointerCancel: (_) => _settleHeading(),
                     onPointerSignal: (_) => _manualCameraInput(),
                     child: InteractiveViewer(
                       transformationController: view,
@@ -330,13 +454,14 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                         _manualCameraInput();
                       },
                       onInteractionUpdate: (details) {
-                        if (tracking.follow &&
+                        if (!_headingUp &&
+                            tracking.follow &&
                             details.pointerCount == 1 &&
                             details.focalPointDelta.distanceSquared > 0) {
                           tracking.setFollow(false);
                         }
                       },
-                      onInteractionEnd: (_) => _interacting = false,
+                      onInteractionEnd: (_) => _endInteraction(),
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -440,6 +565,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                                 !widget.fullScreen &&
                                 tracking.mode == TrackingMode.live,
                             emergency: navigation.sos,
+                            localAstronaut: true,
                             onTap: pairOnPhone ? widget.onAstronaut : null,
                             clusterWith: pairOnPhone ? peerAnchor : null,
                             firstInCluster:
@@ -570,13 +696,16 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     : zoom >= areaScale - .001;
                 return TextButton(
                   onPressed: () {
-                    tracking.setFollow(false);
-                    if (local) {
+                    tracking.setFollow(_headingUp);
+                    final point = _headingUp && local
+                        ? navigation.position
+                        : navigation.map.base;
+                    if (local && !_headingUp) {
                       view.reset();
                     } else {
                       view.fitArea(
-                        _project(world, navigation.map.base),
-                        areaScale,
+                        _project(world, point),
+                        local ? 1 : areaScale,
                         viewport,
                       );
                     }
@@ -618,7 +747,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     );
   }
 
-  /// Follows the scene anchor while cancelling camera scale on the visual marker.
+  /// Follows the scene anchor while keeping the marker upright in screen space.
   Widget _marker(
     Rect world,
     Offset local,
@@ -640,6 +769,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     bool small = false,
     bool above = false,
     bool emergency = false,
+    bool localAstronaut = false,
   }) {
     final anchor = _project(world, local);
     final duration = animate && !MediaQuery.disableAnimationsOf(context)
@@ -650,16 +780,6 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     final center = Offset(width / 2, height / 2);
     final buttonSize = small && onTap == null ? 30.0 : 48.0;
     const labelWidth = 146.0;
-    final chip = _MarkerChip(
-      icon: icon,
-      color: color,
-      size: buttonSize,
-      description: description ?? label,
-      onTap: onTap,
-      small: small,
-      heading: heading,
-      liveHeading: liveHeading,
-    );
     return AnimatedPositioned(
       key: key,
       duration: duration,
@@ -668,28 +788,36 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
       height: height,
       left: anchor.dx - center.dx,
       top: anchor.dy - center.dy,
-      child: ValueListenableBuilder(
-        valueListenable: view,
-        builder: (context, transform, child) {
+      child: ListenableBuilder(
+        listenable: Listenable.merge([view, view.headingUp]),
+        builder: (context, _) {
+          final transform = view.value;
           final scale = transform.getMaxScaleOnAxis();
+          final rotation = view.rotation;
+          final screenAnchor = MatrixUtils.transformPoint(transform, anchor);
+          Offset screenDelta(Offset point) =>
+              MatrixUtils.transformPoint(transform, point) - screenAnchor;
           Offset? collision;
           var nearest = 34.0;
           for (final point in nearby) {
-            final distance = (anchor - point).distance * scale;
+            final distance = screenDelta(point).distance;
             if (distance < nearest) {
               nearest = distance;
               collision = point;
             }
           }
-          final separation = collision == null
+          final collisionDelta = collision == null
+              ? null
+              : screenDelta(collision);
+          final separation = collisionDelta == null
               ? Offset.zero
               : Offset(
-                  anchor.dx < collision.dx ? -48 : 48,
-                  anchor.dy < collision.dy ? -24 : 24,
+                  collisionDelta.dx > 0 ? -48 : 48,
+                  collisionDelta.dy > 0 ? -24 : 24,
                 );
           final partnerDelta = clusterWith == null
               ? null
-              : (clusterWith - anchor) * scale;
+              : screenDelta(clusterWith);
           final clustered =
               partnerDelta != null && partnerDelta.distance < buttonSize;
           var clusterShift = 0.0;
@@ -706,10 +834,10 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           // Reserve space for nearby labels without moving their markers.
           final peer = labelAvoidsMarker == null
               ? null
-              : (labelAvoidsMarker - anchor) * scale;
+              : screenDelta(labelAvoidsMarker);
           final base = labelAvoidsBase == null
               ? null
-              : (labelAvoidsBase - anchor) * scale;
+              : screenDelta(labelAvoidsBase);
           final labelAbove =
               above ||
               clustered ||
@@ -719,8 +847,10 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                   peer.dy < 68) ||
               (base != null && base.dy >= 0 && base.distance < 72);
           final at = center + shift + separation + Offset(clusterShift, 0);
-          return Transform.scale(
-            scale: 1 / scale,
+          return Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.rotationZ(-rotation)
+              ..scaleByDouble(1 / scale, 1 / scale, 1 / scale, 1),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -763,7 +893,18 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                 Positioned(
                   left: at.dx - buttonSize / 2,
                   top: at.dy - buttonSize / 2,
-                  child: child!,
+                  child: _MarkerChip(
+                    icon: icon,
+                    color: color,
+                    size: buttonSize,
+                    description: description ?? label,
+                    onTap: onTap,
+                    small: small,
+                    heading: heading,
+                    liveHeading: liveHeading,
+                    faceUp: localAstronaut && _headingUp,
+                    rotation: localAstronaut ? 0 : rotation,
+                  ),
                 ),
                 if (!small)
                   Positioned(
@@ -799,7 +940,6 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             ),
           );
         },
-        child: chip,
       ),
     );
   }
@@ -996,6 +1136,8 @@ class _MarkerChip extends StatelessWidget {
     this.small = false,
     this.heading,
     this.liveHeading,
+    required this.faceUp,
+    required this.rotation,
   });
 
   final IconData icon;
@@ -1006,11 +1148,20 @@ class _MarkerChip extends StatelessWidget {
   final bool small;
   final double? heading;
   final ValueNotifier<double?>? liveHeading;
+  final bool faceUp;
+  final double rotation;
 
   Widget _arrow(double? value) {
     final glyph = Icon(icon, color: color, size: small ? 15 : 23);
     if (icon != Icons.navigation_rounded) return glyph;
-    return RelativeMarkerArrow(heading: value, child: glyph);
+    return Transform.rotate(
+      angle: rotation,
+      child: RelativeMarkerArrow(
+        key: ValueKey(faceUp),
+        heading: faceUp && value != null ? 0 : value,
+        child: glyph,
+      ),
+    );
   }
 
   @override
@@ -1054,7 +1205,7 @@ class _MarkerChip extends StatelessWidget {
   }
 }
 
-/// Shows approximate horizontal scale at the latitude of the view center.
+/// Measures the ground distance along the current screen-horizontal axis.
 class _MarsScaleBar extends StatelessWidget {
   const _MarsScaleBar({required this.scene, required this.view});
 
@@ -1066,11 +1217,12 @@ class _MarsScaleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: view,
-    builder: (context, transform, _) {
-      final center = view.toScene(scene.viewport.center(Offset.zero));
-      final metersPerPixel =
-          scene.groundMetersPerPixel(center) / transform.getMaxScaleOnAxis();
-      final meters = metersPerPixel * width;
+    builder: (context, _, child) {
+      final center = scene.viewport.center(Offset.zero);
+      const half = Offset(width / 2, 0);
+      final start = scene.toGeographic(view.toScene(center - half));
+      final end = scene.toGeographic(view.toScene(center + half));
+      final meters = surfaceDistance(start, end, MarsProjection.radiusMeters);
       return Row(
         mainAxisSize: MainAxisSize.min,
         spacing: 7,

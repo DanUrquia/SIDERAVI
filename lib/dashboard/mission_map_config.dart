@@ -84,7 +84,7 @@ final class MissionMapConfig {
 /// Maps mission IDs from the briefing catalog to local demo scenarios.
 final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
   'jezero': MissionMapConfig(
-    mission: marsMissions[0],
+    mission: marsMissionById['jezero']!,
     asset: 'assets/maps/jezero.jpg',
     credit: 'PIA19303 · NASA/JPL-Caltech/University of Arizona',
     base: Offset(.43, .55),
@@ -100,7 +100,7 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     marsTemperature: '−62 °C',
   ),
   'gale': MissionMapConfig(
-    mission: marsMissions[1],
+    mission: marsMissionById['gale']!,
     asset: 'assets/maps/gale.jpg',
     credit: 'PIA14290 · NASA/JPL-Caltech/ASU',
     base: Offset(.52, .48),
@@ -116,7 +116,7 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     marsTemperature: '−45 °C',
   ),
   'endeavour': MissionMapConfig(
-    mission: marsMissions[2],
+    mission: marsMissionById['endeavour']!,
     asset: 'assets/maps/endeavour.jpg',
     credit: 'PIA11837 · NASA/JPL-Caltech/MSSS',
     base: Offset(.56, .53),
@@ -132,7 +132,7 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     marsTemperature: '−68 °C',
   ),
   'columbia-hills': MissionMapConfig(
-    mission: marsMissions[3],
+    mission: marsMissionById['columbia-hills']!,
     asset: 'assets/maps/columbia-hills.jpg',
     credit: 'PIA03253 · NASA/JPL-Caltech/MSSS',
     base: Offset(.47, .50),
@@ -148,7 +148,7 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     marsTemperature: '−38 °C',
   ),
   'valles-marineris': MissionMapConfig(
-    mission: marsMissions[4],
+    mission: marsMissionById['valles-marineris']!,
     asset: 'assets/maps/valles-marineris.jpg',
     credit: 'PIA00422 · NASA/JPL/USGS',
     base: Offset(.51, .52),

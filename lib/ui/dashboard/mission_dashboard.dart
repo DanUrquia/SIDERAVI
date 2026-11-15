@@ -34,6 +34,7 @@ class MissionDashboard extends StatefulWidget {
     required this.tileSource,
     this.sensors = const NativeSensorService(),
     this.clock,
+    this.connectPresence,
   });
 
   final Astronaut astronaut;
@@ -41,6 +42,7 @@ class MissionDashboard extends StatefulWidget {
   final TrekTileSource tileSource;
   final SensorService sensors;
   final DateTime Function()? clock;
+  final ConnectPresence? connectPresence;
 
   @override
   State<MissionDashboard> createState() => _MissionDashboardState();
@@ -57,8 +59,7 @@ class _MissionDashboardState extends State<MissionDashboard>
   late final Ticker _movement;
   late final AstronautTracking _tracking;
   late final MissionPresence _presence;
-  final _firebase = FirebasePresenceConfig.fromBuild();
-  ConnectPresence? _connect;
+  final _firebase = FirebasePresenceConfig.current;
   bool _initialized = false;
   bool _showingDiagnostics = false;
   bool _foreground = true;
@@ -89,7 +90,7 @@ class _MissionDashboardState extends State<MissionDashboard>
     _presence = MissionPresence(
       key: (
         mission: widget.mission.id,
-        session: _firebase?.session ?? 'local',
+        session: _firebase?.session ?? 'field-test-01',
         astronaut: widget.astronaut.id,
       ),
       pose: () => _tracking.pose,
@@ -100,6 +101,7 @@ class _MissionDashboardState extends State<MissionDashboard>
     _presence.addListener(_noteConnection);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_tracking.resume());
+    unawaited(_startCrew());
   }
 
   bool _isCompactMission() => MediaQuery.sizeOf(context).shortestSide < 600;
@@ -216,21 +218,12 @@ class _MissionDashboardState extends State<MissionDashboard>
     if (_foreground) unawaited(_tracking.resume());
   }
 
-  /// Authenticates sharing independently of the offline astronaut PIN.
-  Future<void> _joinCrew() async {
-    final setup = _firebase;
-    if (setup == null) return;
-    if (_presence.status != ConnectionStatus.offline) {
-      _connect = null;
-      _presence.suspend();
-      return;
-    }
-    final connect = await showCrewSignIn(context, setup, _presence.key);
+  /// Starts crew sharing after the local expedition has restored its position.
+  Future<void> _startCrew() async {
+    final connect = widget.connectPresence ?? _firebase?.connect;
     if (connect == null) return;
     await _tracking.positionReady;
-    if (!mounted) return;
-    _connect = connect;
-    if (_foreground) _presence.open(connect);
+    if (mounted && _foreground) _presence.open(connect);
   }
 
   @override
@@ -245,7 +238,7 @@ class _MissionDashboardState extends State<MissionDashboard>
       if (_foreground) return;
       _foreground = true;
       if (!_showingDiagnostics) unawaited(_tracking.resume());
-      if (_connect case final connect?) _presence.open(connect);
+      unawaited(_startCrew());
     }
   }
 
@@ -277,9 +270,14 @@ class _MissionDashboardState extends State<MissionDashboard>
         if (mobile) _tracking.pedometer,
       ]),
       builder: (context, _) {
-        final member = _presence.crew[_teammate.id];
-        final fresh = member != null && _presence.isFresh(member);
+        final shared = _presence.crew[_teammate.id];
+        final fresh = shared != null && _presence.isFresh(shared);
+        final member =
+            mobile && (!fresh || shared.pose.mode != TrackingMode.live)
+            ? null
+            : shared;
         final demoPeer =
+            !mobile &&
             member == null &&
             _presence.status == ConnectionStatus.offline &&
             _tracking.mode == TrackingMode.demo;
@@ -321,7 +319,7 @@ class _MissionDashboardState extends State<MissionDashboard>
               teammateId: _teammate.id,
               peerPoint: peerPoint,
               peer: member,
-              peerFresh: fresh,
+              peerFresh: member != null && fresh,
               teammateName: _teammate.fullName,
               onSelect: _selectDestination,
               onAstronaut: onAstronaut,
@@ -348,14 +346,12 @@ class _MissionDashboardState extends State<MissionDashboard>
             presence: _presence,
             member: member,
             peerPoint: peerPoint,
-            peerFresh: fresh,
             onBack: () => Navigator.of(context).maybePop(),
             onSelect: _selectDestination,
             onNavigate: () => _navigation.start(instant: reducedMotion),
             onReturn: _navigation.returnToBase,
             onSensorTest: _openDiagnostics,
             onMovementLog: movementLog,
-            onJoin: _firebase == null ? null : _joinCrew,
             onPing: () =>
                 _placePing(DemoPingType.location, at: _navigation.position),
             onSos: _toggleConfirmedSos,
@@ -388,7 +384,6 @@ class _MissionDashboardState extends State<MissionDashboard>
             TrackingControls(
               tracking: _tracking,
               presence: _presence,
-              onJoin: _firebase == null ? null : _joinCrew,
               onMovementLog: movementLog,
             ),
             Expanded(

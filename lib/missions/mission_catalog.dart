@@ -1,44 +1,43 @@
 import 'mission.dart';
 
-/// Fixed browsing order for the five Phase 2 educational missions.
+/// Browsing order for the five Mars expeditions.
 const marsMissions = [
   MarsMission(
-    id: 'jezero',
-    title: 'Jezero Crater',
-    region: 'Jezero Crater',
-    subtitle: 'Perseverance · Ancient river delta',
+    id: 'endeavour',
+    title: 'Endeavour Crater',
+    region: 'Western rim, Endeavour Crater',
+    subtitle: 'Opportunity · Western rim',
     description:
-        'Jezero is an impact crater in the Syrtis Major quadrangle of Mars. Its center is near 18.41° N, 77.69° E.',
+        'Endeavour is an ancient impact crater about 22 kilometers across in Meridiani Planum. It became a major science destination for NASA’s Opportunity rover.',
     objectives: [
       MissionObjective(
-        'ancient-liquid-water',
-        'Look for geological evidence that liquid water once existed in Jezero Crater.',
-        waypoint: 'Delta outcrop',
+        'review-minerals',
+        'Review the mineral composition of exposed rocks and geological formations.',
       ),
       MissionObjective(
-        'potential-biosignatures',
-        'Examine exposed rocks for possible signs of ancient microbial life, including fossil-like shapes. Consider nonbiological explanations.',
+        'survey-crater-rim',
+        'Survey the local crater rim and investigate the crater’s structure and surrounding terrain.',
+        waypoint: 'Rim outcrop',
       ),
       MissionObjective(
-        'ancient-channel',
-        'Survey the surface for a possible ancient river channel or water-flow path.',
-        waypoint: 'Channel edge',
+        'ancient-habitability',
+        'Examine soil and rocks for clues to past conditions that could have supported life.',
       ),
     ],
-    difficulty: MissionDifficulty.moderate,
-    coordinates: MarsCoordinates(18.41, 77.69),
-    radiusMeters: 500,
-    elevation: MarsBaseElevation(-2652, MarsCoordinates(18.386, 77.6564)),
-    type: 'Delta geology',
+    difficulty: MissionDifficulty.challenging,
+    coordinates: MarsCoordinates(-2.28, 354.80),
+    radiusMeters: 750,
+    elevation: MarsBaseElevation(-1783, MarsCoordinates(-2.295, 354.83)),
+    type: 'Mineralogy',
     imagery: MissionImagery(
-      asset: 'assets/missions/jezero.jpg',
-      instrument: 'Perseverance Mastcam-Z',
-      caption: 'Jezero delta from Octavia E. Butler Landing',
-      credit: 'NASA/JPL-Caltech/ASU/MSSS',
+      asset: 'assets/missions/endeavour.jpg',
+      instrument: 'Opportunity Pancam',
+      caption: 'Endeavour’s western rim from Murray Ridge',
+      credit: 'NASA/JPL-Caltech/Cornell Univ./Arizona State Univ.',
       sourceUrl:
-          'https://science.nasa.gov/photojournal/perseverance-view-of-the-delta-in-jezero-crater/',
+          'https://science.nasa.gov/photojournal/endeavour-crater-rim-from-murray-ridge-on-mars/',
     ),
-    geographySourceUrl: 'https://planetarynames.wr.usgs.gov/Feature/14300',
+    geographySourceUrl: 'https://planetarynames.wr.usgs.gov/Feature/14501',
   ),
   MarsMission(
     id: 'gale',
@@ -77,43 +76,6 @@ const marsMissions = [
           'https://science.nasa.gov/photojournal/farewell-to-murray-buttes-image-2/',
     ),
     geographySourceUrl: 'https://planetarynames.wr.usgs.gov/Feature/Gale',
-  ),
-  MarsMission(
-    id: 'endeavour',
-    title: 'Endeavour Crater',
-    region: 'Western rim, Endeavour Crater',
-    subtitle: 'Opportunity · Western rim',
-    description:
-        'Endeavour is an ancient impact crater about 22 kilometers across in Meridiani Planum. It became a major science destination for NASA’s Opportunity rover.',
-    objectives: [
-      MissionObjective(
-        'review-minerals',
-        'Review the mineral composition of exposed rocks and geological formations.',
-      ),
-      MissionObjective(
-        'survey-crater-rim',
-        'Survey the local crater rim and investigate the crater’s structure and surrounding terrain.',
-        waypoint: 'Rim outcrop',
-      ),
-      MissionObjective(
-        'ancient-habitability',
-        'Examine soil and rocks for clues to past conditions that could have supported life.',
-      ),
-    ],
-    difficulty: MissionDifficulty.challenging,
-    coordinates: MarsCoordinates(-2.28, 354.80),
-    radiusMeters: 750,
-    elevation: MarsBaseElevation(-1783, MarsCoordinates(-2.295, 354.83)),
-    type: 'Mineralogy',
-    imagery: MissionImagery(
-      asset: 'assets/missions/endeavour.jpg',
-      instrument: 'Opportunity Pancam',
-      caption: 'Endeavour’s western rim from Murray Ridge',
-      credit: 'NASA/JPL-Caltech/Cornell Univ./Arizona State Univ.',
-      sourceUrl:
-          'https://science.nasa.gov/photojournal/endeavour-crater-rim-from-murray-ridge-on-mars/',
-    ),
-    geographySourceUrl: 'https://planetarynames.wr.usgs.gov/Feature/14501',
   ),
   MarsMission(
     id: 'columbia-hills',
@@ -190,4 +152,47 @@ const marsMissions = [
     ),
     geographySourceUrl: 'https://planetarynames.wr.usgs.gov/Feature/6288',
   ),
+  MarsMission(
+    id: 'jezero',
+    title: 'Jezero Crater',
+    region: 'Jezero Crater',
+    subtitle: 'Perseverance · Ancient river delta',
+    description:
+        'Jezero is an impact crater in the Syrtis Major quadrangle of Mars. Its center is near 18.41° N, 77.69° E.',
+    objectives: [
+      MissionObjective(
+        'ancient-liquid-water',
+        'Look for geological evidence that liquid water once existed in Jezero Crater.',
+        waypoint: 'Delta outcrop',
+      ),
+      MissionObjective(
+        'potential-biosignatures',
+        'Examine exposed rocks for possible signs of ancient microbial life, including fossil-like shapes. Consider nonbiological explanations.',
+      ),
+      MissionObjective(
+        'ancient-channel',
+        'Survey the surface for a possible ancient river channel or water-flow path.',
+        waypoint: 'Channel edge',
+      ),
+    ],
+    difficulty: MissionDifficulty.moderate,
+    coordinates: MarsCoordinates(18.41, 77.69),
+    radiusMeters: 500,
+    elevation: MarsBaseElevation(-2652, MarsCoordinates(18.386, 77.6564)),
+    type: 'Delta geology',
+    imagery: MissionImagery(
+      asset: 'assets/missions/jezero.jpg',
+      instrument: 'Perseverance Mastcam-Z',
+      caption: 'Jezero delta from Octavia E. Butler Landing',
+      credit: 'NASA/JPL-Caltech/ASU/MSSS',
+      sourceUrl:
+          'https://science.nasa.gov/photojournal/perseverance-view-of-the-delta-in-jezero-crater/',
+    ),
+    geographySourceUrl: 'https://planetarynames.wr.usgs.gov/Feature/14300',
+  ),
 ];
+
+/// Keeps map and terrain configuration independent of the carousel order.
+final marsMissionById = Map<String, MarsMission>.unmodifiable({
+  for (final mission in marsMissions) mission.id: mission,
+});

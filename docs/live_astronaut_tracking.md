@@ -26,11 +26,15 @@ Both iPads use the same existing normalized habitat marker as the base. Its Phas
 | `columbia-hills` | -14.5478 | 175.6165 |
 | `valles-marineris` | -13.8300 | -59.1550 |
 
-## Shared Jezero session on Firebase
+## Firebase sessions for the five missions
 
-The independent field-test project is `sidera-vi`. Its Realtime Database is `https://sidera-vi-default-rtdb.firebaseio.com`, and both iPads join the active `missions/jezero/sessions/field-test-01` session. The project already contains both crew accounts, their ARES slot assignments, and the simulated base metadata. Keep those records when deploying rules or installing a new build.
+The independent field-test project is `sidera-vi`. Its Realtime Database is `https://sidera-vi-default-rtdb.firebaseio.com`. Each mission opens its own `missions/{missionId}/sessions/field-test-01` session using the catalog ID and the shared Habitat Base above. The mission carousel order is Endeavour Crater, Gale Crater, Columbia Hills, Valles Marineris and Jezero Crater.
 
-The app uses [authenticated Firebase REST requests](https://firebase.google.com/docs/database/rest/auth) and [server-sent events](https://firebase.google.com/docs/database/rest/retrieve-data). An unconfigured build starts **Offline** and supports both local movement modes.
+On a provisioned iPhone, entering a mission automatically starts Firebase authentication and connects Crew. Firebase Anonymous Authentication issues a distinct UID to the selected astronaut on that phone. The app stores the renewable credential in the iOS Keychain and reads it on subsequent visits. The app's PIN selects the astronaut identity for the local experience. [Firebase Anonymous Authentication](https://firebase.google.com/docs/auth/flutter/anonymous-auth), [Firebase Auth REST API](https://firebase.google.com/docs/reference/rest/auth/).
+
+The membership rules require an administrator to assign that UID to a single slot. A new anonymous identity begins without any database access. Each session retains `members/{slot}` for the existing iPad accounts and uses a separate, administrator-written `deviceMembers/{slot}` for one anonymous iPhone UID per slot. An enrolled client can resolve its own membership record, read the active session's crew presence, and write only its own presence record. The rules deny writes by unauthenticated clients, access to the membership collections, and cross-slot writes. [Firebase Database Security Rules](https://firebase.google.com/docs/reference/security/database/).
+
+An unconfigured or unenrolled phone stays **Offline** and supports local step navigation. Firebase App Check is outside the field build. Authorization depends on the individually enrolled Firebase UID and server rules. App Check could add an app and device attestation layer through App Attest once the phone and compatibility clients support it. [Firebase App Check on Apple platforms](https://firebase.google.com/docs/app-check/ios/app-attest-provider).
 
 ### Check and deploy rules
 
@@ -47,9 +51,9 @@ Use the authorized Firebase CLI session and explicit SIDERA VI project argument 
 npx --yes firebase-tools deploy --only database --project sidera-vi
 ```
 
-The deployment updates access rules. The existing session, metadata, and crew UID assignments are provisioned separately. The Auth accounts are assigned to ARES-01 and ARES-02 by Firebase UID. A crew member may verify their own slot during sign-in. The rules deny listing the membership map and writing someone else's simulated pose.
+Session data and device enrollment are separate from rule deployment. The emulator checks anonymous eligibility, authenticated per-slot writes, session termination, legacy iPad accounts and live event isolation across all five missions.
 
-### Build and join
+### Build and provision iPhones
 
 Retrieve the client Web API key from the registered SIDERA VI Web app through the Firebase console or authenticated CLI. [Firebase CLI reference](https://firebase.google.com/docs/cli/)
 
@@ -69,22 +73,28 @@ flutter build ios --release \
 
 The client key must permit the Identity Toolkit and Secure Token APIs. An untracked local file passed with `--dart-define-from-file` is another option. Keep build definitions and account credentials separate. The app has no Firebase plist or administrative credentials.
 
-1. Install the configured build on both iPads. Sign in with each astronaut’s existing SIDERA VI PIN and enter Jezero.
-2. On each device, tap **Join Crew** and enter the assigned Firebase email and password privately. The app verifies the authenticated account’s Firebase UID against the signed-in astronaut’s session slot before subscribing to crew presence.
-3. Confirm **Connected** and look for both ARES markers. If an account is declined, check the assigned Firebase account, session state and membership on the administrator side. A new shared run can use a separately provisioned session ID.
+Protect the Realtime Database with the deployed rules before enabling **Authentication → Sign-in method → Anonymous** in the Firebase console. Keep automatic cleanup of anonymous users disabled when it is offered so field devices retain their UIDs across visits. [Firebase Anonymous Authentication setup](https://firebase.google.com/docs/auth/flutter/anonymous-auth).
+
+1. Install the same signed build on the authorized phones. On each phone choose its assigned SIDERA VI identity and enter a mission once so it obtains its anonymous identity.
+2. With the intended physical iPhone attached and authorized, use CoreDevice on the operator Mac to read the app's preferences file at `Library/Preferences/com.bluelionsoft.sideraVi.plist` under the app data container. Extract only the non-secret UID from `crewEnrollment/sidera-vi-default-rtdb.firebaseio.com/ARES-01` or `crewEnrollment/sidera-vi-default-rtdb.firebaseio.com/ARES-02`. Remove the temporary preferences copy after extraction. Firebase tokens stay in the phone's Keychain.
+3. From the repository root, use an administrator's short-lived Google OAuth access token on standard input for the enrollment command. The example obtains it from authorized Google Application Default Credentials. The script validates the field project, each active session and the anonymous identity before assigning the verified UID to that specific slot in all five missions.
+
+```sh
+gcloud auth application-default print-access-token |
+  node firebase/admin-crew.mjs enroll ARES-01 "$DEVICE_UID"
+gcloud auth application-default print-access-token |
+  node firebase/admin-crew.mjs verify
+```
+
+Repeat for the other authorized phone using its own UID and slot. Use `--replace` only for an intentional replacement of the enrolled phone. The operator tool can also run `create-sessions` to copy the verified Jezero legacy memberships into missing missions with their corresponding Habitat Bases. It leaves existing sessions untouched.
+
+Reopen any mission to see **Connected**. Crew shows an offline teammate's name, ARES ID and **OFFLINE**. A fresh online update restores their shared position and distance. Previously installed iPad builds can still connect through the legacy Firebase accounts and **Join Crew**. The current iOS build uses device enrollment for automatic Crew.
 
 ## Security, lifecycle and transport
 
-Only the administrator creates session metadata and membership. The rules authorize each roster slot by Firebase Auth UID and scope reads to participants in that session. Presence data contains only signed Mars coordinates, relative heading if usable, mode, position quality, online status and server timestamp. Names and labels come from the local roster. Rules validate the payload and reject extra fields. Earth coordinates and sample traces stay on the device. Credentials are entered at runtime, with tokens only in memory for the open dashboard.
+Only the administrator creates session metadata and membership. Presence contains signed Mars coordinates, relative heading when available, mode, position quality, online status and server timestamp. Names and labels come from the local roster. Earth coordinates, sensor traces, and measured step totals stay on the device. Both platforms use Firebase REST and one subscription scoped to the current mission. [Firebase Realtime Database REST Authentication](https://firebase.google.com/docs/database/rest/auth), [Firebase Realtime Database REST Streaming](https://firebase.google.com/docs/database/rest/retrieve-data).
 
-A single stream updates the crew view. Writes are asynchronous and serialized. Heading changes of at least 2° and simulated demo animation snapshots publish at most about 4 Hz. Validated live position changes can publish sooner. A six-second heartbeat maintains presence while stationary. A remote marker turns muted and shows **Offline** after 18 seconds without a fresh heartbeat, or immediately when an offline update is received. The client attempts an offline write when leaving the dashboard or backgrounding, with expiry as the fallback. Reconnection uses backoff and sends the current pose without replaying a trace. Within the same open dashboard it retains position through sensor restarts and network changes. On app restart the offline dashboard starts at base. Joining the same shared session can restore its prior position once if the local astronaut has remained at the starting base.
-
-Use the local Auth and Database emulators to verify the security rules and streamed writes with separate test accounts.
-
-```sh
-npx --yes firebase-tools emulators:exec --only auth,database \
-  --project demo-sideravi 'node firebase/test-rules.mjs'
-```
+Writes run in sequence. A six-second heartbeat maintains presence while stationary. The client attempts an offline write when leaving the dashboard or backgrounding, with expiration after 18 seconds as the fallback. The iPhone reconnects automatically and publishes its current local pose. A saved iPhone position is scoped by mission and astronaut. An explicit new expedition writes Habitat Base for the local astronaut and preserves the other astronaut's position. The existing iPad demo restore stays in the compatibility dashboard.
 
 ## Physical validation
 
@@ -104,3 +114,9 @@ Both dashboards displayed **Position Uncertain** in Live Sensors. The Air's simu
 When Wi-Fi was disabled on the Air, the Pro stayed connected and showed ARES-02's last position with an **Offline** label. The offline state was observed once the last Air update was about 20 seconds old. After Wi-Fi was restored, both dashboards showed Connected, both simulated positions matched the pre-reconnect values, and each map showed one marker per astronaut.
 
 Phase 5A established that the Wi-Fi-only iPads can supply motion at approximately 10 Hz under the tested conditions. Its Earth results did not establish reliable walking translation. The Phase 5D filter can hold the position throughout short walks on these devices. Demonstrate navigation with Demo Movement until measured trials establish repeatable reliable displacement. Network sharing requires the project setup above.
+
+### Phase 6E backend verification
+
+The production project has all five active `field-test-01` sessions with their catalog Habitat Bases and both verified legacy memberships. Jezero keeps its existing session and presence records. The deployed rules deny public reads and writes. The emulator verifies access with an enrolled anonymous UID and its refreshed credential, denies writes to the other astronaut's slot, rejects extra pose fields, and exercises independent presence streams across all five missions.
+
+Dan’s iPhone 16 and Keren’s iPhone 14 Plus were enrolled in ARES-01 and ARES-02. Both automatically published fresh presence in Endeavour at 0 m separation. The other four sessions had no fresh presence during that observation.

@@ -160,7 +160,7 @@ class _MissionWelcomeState extends State<MissionWelcome>
                                   backgroundColor: const Color(0xFF2B211F),
                                   color: MissionTheme.warmOrange,
                                   semanticsLabel:
-                                      'Simulated dashboard initialization',
+                                      'Mission dashboard initialization',
                                 ),
                               ),
                             ],

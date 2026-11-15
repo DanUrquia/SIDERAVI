@@ -5,6 +5,7 @@ import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
 import '../../maps/mars_projection.dart';
 import '../../missions/mission.dart';
+import '../../missions/mola_elevations.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
 import '../../tracking/pedometer_monitor.dart';
@@ -188,6 +189,7 @@ class MobileAstronautContent extends StatelessWidget {
   const MobileAstronautContent({
     super.key,
     required this.astronaut,
+    required this.mission,
     required this.navigation,
     required this.tracking,
     required this.onSensorTest,
@@ -195,6 +197,7 @@ class MobileAstronautContent extends StatelessWidget {
   });
 
   final Astronaut astronaut;
+  final MarsMission mission;
   final DemoNavigation navigation;
   final AstronautTracking tracking;
   final VoidCallback onSensorTest;
@@ -202,6 +205,7 @@ class MobileAstronautContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maximumElevation = missionMaximumGridElevationMeters[mission.id];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: 10,
@@ -316,6 +320,23 @@ class MobileAstronautContent extends StatelessWidget {
             ),
           ],
         ),
+        DashboardPanel(
+          title: 'MOLA TOPOGRAPHY',
+          icon: Icons.terrain,
+          children: [
+            DashboardReadout(
+              label: 'Max. gridded elevation',
+              value: maximumElevation == null
+                  ? 'Unavailable'
+                  : formatMarsElevation(maximumElevation),
+            ),
+            Text(
+              'Cell centers within ${mission.radiusLabel} of Habitat Base. '
+              '${MarsBaseElevation.datum} · 128 cells per degree.',
+              style: const TextStyle(color: DashboardStyle.muted, fontSize: 12),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -366,9 +387,6 @@ class MobileCrewContent extends StatelessWidget {
     required this.tracking,
     required this.presence,
     required this.member,
-    required this.peerPoint,
-    required this.fresh,
-    required this.onJoin,
     required this.onTeammate,
   });
 
@@ -378,31 +396,11 @@ class MobileCrewContent extends StatelessWidget {
   final AstronautTracking tracking;
   final MissionPresence presence;
   final CrewPresence? member;
-  final Offset? peerPoint;
-  final bool fresh;
-  final VoidCallback? onJoin;
   final VoidCallback? onTeammate;
 
   @override
   Widget build(BuildContext context) {
     final current = member;
-    final point = peerPoint;
-    final separation = current != null
-        ? surfaceDistance(
-            tracking.pose.mars,
-            current.pose.mars,
-            MarsProjection.radiusMeters,
-          )
-        : point == null
-        ? null
-        : tracking.coordinates.distance(navigation.position, point);
-    final peerStatus = fresh
-        ? 'In session'
-        : current != null
-        ? 'Offline · Last known'
-        : point == null
-        ? 'Not in session'
-        : 'Simulated teammate';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: 10,
@@ -411,19 +409,14 @@ class MobileCrewContent extends StatelessWidget {
           title: 'SHARED SESSION',
           icon: Icons.link,
           children: [
-            DashboardReadout(label: 'Connection', value: presence.status.label),
-            if (presence.accessDenied)
-              const Text(
-                'This account lacks access to the current mission slot.',
-              ),
-            DashboardButton(
-              label: presence.status == ConnectionStatus.offline
-                  ? 'JOIN CREW'
-                  : 'LEAVE CREW',
-              height: 48,
-              icon: Icons.group_outlined,
-              onPressed: onJoin,
+            DashboardReadout(
+              label: 'Connection',
+              value: presence.status.mobileLabel,
             ),
+            if (presence.enrollmentPending)
+              const Text('Crew device setup pending.'),
+            if (presence.accessDenied)
+              const Text('Device authorization unavailable.'),
           ],
         ),
         DashboardPanel(
@@ -442,51 +435,47 @@ class MobileCrewContent extends StatelessWidget {
           ],
         ),
         DashboardPanel(
-          title: '${teammate.id} · $peerStatus',
+          title: '${teammate.id} · ${current == null ? 'OFFLINE' : 'ONLINE'}',
           icon: Icons.person_outline,
           children: [
             Text(teammate.fullName, style: MissionTheme.display(18)),
-            DashboardReadout(
-              label: fresh
-                  ? 'Shared Mars position'
-                  : current == null
-                  ? 'Simulated Mars'
-                  : 'Last known Mars',
-              value: current != null
-                  ? formatMarsPosition(current.pose.mars)
-                  : point == null
-                  ? 'Unavailable'
-                  : formatMarsPosition(tracking.coordinates.toMars(point)),
-            ),
-            const DashboardReadout(label: 'Steps', value: 'Unavailable'),
-            if (point != null && separation != null) ...[
+            if (current != null) ...[
               DashboardReadout(
-                label: current != null && !fresh
-                    ? 'To last known position'
-                    : 'Estimated separation',
-                value: formatNavigationDistance(
-                  separation,
-                  live: separation < 100,
-                ),
+                label: 'Estimated Mars position',
+                value: formatMarsPosition(current.pose.mars),
+              ),
+              DashboardReadout(
+                label: 'Estimated separation',
+                value: _separation(current),
               ),
               DashboardReadout(
                 label: 'Relative position',
-                value: _relativePosition(point - navigation.position),
+                value: _relativePosition(
+                  tracking.gridPosition(current.pose.mars) -
+                      navigation.position,
+                ),
               ),
+              if (onTeammate != null)
+                DashboardButton(
+                  label: 'TARGET TEAMMATE',
+                  height: 48,
+                  icon: Icons.alt_route,
+                  onPressed: onTeammate,
+                ),
             ],
-            if (onTeammate != null)
-              DashboardButton(
-                label: current != null && !fresh
-                    ? 'TARGET LAST KNOWN POSITION'
-                    : 'TARGET TEAMMATE',
-                height: 48,
-                icon: Icons.alt_route,
-                onPressed: onTeammate,
-              ),
           ],
         ),
       ],
     );
+  }
+
+  String _separation(CrewPresence peer) {
+    final meters = surfaceDistance(
+      tracking.pose.mars,
+      peer.pose.mars,
+      MarsProjection.radiusMeters,
+    );
+    return formatNavigationDistance(meters, live: meters < 100);
   }
 
   String _relativePosition(Offset delta) {

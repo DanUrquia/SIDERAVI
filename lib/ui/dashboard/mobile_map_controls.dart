@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../dashboard/demo_navigation.dart';
+import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
@@ -14,9 +18,9 @@ class MobileMapControls extends StatelessWidget {
     required this.onReturn,
     required this.onPing,
     required this.onSos,
-    required this.following,
+    required this.headingUp,
     required this.onRecenter,
-    required this.onFollow,
+    required this.onToggleHeading,
   });
 
   final DemoNavigation navigation;
@@ -24,9 +28,9 @@ class MobileMapControls extends StatelessWidget {
   final VoidCallback onReturn;
   final VoidCallback onPing;
   final VoidCallback onSos;
-  final bool following;
+  final ValueListenable<bool> headingUp;
   final VoidCallback onRecenter;
-  final VoidCallback onFollow;
+  final VoidCallback onToggleHeading;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -67,7 +71,7 @@ class MobileMapControls extends StatelessWidget {
               ),
               _button(
                 'sos',
-                navigation.sos ? 'Cancel demo SOS' : 'SOS',
+                navigation.sos ? 'Cancel SOS' : 'SOS',
                 Icons.warning_amber_rounded,
                 diameter,
                 onSos,
@@ -80,12 +84,22 @@ class MobileMapControls extends StatelessWidget {
             size: diameter,
             onPressed: onRecenter,
           ),
-          _cameraButton(
-            label: 'Follow astronaut',
-            icon: Icons.navigation_outlined,
-            size: diameter,
-            onPressed: onFollow,
-            selected: following,
+          ValueListenableBuilder(
+            valueListenable: headingUp,
+            builder: (context, active, _) => Semantics(
+              button: true,
+              label: 'Heading-up map',
+              toggled: active,
+              onTap: onToggleHeading,
+              excludeSemantics: true,
+              child: _cameraButton(
+                label: active ? 'North-up' : 'Heading-up',
+                icon: Icons.navigation_outlined,
+                size: diameter,
+                onPressed: onToggleHeading,
+                selected: active,
+              ),
+            ),
           ),
         ],
       );
@@ -159,16 +173,18 @@ class MobileMapControls extends StatelessWidget {
   );
 }
 
-/// Fits the three reference readings into one row below the mission header.
+/// Fits the three Mars readings into one row below the mission header.
 class MobileMapTelemetry extends StatelessWidget {
   const MobileMapTelemetry({
     super.key,
-    required this.navigation,
+    required this.eastLongitude,
     required this.mission,
+    this.clock = DateTime.now,
   });
 
-  final DemoNavigation navigation;
+  final double eastLongitude;
   final MarsMission mission;
+  final DateTime Function() clock;
 
   @override
   Widget build(BuildContext context) => IntrinsicHeight(
@@ -178,19 +194,14 @@ class MobileMapTelemetry extends StatelessWidget {
       spacing: 6,
       children: [
         Expanded(
-          child: _TelemetryCard(
-            label: 'MARS TIME',
-            value: navigation.map.marsTime,
-            note: 'Demo reference',
-            detail: 'Mars local solar time, demo reference',
-          ),
+          child: _MarsTimeCard(eastLongitude: eastLongitude, clock: clock),
         ),
-        Expanded(
+        const Expanded(
           child: _TelemetryCard(
             label: 'TEMP',
-            value: navigation.map.marsTemperature,
-            note: 'Illustrative',
-            detail: 'Illustrative Mars temperature',
+            value: 'Unavailable',
+            note: 'No local reading',
+            detail: 'Mars temperature at Habitat Base',
           ),
         ),
         Expanded(
@@ -207,6 +218,59 @@ class MobileMapTelemetry extends StatelessWidget {
         ),
       ],
     ),
+  );
+}
+
+class _MarsTimeCard extends StatefulWidget {
+  const _MarsTimeCard({required this.eastLongitude, required this.clock});
+
+  final double eastLongitude;
+  final DateTime Function() clock;
+
+  @override
+  State<_MarsTimeCard> createState() => _MarsTimeCardState();
+}
+
+class _MarsTimeCardState extends State<_MarsTimeCard> {
+  late final Timer _timer;
+  late String _value;
+
+  String _readTime() => formatMarsLocalMeanSolarTime(
+    widget.clock(),
+    eastLongitude: widget.eastLongitude,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _value = _readTime();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final value = _readTime();
+      if (value != _value) setState(() => _value = value);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _MarsTimeCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.eastLongitude != oldWidget.eastLongitude ||
+        widget.clock != oldWidget.clock) {
+      _value = _readTime();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _TelemetryCard(
+    label: 'MARS TIME',
+    value: _value,
+    note: 'LMST at Base',
+    detail: 'Mars local mean solar time at Habitat Base',
   );
 }
 

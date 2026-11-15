@@ -60,8 +60,11 @@ final class MarsBaseElevation {
   final int meters;
   final MarsCoordinates location;
 
-  String get label => '${meters < 0 ? '−' : ''}${meters.abs()} m';
+  String get label => formatMarsElevation(meters);
 }
+
+String formatMarsElevation(int meters) =>
+    '${meters < 0 ? '−' : ''}${meters.abs()} m';
 
 /// A local briefing for a simulated expedition in a real Martian region.
 final class MarsMission {

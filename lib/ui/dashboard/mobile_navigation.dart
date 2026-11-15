@@ -39,14 +39,12 @@ class MobileNavigation extends StatefulWidget {
     required this.presence,
     required this.member,
     required this.peerPoint,
-    required this.peerFresh,
     required this.onBack,
     required this.onSelect,
     required this.onNavigate,
     required this.onReturn,
     required this.onSensorTest,
     required this.onMovementLog,
-    required this.onJoin,
     required this.onPing,
     required this.onSos,
   });
@@ -61,14 +59,12 @@ class MobileNavigation extends StatefulWidget {
   final MissionPresence presence;
   final CrewPresence? member;
   final Offset? peerPoint;
-  final bool peerFresh;
   final VoidCallback onBack;
   final void Function(Offset, String) onSelect;
   final VoidCallback onNavigate;
   final VoidCallback onReturn;
   final VoidCallback onSensorTest;
   final VoidCallback onMovementLog;
-  final VoidCallback? onJoin;
   final VoidCallback onPing;
   final VoidCallback onSos;
 
@@ -245,8 +241,8 @@ class _MobileNavigationState extends State<MobileNavigation>
   void _ping() => unawaited(
     _confirmAction(
       title: 'Send Location Ping?',
-      message: 'Share your current simulated Mars position with your crew?',
-      detail: 'This prototype places a location marker on this device.',
+      message: 'Mark your estimated Mars position?',
+      detail: 'The location marker appears on this device.',
       onConfirmed: widget.onPing,
     ),
   );
@@ -259,9 +255,8 @@ class _MobileNavigationState extends State<MobileNavigation>
     unawaited(
       _confirmAction(
         title: 'Activate SOS?',
-        message: 'Send an emergency alert to your mission crew?',
-        detail:
-            'Demo SOS highlights your position and pauses exploration on this device.',
+        message: 'Pause exploration and mark your position on this device?',
+        detail: 'This mission alert stays on this device.',
         onConfirmed: widget.onSos,
       ),
     );
@@ -279,6 +274,7 @@ class _MobileNavigationState extends State<MobileNavigation>
     ),
     _Sheet.astronaut => MobileAstronautContent(
       astronaut: widget.astronaut,
+      mission: widget.mission,
       navigation: widget.navigation,
       tracking: widget.tracking,
       onSensorTest: widget.onSensorTest,
@@ -291,9 +287,6 @@ class _MobileNavigationState extends State<MobileNavigation>
       tracking: widget.tracking,
       presence: widget.presence,
       member: widget.member,
-      peerPoint: widget.peerPoint,
-      fresh: widget.peerFresh,
-      onJoin: widget.onJoin,
       onTeammate: widget.navigation.sos || widget.peerPoint == null
           ? null
           : () => _select(widget.peerPoint!, widget.teammate.fullName),
@@ -336,7 +329,10 @@ class _MobileNavigationState extends State<MobileNavigation>
                   ),
                   MobileMapTelemetry(
                     mission: widget.mission,
-                    navigation: widget.navigation,
+                    eastLongitude: widget.navigation.map.coordinates
+                        .toMars(widget.navigation.map.base)
+                        .dx,
+                    clock: widget.tracking.clock,
                   ),
                   if (sheet == null)
                     Expanded(
@@ -348,7 +344,7 @@ class _MobileNavigationState extends State<MobileNavigation>
                           onReturn: _returnToBase,
                           onPing: _ping,
                           onSos: _sos,
-                          following: widget.tracking.follow,
+                          headingUp: widget.view.headingUp,
                           onRecenter: () {
                             final viewport = constraints.biggest;
                             final world = missionWorld(viewport);
@@ -358,9 +354,8 @@ class _MobileNavigationState extends State<MobileNavigation>
                               viewport,
                             );
                           },
-                          onFollow: () => widget.tracking.setFollow(
-                            !widget.tracking.follow,
-                          ),
+                          onToggleHeading: () => widget.view.headingUp.value =
+                              !widget.view.headingUp.value,
                         ),
                       ),
                     ),
@@ -434,8 +429,9 @@ class _MissionHeader extends StatelessWidget {
       ConnectionStatus.connected => DashboardStyle.green,
       ConnectionStatus.reconnecting => DashboardStyle.amber,
     };
-    final status =
-        navigation.target == null && !navigation.paused && !navigation.sos
+    final status = navigation.sos
+        ? 'SOS active'
+        : navigation.target == null && !navigation.paused
         ? tracking.stepStatus
         : navigation.status;
     final remaining = navigation.remainingMeters;
@@ -547,7 +543,7 @@ class _MissionHeader extends StatelessWidget {
                   children: [
                     Icon(Icons.circle, size: 6, color: connected),
                     Text(
-                      presence.status.label,
+                      presence.status.mobileLabel,
                       style: style.labelSmall?.copyWith(color: connected),
                     ),
                   ],

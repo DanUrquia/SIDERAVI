@@ -235,7 +235,7 @@ void main() {
     (tester) async {
       var now = DateTime.fromMillisecondsSinceEpoch(100000);
       final sensors = _Sensors();
-      final mission = marsMissions.first;
+      final mission = marsMissionById['jezero']!;
       final nav = DemoNavigation(missionMaps[mission.id]!, startAtBase: true);
       final tracking = AstronautTracking(
         navigation: nav,
@@ -555,7 +555,7 @@ void main() {
       final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
       final sensors = _Sensors();
       var now = DateTime.fromMillisecondsSinceEpoch(100000);
-      final coordinates = MissionCoordinates(marsMissions.first);
+      final coordinates = MissionCoordinates(marsMissionById['jezero']!);
       final tracking = AstronautTracking(
         navigation: nav,
         coordinates: coordinates,
@@ -635,7 +635,7 @@ void main() {
     'Calibration wraps, handles the landscape frame, and expires missing attitude',
     (tester) async {
       final sensors = _Sensors();
-      final mission = marsMissions.first;
+      final mission = marsMissionById['jezero']!;
       final nav = DemoNavigation(missionMaps[mission.id]!);
       var time = 100000;
       final tracking = AstronautTracking(

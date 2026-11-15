@@ -93,11 +93,9 @@ class _TrekTileViewState extends State<TrekTileView> {
   /// Selects each layer's matrix independently for the current scene scale.
   void _updateViewport() {
     final scene = widget.scene;
-    final visiblePixels = Rect.fromPoints(
-      widget.view.toScene(Offset.zero),
-      widget.view.toScene(scene.viewport.bottomRight(Offset.zero)),
+    final visible = scene.geographicBounds(
+      widget.view.visibleScene(scene.viewport),
     );
-    final visible = scene.geographicBounds(visiblePixels);
     final degrees =
         scene.degreesPerPixel / widget.view.value.getMaxScaleOnAxis();
     final detail = widget.detail;

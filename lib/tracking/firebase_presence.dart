@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
+
+import 'package:flutter/services.dart';
 
 import 'mission_presence.dart';
 
@@ -13,8 +14,14 @@ final class FirebasePresenceConfig {
   final String apiKey;
   final String session;
 
-  /// Enables sharing only for a complete, valid HTTPS Firebase configuration.
-  static FirebasePresenceConfig? fromBuild() {
+  static final FirebasePresenceConfig? current = _fromBuild();
+  static const _identityChannel = MethodChannel('sidera_vi/crew_identity');
+  final _credentials = <String, Future<_Credential>>{};
+  final _connections = <SessionKey, _FirebaseConnection>{};
+
+  /// Enables sharing on the supported device with complete Firebase settings.
+  static FirebasePresenceConfig? _fromBuild() {
+    if (!Platform.isIOS) return null;
     const url = String.fromEnvironment('SIDERA_DATABASE_URL');
     const apiKey = String.fromEnvironment('SIDERA_FIREBASE_API_KEY');
     const session = String.fromEnvironment('SIDERA_SESSION_ID');
@@ -31,13 +38,74 @@ final class FirebasePresenceConfig {
     return FirebasePresenceConfig._(database, apiKey, session);
   }
 
-  /// Authenticates the crew account and verifies its assigned slot before joining.
-  Future<ConnectPresence> signIn(
-    SessionKey key,
-    String email,
-    String password,
-  ) async {
-    if (key.session != session) throw const PresenceAccessDenied();
+  /// Opens the mission only after proving ownership of its enrolled slot.
+  Future<PresenceConnection> connect(SessionKey key) async {
+    if (key.session != session ||
+        (key.astronaut != 'ARES-01' && key.astronaut != 'ARES-02')) {
+      throw const PresenceAccessDenied();
+    }
+    final pending = _credentials.putIfAbsent(
+      key.astronaut,
+      () => _deviceCredential(key.astronaut),
+    );
+    final _Credential credential;
+    try {
+      credential = await pending;
+    } catch (_) {
+      if (identical(pending, _credentials[key.astronaut])) {
+        _credentials.remove(key.astronaut);
+      }
+      rethrow;
+    }
+    final token = await credential.token();
+    final http = _client();
+    try {
+      final member = await _request(
+        http,
+        'GET',
+        _sessionUri(database, key, [
+          'deviceMembers',
+          '${key.astronaut}.json',
+        ], token),
+      );
+      if (member != credential.uid) throw const PresenceEnrollmentPending();
+    } on PresenceAccessDenied {
+      // A signed-in device still needs an operator's per-mission assignment.
+      throw const PresenceEnrollmentPending();
+    } finally {
+      http.close(force: true);
+    }
+    // A quick reentry waits for the outgoing connection's final offline write.
+    var previous = _connections[key];
+    while (previous != null) {
+      await previous.closed;
+      if (identical(_connections[key], previous)) _connections.remove(key);
+      previous = _connections[key];
+    }
+    final connection = _FirebaseConnection(this, key, credential.token);
+    _connections[key] = connection;
+    unawaited(
+      connection.closed.then((_) {
+        if (identical(_connections[key], connection)) _connections.remove(key);
+      }),
+    );
+    return connection;
+  }
+
+  Future<_Credential> _deviceCredential(String slot) async {
+    final scope = '${database.host}/$slot';
+    final stored = await _identityChannel.invokeMapMethod<String, String>(
+      'read',
+      scope,
+    );
+    if (stored != null) {
+      return _Credential(
+        config: this,
+        scope: scope,
+        uid: stored['uid']!,
+        refresh: stored['refreshToken']!,
+      ).._savedRefresh = stored['refreshToken'];
+    }
     final http = _client();
     try {
       final response =
@@ -46,68 +114,60 @@ final class FirebasePresenceConfig {
                 'POST',
                 Uri.https(
                   'identitytoolkit.googleapis.com',
-                  '/v1/accounts:signInWithPassword',
+                  '/v1/accounts:signUp',
                   {'key': apiKey},
                 ),
-                body: jsonEncode({
-                  'email': email,
-                  'password': password,
-                  'returnSecureToken': true,
-                }),
+                body: jsonEncode({'returnSecureToken': true}),
               ))
               as Map;
-      final token = response['idToken'] as String;
-      final uid = response['localId'] as String;
-      final member = await _request(
-        http,
-        'GET',
-        _sessionUri(database, key, ['members', '${key.astronaut}.json'], token),
-      );
-      if (member != uid) throw const PresenceAccessDenied();
       final credential = _Credential(
         config: this,
-        token: token,
+        scope: scope,
+        uid: response['localId'] as String,
         refresh: response['refreshToken'] as String,
-        expiresIn: response['expiresIn'] as String,
       );
-      return (scope) async {
-        if (scope != key) throw const PresenceAccessDenied();
-        return _FirebaseConnection(this, scope, credential.token);
-      };
+      await credential._storeRefresh();
+      credential._setToken(
+        response['idToken'] as String,
+        response['expiresIn'] as String,
+      );
+      return credential;
     } finally {
       http.close(force: true);
     }
   }
 }
 
-/// Holds only the current mission's Firebase tokens and renews before expiration.
+/// Renews short-lived ID tokens from the iOS device-only Keychain credential.
 final class _Credential {
   _Credential({
     required this.config,
-    required String token,
+    required this.scope,
+    required this.uid,
     required String refresh,
-    required String expiresIn,
-  }) : _token = token,
-       _refresh = refresh,
-       _expires = _expiry(expiresIn);
+  }) : _refresh = refresh;
 
   final FirebasePresenceConfig config;
-  String _token;
+  final String scope;
+  final String uid;
+  String? _token;
   String _refresh;
-  DateTime _expires;
+  String? _savedRefresh;
+  DateTime? _expires;
   Future<void>? _renewing;
 
   /// Shares one refresh between simultaneous stream and writer requests.
   Future<String> token() async {
-    if (DateTime.now().isAfter(_expires)) {
-      final refresh = _renewing ??= _renew();
-      try {
-        await refresh;
-      } finally {
-        if (identical(refresh, _renewing)) _renewing = null;
-      }
+    if (_expires case final expiry? when DateTime.now().isBefore(expiry)) {
+      return _token!;
     }
-    return _token;
+    final refresh = _renewing ??= _renew();
+    try {
+      await refresh;
+    } finally {
+      if (identical(refresh, _renewing)) _renewing = null;
+    }
+    return _token!;
   }
 
   Future<void> _renew() async {
@@ -125,17 +185,34 @@ final class _Credential {
                     'grant_type=refresh_token&refresh_token=${Uri.encodeQueryComponent(_refresh)}',
               ))
               as Map;
-      _token = response['id_token'] as String;
+      if (response['user_id'] != uid) throw const PresenceAccessDenied();
       _refresh = response['refresh_token'] as String;
-      _expires = _expiry(response['expires_in'] as String);
+      await _storeRefresh();
+      _setToken(
+        response['id_token'] as String,
+        response['expires_in'] as String,
+      );
     } finally {
       http.close(force: true);
     }
   }
 
-  static DateTime _expiry(String seconds) => DateTime.now().add(
-    Duration(seconds: (int.parse(seconds) - 60).clamp(0, 3600)),
-  );
+  Future<void> _storeRefresh() async {
+    if (_savedRefresh == _refresh) return;
+    await FirebasePresenceConfig._identityChannel.invokeMethod<void>('write', {
+      'scope': scope,
+      'uid': uid,
+      'refreshToken': _refresh,
+    });
+    _savedRefresh = _refresh;
+  }
+
+  void _setToken(String value, String seconds) {
+    _expires = DateTime.now().add(
+      Duration(seconds: (int.parse(seconds) - 60).clamp(0, 3600)),
+    );
+    _token = value;
+  }
 }
 
 /// Uses the documented RTDB Server-Sent Events and HTTP write endpoints.
@@ -146,6 +223,8 @@ final class _FirebaseConnection implements PresenceConnection {
   final SessionKey key;
   final Future<String> Function() authToken;
   final HttpClient _http = _client();
+  final _closed = Completer<void>();
+  Future<void> get closed => _closed.future;
 
   Future<Uri> _uri([String? astronaut]) async => _sessionUri(
     config.database,
@@ -236,7 +315,11 @@ final class _FirebaseConnection implements PresenceConnection {
   }
 
   @override
-  void close() => _http.close(force: true);
+  void close() {
+    if (_closed.isCompleted) return;
+    _http.close(force: true);
+    _closed.complete();
+  }
 }
 
 /// Applies a relative RTDB stream event to the two roster rows.

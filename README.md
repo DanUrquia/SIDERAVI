@@ -2,13 +2,13 @@
 
 SIDERA VI is a smartphone and iPad prototype by team **SIDERA VI** for the [2026 NASA Space Apps Challenge](https://www.spaceappschallenge.org/2026/). The project explores how astronauts on Mars could navigate terrain, consult scientific information, and coordinate with their crew.
 
-## Login, mission selection and dashboard
+## Astronaut selection and exploration
 
-- An offline, four-digit PIN login with a glove-friendly keypad, masked entry, and clear, backspace, and retry controls.
-- Dan Urquía (ARES-01) and Adrian Flores (ARES-02) each have a demonstration PIN. A valid PIN starts a personalized 5.5-second welcome with simulated dashboard initialization and support for Reduce Motion.
-- Five offline Mars mission briefings with authentic rover or orbital imagery, regional coordinates and educational objectives. Browse with the arrows or a horizontal swipe.
-- Start Mission opens the interactive dashboard. Back to Missions restores the selected briefing. Back from Select Mission clears the session and returns to login.
-- Each dashboard centers on its mission region with [NASA Mars Trek imagery](docs/mars_trek_integration.md), Habitat Base, and selectable landmarks. Uncached tiles need internet access.
+- An offline, four-digit astronaut selection PIN with a glove-friendly keypad, masked entry, and clear, backspace, and retry controls.
+- Dan Urquía (ARES-01) and Adrian Flores (ARES-02) each have an expedition PIN. A valid PIN starts the personalized 5.5-second welcome and respects Reduce Motion.
+- Browse Endeavour Crater, Gale Crater, Columbia Hills, Valles Marineris and Jezero Crater in that order. Each briefing has rover or orbital imagery, regional coordinates and scientific objectives.
+- Start Mission opens the dashboard and automatically connects enrolled iOS devices to that mission’s Crew session. Back to Missions restores the selected briefing. Back from Select Mission returns to astronaut selection. [Crew setup and Firebase authorization](docs/live_astronaut_tracking.md)
+- Each dashboard centers on its mission region with Habitat Base and selectable landmarks. On phones, the last map control toggles Heading-Up and North-Up. Uncached tiles need internet access. [NASA Mars Trek imagery](docs/mars_trek_integration.md)
 - Tap an in-bounds map point, a landmark, or a connected teammate to set a destination. On phones, Start Navigation shows direct guidance, and Return to Base offers guidance when the estimated position is more than 100 m from base.
 - Send Ping places a location, item or danger marker on the current device. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
 - Phones begin tracking physical steps automatically on mission entry, even offline and without a destination. Relative device attitude and estimated stride determine Mars movement. The iPhone restores its saved mission position. The landscape iPad dashboard retains its simulation controls. [iPhone walking procedure](docs/real_navigation_validation.md).
@@ -19,7 +19,7 @@ SIDERA VI is a smartphone and iPad prototype by team **SIDERA VI** for the [2026
 
 ## Run on phones and iPad
 
-On phones, the dashboard puts Missions, Astronaut and Crew sheets over one full-screen map. The wide dashboard remains available on iPad. The field devices use ARES-01 on iPhone 16 and ARES-02 on OPPO. [Mobile navigation, Android setup and device verification](docs/mobile_navigation.md).
+On phones, the dashboard puts Missions, Astronaut and Crew sheets over one full-screen map. The wide dashboard remains available on iPad. The iOS field setup uses ARES-01 on Dan’s iPhone 16 and ARES-02 on Keren’s iPhone 14 Plus. [Mobile navigation and device verification](docs/mobile_navigation.md)
 
 The app uses **Flutter 3.35.4** and **Dart 3.9.2**. It targets **iOS and iPadOS 17.6 or later** and uses both landscape orientations on iPad. Use macOS with Xcode and a compatible iPad simulator or a trusted, developer-enabled iPad.
 
@@ -44,15 +44,11 @@ The tests exercise both astronauts, PIN editing and retry, welcome timing, missi
 
 ## Prototype limits
 
-The two demo PINs are bundled in the offline prototype authentication service and can be recovered from the app or source. Ask the team for a demo PIN. Entered PINs are held only for the current attempt and never written to persistent storage or logs. The current astronaut identity is held in memory. Use only demo codes with this prototype.
+The two astronaut PINs are bundled in the app for offline roster selection. Firebase authorizes device enrollment separately from the local PIN. On phones, pings and SOS affect the local interface.
 
-Login, mission briefings, and physical step tracking run offline. Mars Trek tiles are cached in memory for the current run. Phone navigation estimates positions on the Mars 2000 sphere with a local direction reference. Optional Firebase sharing sends the estimated Mars pose and crew presence. Mission objectives, pings, and SOS are educational simulations. Pings and SOS affect the local interface.
+The mission briefings and physical step tracking work offline. PDR estimates positions on the Mars 2000 sphere using a calibrated local direction and measured steps. Crew sharing publishes the estimated Mars pose to the selected mission. Mars Trek imagery is cached in memory for the current run.
 
-The Earth clock reads the device time in Tegucigalpa (UTC−6). Mars local solar time and temperature are illustrative. Elevation displays published regional relief when available. Image credits and geographic references are in the [Mars mission sources](docs/mars_mission_sources.md).
-
-## Planned work
-
-Future phases will explore scientific navigation, NASA Planetary Data System elevation products, astronaut synchronization, and rescue workflows.
+The phone shows local mean solar time at Habitat Base calculated with NASA Mars24. Temperature appears as **Unavailable**. The base and maximum gridded elevations use NASA MOLA topography referenced to the GMM3 areoid. [Scientific missions and telemetry methods](docs/scientific_missions.md)
 
 ## Credits
 

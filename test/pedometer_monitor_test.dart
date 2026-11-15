@@ -132,7 +132,7 @@ void main() {
   testWidgets(
     'Capture, resume and rebaseline collect steps without changing the pose',
     (tester) async {
-      final mission = marsMissions.first;
+      final mission = marsMissionById['jezero']!;
       final nav = DemoNavigation(missionMaps[mission.id]!, startAtBase: true);
       final sensors = _Sensors();
       var now = 100.0;
@@ -216,7 +216,7 @@ void main() {
   testWidgets(
     'A failed live stream queries only the opted-in capture and preserves the pose',
     (tester) async {
-      final mission = marsMissions.first;
+      final mission = marsMissionById['jezero']!;
       final nav = DemoNavigation(missionMaps[mission.id]!, startAtBase: true);
       final sensors = _Sensors();
       var now = 100;

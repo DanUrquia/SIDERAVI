@@ -220,7 +220,7 @@ class _MissionSelectionState extends State<MissionSelection>
                           ),
                           const SizedBox(height: 14),
                           const Text(
-                            'Educational simulation  ·  Regional coordinates and published imagery',
+                            'Regional coordinates and published imagery',
                             style: TextStyle(
                               color: MissionTheme.muted,
                               fontSize: 12,

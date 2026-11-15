@@ -62,14 +62,20 @@ void main() {
   );
 
   test('Matches verified WMTS and REST resource templates', () {
-    final expected = [
-      (12, 1629, 5863, 'JEZ_ctx_B_soc_008_orthoMosaic_6m_Eqc_latTs0_lon0'),
-      (10, 542, 1807, 'Gale_CTX_BlockAdj_dd'),
-      (12, 2099, 3977, 'HiRISE_Opportunity'),
-      (13, 4758, 16184, 'HiRISE_ColumbiaHills'),
-    ];
-    for (final (index, (matrix, row, col, id)) in expected.indexed) {
-      final mission = marsMissions[index];
+    final expected = {
+      'jezero': (
+        12,
+        1629,
+        5863,
+        'JEZ_ctx_B_soc_008_orthoMosaic_6m_Eqc_latTs0_lon0',
+      ),
+      'gale': (10, 542, 1807, 'Gale_CTX_BlockAdj_dd'),
+      'endeavour': (12, 2099, 3977, 'HiRISE_Opportunity'),
+      'columbia-hills': (13, 4758, 16184, 'HiRISE_ColumbiaHills'),
+    };
+    for (final MapEntry(key: missionId, value: (matrix, row, col, id))
+        in expected.entries) {
+      final mission = marsMissionById[missionId]!;
       final map = missionTrekMaps[mission.id]!;
       final layer = map.detail!;
       final center = map.scene(mission, const Size(800, 700)).center;
@@ -104,7 +110,7 @@ void main() {
     tester,
   ) async {
     const size = Size(800, 600);
-    final mission = marsMissions.last;
+    final mission = marsMissionById['valles-marineris']!;
     final scene = missionTrekMaps[mission.id]!.scene(mission, size);
     final view = TerrainViewController()
       ..fitArea(size.center(Offset.zero), 1000, size);
@@ -142,7 +148,7 @@ void main() {
       final view = TerrainViewController();
       addTearDown(view.dispose);
       final source = FakeTrekTiles();
-      final mission = marsMissions.last;
+      final mission = marsMissionById['valles-marineris']!;
       final map = missionTrekMaps[mission.id]!;
       await tester.pumpWidget(
         MaterialApp(

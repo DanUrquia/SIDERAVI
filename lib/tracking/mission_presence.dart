@@ -35,6 +35,8 @@ enum ConnectionStatus {
 
   const ConnectionStatus(this.label);
   final String label;
+
+  String get mobileLabel => this == connected ? label : offline.label;
 }
 
 /// Identifies one isolated shared session and its authorized local roster slot.
@@ -69,6 +71,11 @@ abstract interface class PresenceConnection {
 /// Indicates that the authenticated user has no access to this mission slot.
 final class PresenceAccessDenied implements Exception {
   const PresenceAccessDenied();
+}
+
+/// A device credential exists but an operator has not assigned its mission slot.
+final class PresenceEnrollmentPending implements Exception {
+  const PresenceEnrollmentPending();
 }
 
 /// Opens one connection without reusing a subscription across mission sessions.
@@ -106,6 +113,7 @@ final class MissionPresence extends ChangeNotifier {
   int _epoch = 0;
   bool _active = false;
   bool accessDenied = false;
+  bool enrollmentPending = false;
   bool _restored = false;
   bool _disposed = false;
   bool _stale = true;
@@ -115,6 +123,7 @@ final class MissionPresence extends ChangeNotifier {
   void open(ConnectPresence connect) {
     if (_active || _disposed) return;
     accessDenied = false;
+    enrollmentPending = false;
     _connect = connect;
     _active = true;
     _tick = Timer.periodic(const Duration(milliseconds: 250), (_) => pulse());
@@ -214,6 +223,7 @@ final class MissionPresence extends ChangeNotifier {
               if (entry.key != key.astronaut) entry.key: entry.value,
           });
           _failures = 0;
+          enrollmentPending = false;
           final changedStatus = status != ConnectionStatus.connected;
           _setStatus(ConnectionStatus.connected);
           _stale = !crew.values.any(isFresh);
@@ -238,6 +248,10 @@ final class MissionPresence extends ChangeNotifier {
       accessDenied = true;
       suspend();
     } else {
+      if (error is PresenceEnrollmentPending && !enrollmentPending) {
+        enrollmentPending = true;
+        if (!_disposed) notifyListeners();
+      }
       _reconnect();
     }
   }

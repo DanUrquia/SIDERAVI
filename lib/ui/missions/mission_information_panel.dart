@@ -164,11 +164,11 @@ class MissionInformationPanel extends StatelessWidget {
         builder: (context, constraints) {
           final facts = [
             _MissionFact(
-              label: 'SIMULATED DIFFICULTY',
+              label: 'DIFFICULTY',
               child: DifficultyDisplay(difficulty: mission.difficulty),
             ),
             _MissionFact(
-              label: 'SIMULATED RADIUS',
+              label: 'OPERATIONAL RADIUS',
               child: Text(mission.radiusLabel),
             ),
             _MissionFact(

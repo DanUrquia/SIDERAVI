@@ -7,17 +7,22 @@
         "sessions": {
           "$session": {
             "metadata": {
-              ".read": "auth != null && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid)"
+              ".read": "auth != null && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid || (auth.token.firebase.sign_in_provider == 'anonymous' && (data.parent().child('deviceMembers/ARES-01').val() == auth.uid || data.parent().child('deviceMembers/ARES-02').val() == auth.uid)))"
             },
             "members": {
               "$slot": {
                 ".read": "auth != null && ($slot == 'ARES-01' || $slot == 'ARES-02') && data.val() == auth.uid && data.parent().parent().child('metadata/state').val() == 'active'"
               }
             },
-            "presence": {
-              ".read": "auth != null && data.parent().child('metadata/state').val() == 'active' && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid)",
+            "deviceMembers": {
               "$slot": {
-                ".write": "auth != null && ($slot == 'ARES-01' || $slot == 'ARES-02') && root.child('missions').child($mission).child('sessions').child($session).child('metadata/state').val() == 'active' && root.child('missions').child($mission).child('sessions').child($session).child('members').child($slot).val() == auth.uid && newData.exists()",
+                ".read": "auth != null && auth.token.firebase.sign_in_provider == 'anonymous' && ($slot == 'ARES-01' || $slot == 'ARES-02') && data.val() == auth.uid && data.parent().parent().child('metadata/state').val() == 'active'"
+              }
+            },
+            "presence": {
+              ".read": "auth != null && data.parent().child('metadata/state').val() == 'active' && (data.parent().child('members/ARES-01').val() == auth.uid || data.parent().child('members/ARES-02').val() == auth.uid || (auth.token.firebase.sign_in_provider == 'anonymous' && (data.parent().child('deviceMembers/ARES-01').val() == auth.uid || data.parent().child('deviceMembers/ARES-02').val() == auth.uid)))",
+              "$slot": {
+                ".write": "auth != null && ($slot == 'ARES-01' || $slot == 'ARES-02') && root.child('missions').child($mission).child('sessions').child($session).child('metadata/state').val() == 'active' && (root.child('missions').child($mission).child('sessions').child($session).child('members').child($slot).val() == auth.uid || (auth.token.firebase.sign_in_provider == 'anonymous' && root.child('missions').child($mission).child('sessions').child($session).child('deviceMembers').child($slot).val() == auth.uid)) && newData.exists()",
                 ".validate": "newData.hasChildren(['marsLon', 'marsLat', 'mode', 'quality', 'online', 'updated'])",
                 "marsLon": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() < 180" },
                 "marsLat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },

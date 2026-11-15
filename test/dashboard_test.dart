@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -54,19 +55,25 @@ void main() {
     'Scientific catalog and spherical map agree at all five Habitat Bases',
     () {
       final ids = <String>{};
-      const radii = [500, 650, 750, 850, 1000];
-      const heights = [-2652, -2606, -1783, -1934, -3874];
-      for (final (index, mission) in marsMissions.indexed) {
+      const expected = {
+        'jezero': (500, -2652),
+        'gale': (650, -2606),
+        'endeavour': (750, -1783),
+        'columbia-hills': (850, -1934),
+        'valles-marineris': (1000, -3874),
+      };
+      for (final mission in marsMissions) {
+        final (radius, height) = expected[mission.id]!;
         expect(mission.objectives, hasLength(3));
         for (final objective in mission.objectives) {
           expect(objective.id, matches(r'^[a-z]+(?:-[a-z]+)*$'));
           expect(ids.add(objective.id), isTrue);
         }
         final map = missionMaps[mission.id]!;
-        expect(map.radiusMeters, radii[index]);
+        expect(map.radiusMeters, radius);
         expect(map.radiusMeters, mission.radiusMeters);
-        expect(mission.elevation?.meters, heights[index]);
-        expect(mission.elevationLabel, '−${heights[index].abs()} m');
+        expect(mission.elevation?.meters, height);
+        expect(mission.elevationLabel, '−${height.abs()} m');
         final center = map.coordinates.toMars(map.base);
         expect(
           mission.elevation!.location.latitude,
@@ -81,13 +88,13 @@ void main() {
         for (final point in map.boundary) {
           expect(
             map.coordinates.distance(map.base, point),
-            closeTo(radii[index], .0001),
+            closeTo(radius, .0001),
           );
           expect(map.contains(point), isTrue);
         }
         for (final offset in [
-          Offset(radii[index] + 1.0, 0),
-          Offset(0, -radii[index] - 1.0),
+          Offset(radius + 1.0, 0),
+          Offset(0, -radius - 1.0),
         ]) {
           expect(
             map.contains(
@@ -185,7 +192,7 @@ void main() {
   testWidgets(
     'Astronaut glyphs, labels and teammate targets stay fixed across zoom',
     (tester) async {
-      final mission = marsMissions.first;
+      final mission = marsMissionById['jezero']!;
       final navigation = DemoNavigation(
         missionMaps[mission.id]!,
         startAtBase: true,
@@ -331,7 +338,7 @@ void main() {
   testWidgets('A remote astronaut at Habitat base keeps a separate label', (
     tester,
   ) async {
-    final mission = marsMissions.first;
+    final mission = marsMissionById['jezero']!;
     final navigation = DemoNavigation(missionMaps[mission.id]!);
     final coordinates = MissionCoordinates(mission);
     final view = TerrainViewController();
@@ -1059,6 +1066,135 @@ void main() {
     },
   );
 
+  testWidgets('Every phone mission opens its own Crew session automatically', (
+    tester,
+  ) async {
+    final motion = _PhoneMotion();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final visits = <SessionKey>[];
+    final connections = <_PhonePresence>[];
+    for (final mission in marsMissions) {
+      final session = _PhonePresence(DateTime.now);
+      connections.add(session);
+      final map = await _launch(
+        tester,
+        size: const Size(390, 844),
+        mission: mission,
+        connectPresence: (key) async {
+          visits.add(key);
+          return session;
+        },
+      );
+      expect(visits.last, (
+        mission: mission.id,
+        session: 'field-test-01',
+        astronaut: DemoCrew.dan.id,
+      ));
+      expect(find.byType(AlertDialog), findsNothing);
+      if (mission.id != 'gale') {
+        session.update({DemoCrew.adrian.id: map.tracking.pose.mars});
+      } else {
+        // The previous Endeavour subscription has ended and must not leak here.
+        session.update({});
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('CONNECTED'), findsOneWidget);
+      expect(
+        find.byTooltip('Select Adrian Flores on map'),
+        mission.id == 'gale' ? findsNothing : findsOneWidget,
+      );
+      expect(
+        session.writes.single.mars,
+        map.tracking.coordinates.toMars(map.navigation.map.base),
+      );
+
+      await _mobileTab(tester, 'crew');
+      expect(find.text('JOIN CREW'), findsNothing);
+      expect(find.text('Crew email'), findsNothing);
+      expect(find.text('Crew password'), findsNothing);
+      expect(find.text('Steps'), findsNothing);
+      if (mission.id == 'gale') {
+        final card = find.ancestor(
+          of: find.text('ARES-02 · OFFLINE'),
+          matching: find.byType(DashboardPanel),
+        );
+        expect(
+          tester
+              .widgetList<Text>(
+                find.descendant(of: card, matching: find.byType(Text)),
+              )
+              .map((text) => text.data),
+          ['ARES-02 · OFFLINE', 'Adrian Flores'],
+        );
+      } else {
+        expect(find.text('ARES-02 · ONLINE'), findsOneWidget);
+        expect(find.text('Estimated separation'), findsOneWidget);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(session.closed, isTrue);
+      expect(session.offlineWrites.single.mars, map.tracking.pose.mars);
+    }
+    expect(visits.map((key) => key.mission), marsMissions.map((m) => m.id));
+    expect(connections, hasLength(5));
+  });
+
+  testWidgets('Automatic Crew retries enrollment and network loss', (
+    tester,
+  ) async {
+    final motion = _PhoneMotion();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    var attempts = 0;
+    final sessions = <_PhonePresence>[];
+    final map = await _launch(
+      tester,
+      size: const Size(390, 844),
+      connectPresence: (_) async {
+        if (attempts++ == 0) throw const PresenceEnrollmentPending();
+        final result = _PhonePresence(DateTime.now);
+        sessions.add(result);
+        return result;
+      },
+    );
+    await _mobileTab(tester, 'crew');
+    expect(find.text('Crew device setup pending.'), findsOneWidget);
+    expect(find.text('ARES-02 · OFFLINE'), findsOneWidget);
+    final home = map.tracking.pose.mars;
+    final walked = displaceOnMars(home, const Offset(12, 0));
+    map.navigation.applyStepPosition(map.tracking.coordinates.toGrid(walked));
+    await tester.pump(const Duration(seconds: 1));
+    sessions.single.update({DemoCrew.adrian.id: home});
+    await tester.pumpAndSettle();
+    expect(find.text('Crew device setup pending.'), findsNothing);
+    expect(find.text('ARES-02 · ONLINE'), findsOneWidget);
+    expect(sessions.single.writes.last.mars, map.tracking.pose.mars);
+
+    sessions.single.crew.addError(StateError('Offline'));
+    await tester.pumpAndSettle();
+    expect(find.text('ARES-02 · OFFLINE'), findsOneWidget);
+    expect(find.text('Estimated separation'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 1));
+    sessions.last.update({DemoCrew.adrian.id: home});
+    await tester.pumpAndSettle();
+    expect(find.text('ARES-02 · ONLINE'), findsOneWidget);
+    expect(find.text('ARES-02 · OFFLINE'), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(sessions, hasLength(2));
+    expect(sessions.last.writes.single.mars, map.tracking.pose.mars);
+    expect(map.navigation.baseDistanceMeters, closeTo(12, .001));
+  });
+
   testWidgets('Landscape tablet retains its separate simulation controls', (
     tester,
   ) async {
@@ -1317,7 +1453,7 @@ void main() {
     'Endeavour opens regionally then follows with a 200 m scale bar',
     (tester) async {
       const size = Size(393, 852);
-      final mission = marsMissions[2];
+      final mission = marsMissionById['endeavour']!;
       final map = await _launch(
         tester,
         size: size,
@@ -1423,8 +1559,9 @@ void main() {
       await _tapTooltip(tester, 'Recenter on astronaut');
       expect(view.value.getMaxScaleOnAxis(), closeTo(manualScale, .001));
       expect((tester.getCenter(local) - center).distance, lessThan(.001));
-      await _tapTooltip(tester, 'Follow astronaut');
+      await _tapTooltip(tester, 'Heading-up');
       expect(map.tracking.follow, isTrue);
+      expect(view.headingUp.value, isTrue);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1433,7 +1570,10 @@ void main() {
     'Opening zoom uses the finest available regional or global raster',
     (tester) async {
       const size = Size(390, 844);
-      for (final mission in [marsMissions[1], marsMissions.last]) {
+      for (final mission in [
+        marsMissionById['gale']!,
+        marsMissionById['valles-marineris']!,
+      ]) {
         await tester.pumpWidget(const SizedBox.shrink());
         final tiles = FakeTrekTiles();
         final map = await _launch(
@@ -1482,7 +1622,7 @@ void main() {
       final map = await _launch(
         tester,
         size: size,
-        mission: marsMissions[2],
+        mission: marsMissionById['endeavour']!,
         settle: false,
       );
       const focal = Offset(140, 420);
@@ -1518,7 +1658,7 @@ void main() {
             messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
       );
       const size = Size(393, 852);
-      final mission = marsMissions[2];
+      final mission = marsMissionById['endeavour']!;
       final map = await _launch(
         tester,
         size: size,
@@ -1557,35 +1697,141 @@ void main() {
     },
   );
 
-  testWidgets('Phone camera controls recenter and follow from the same rail', (
-    tester,
-  ) async {
-    final map = await _launch(tester, size: const Size(390, 844));
-    final view = map.view;
-    final local = find.descendant(
-      of: find.byKey(const ValueKey('ARES-01')),
-      matching: find.byType(RelativeMarkerArrow),
-    );
-    final center = tester.getCenter(
-      find.byKey(const ValueKey('demo-map-viewport')),
-    );
-    await tester.tap(find.text('Fit area · 500 m radius'));
-    await tester.pumpAndSettle();
-    final zoom = view.value.getMaxScaleOnAxis();
-    await tester.dragFrom(center - const Offset(40, 65), const Offset(-25, 37));
-    await tester.pumpAndSettle();
-    expect((tester.getCenter(local) - center).distance, greaterThan(10));
-    await _tapTooltip(tester, 'Recenter on astronaut');
-    expect((tester.getCenter(local) - center).distance, lessThan(.01));
-    expect(view.value.getMaxScaleOnAxis(), closeTo(zoom, .001));
-    await _tapTooltip(tester, 'Follow astronaut');
-    expect(map.tracking.follow, isTrue);
-    map.navigation.setTrackedPosition(
-      map.navigation.map.landmarks.first.position,
-    );
-    await tester.pumpAndSettle();
-    expect((tester.getCenter(local) - center).distance, lessThan(.01));
-    expect(tester.takeException(), isNull);
+  testWidgets(
+    'Phone camera toggles heading while preserving map interactions',
+    (tester) async {
+      const size = Size(390, 844);
+      final map = await _launch(
+        tester,
+        size: size,
+        mission: marsMissions.singleWhere((mission) => mission.id == 'jezero'),
+      );
+      final view = map.view;
+      final world = missionWorld(size);
+      final local = find.descendant(
+        of: find.byKey(const ValueKey('ARES-01')),
+        matching: find.byType(RelativeMarkerArrow),
+      );
+      final glyph = find.descendant(
+        of: local,
+        matching: find.byIcon(Icons.navigation_rounded),
+      );
+      final label = find.text('ARES-01 · YOU');
+      final viewport = find.byKey(const ValueKey('demo-map-viewport'));
+      final center = tester.getCenter(viewport);
+      double angle(Finder finder) {
+        final matrix = tester
+            .renderObject<RenderBox>(finder)
+            .getTransformTo(null);
+        return math.atan2(matrix.entry(1, 0), matrix.entry(0, 0));
+      }
+
+      await tester.tap(find.text('Fit area · 500 m radius'));
+      await tester.pumpAndSettle();
+      final startZoom = view.value.getMaxScaleOnAxis();
+      final markerWidth = tester.getRect(local).width;
+      final startPosition = map.navigation.position;
+      map.tracking.heading.value = 90;
+      await tester.pumpAndSettle();
+      expect(view.headingUp.value, isFalse);
+      expect(view.rotation, 0);
+      expect(angle(glyph), closeTo(math.pi / 2, .001));
+
+      const dragStart = Offset(-45, -75);
+      await tester.dragFrom(center + dragStart, const Offset(-25, 37));
+      await tester.pumpAndSettle();
+      expect((tester.getCenter(local) - center).distance, greaterThan(10));
+      await _tapTooltip(tester, 'Recenter on astronaut');
+      expect((tester.getCenter(local) - center).distance, lessThan(.01));
+      await _tapTooltip(tester, 'Heading-up');
+      expect(view.headingUp.value, isTrue);
+      expect(map.tracking.follow, isTrue);
+      expect(tester.getRect(local).width, closeTo(markerWidth, .001));
+      expect(view.rotation, closeTo(-math.pi / 2, .001));
+      expect(view.value.getMaxScaleOnAxis(), closeTo(startZoom, .001));
+      expect(map.navigation.position, startPosition);
+      expect(angle(glyph), closeTo(0, .001));
+      expect(angle(label), closeTo(0, .001));
+
+      final coordinate = map.tracking.coordinates.toGrid(
+        displaceOnMars(map.tracking.pose.mars, const Offset(170, 145)),
+      );
+      final target = world.topLeft + coordinate * world.width;
+      final screen = MatrixUtils.transformPoint(view.value, target);
+      await tester.tapAt(screen);
+      await tester.pumpAndSettle();
+      expect((map.navigation.target! - coordinate).distance, lessThan(.00001));
+      final route = find.byKey(const ValueKey('mission-route-overlay'));
+      expect(
+        (tester.renderObject<RenderBox>(route).localToGlobal(target) - screen)
+            .distance,
+        lessThan(.001),
+      );
+      final flag = find.byIcon(Icons.flag);
+      expect((tester.getCenter(flag) - screen).distance, lessThan(.001));
+      expect(angle(flag), closeTo(0, .001));
+
+      await _pinchPhoneMap(tester, center, -26);
+      final zoom = view.value.getMaxScaleOnAxis();
+      expect(zoom, lessThan(startZoom));
+      expect(view.rotation, closeTo(-math.pi / 2, .001));
+
+      await tester.dragFrom(center + dragStart, const Offset(36, 38));
+      await tester.pumpAndSettle();
+      expect((tester.getCenter(local) - center).distance, greaterThan(10));
+      expect(map.tracking.follow, isTrue);
+
+      final moved = map.tracking.coordinates.toGrid(
+        displaceOnMars(map.tracking.pose.mars, const Offset(13, 17)),
+      );
+      map.navigation.applyStepPosition(moved);
+      await tester.pumpAndSettle();
+      expect((tester.getCenter(local) - center).distance, lessThan(.01));
+      expect(view.value.getMaxScaleOnAxis(), closeTo(zoom, .001));
+      expect(map.navigation.position, moved);
+
+      map.tracking.heading.value = 170;
+      await tester.pumpAndSettle();
+      map.tracking.heading.value = -175;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 110));
+      expect(math.cos(view.rotation), lessThan(-.98));
+      expect(angle(glyph), closeTo(0, .001));
+      await tester.pumpAndSettle();
+      expect(view.rotation, closeTo(175 * math.pi / 180, .001));
+      final stableView = Matrix4.copy(view.value);
+      map.tracking.heading.value = -175.8;
+      await tester.pumpAndSettle();
+      expect(view.value, stableView);
+      map.tracking.heading.value = null;
+      await tester.pumpAndSettle();
+      expect(view.value, stableView);
+
+      map.tracking.heading.value = 90;
+      await tester.pumpAndSettle();
+      await _tapTooltip(tester, 'North-up');
+      expect(view.headingUp.value, isFalse);
+      expect(view.rotation, closeTo(0, .001));
+      expect(view.value.getMaxScaleOnAxis(), closeTo(zoom, .001));
+      expect(map.navigation.position, moved);
+      expect(angle(glyph), closeTo(math.pi / 2, .001));
+      expect(angle(label), closeTo(0, .001));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test('Rotated terrain requests tiles covering all four viewport corners', () {
+    const size = Size(390, 844);
+    const scale = 2.0;
+    final view = TerrainViewController();
+    addTearDown(view.dispose);
+    final center = size.center(Offset.zero);
+    view.frame(center, center, scale, angle: math.pi / 4);
+    final region = view.visibleScene(size);
+    final extent = (size.width + size.height) / (math.sqrt(2) * scale);
+    expect(region.width, closeTo(extent, .001));
+    expect(region.height, closeTo(extent, .001));
+    expect((region.center - center).distance, lessThan(.001));
   });
 
   testWidgets('Live route paint stays anchored and arrival is announced once', (
@@ -1677,7 +1923,7 @@ void main() {
     final map = await _launch(
       tester,
       size: const Size(390, 844),
-      mission: marsMissions[1],
+      mission: marsMissionById['gale']!,
     );
     await _connectPhoneCrew(tester, map);
     final baseLabel = find.text('Habitat base');
@@ -1817,10 +2063,7 @@ void main() {
     await tester.pumpAndSettle();
     await _tapTooltip(tester, 'Send Ping');
     expect(find.text('Send Location Ping?'), findsOneWidget);
-    expect(
-      find.text('Share your current simulated Mars position with your crew?'),
-      findsOneWidget,
-    );
+    expect(find.text('Mark your estimated Mars position?'), findsOneWidget);
     final no = find.text('NO');
     final yes = find.text('YES');
     expect(nav.pings, isEmpty);
@@ -1853,7 +2096,11 @@ void main() {
     await _tapTooltip(tester, 'SOS');
     expect(find.text('Activate SOS?'), findsOneWidget);
     expect(
-      find.text('Send an emergency alert to your mission crew?'),
+      find.text('Pause exploration and mark your position on this device?'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('This mission alert stays on this device.'),
       findsOneWidget,
     );
     expect(nav.sos, isFalse);
@@ -1867,8 +2114,8 @@ void main() {
     expect(notifications, 2);
     expect(nav.sos, isTrue);
     expect(nav.paused, isTrue);
-    expect(find.text('Demo SOS active'), findsOneWidget);
-    await _tapTooltip(tester, 'Cancel demo SOS');
+    expect(find.text('SOS active'), findsOneWidget);
+    await _tapTooltip(tester, 'Cancel SOS');
     expect(nav.sos, isFalse);
     expect(tester.takeException(), isNull);
   });
@@ -1885,7 +2132,11 @@ void main() {
       ]) {
         await tester.pumpWidget(const SizedBox.shrink());
         tester.view.viewPadding = safeArea;
-        final map = await _launch(tester, size: size, mission: marsMissions[1]);
+        final map = await _launch(
+          tester,
+          size: size,
+          mission: marsMissionById['gale']!,
+        );
         final header = find.byKey(const ValueKey('mobile-mission-header'));
         final readings = find.byKey(const ValueKey('mobile-map-telemetry'));
         final actions = find.byKey(const ValueKey('mobile-map-actions'));
@@ -1930,13 +2181,13 @@ void main() {
           );
           expect(rect.bottom, lessThan(tester.getTopLeft(dock).dy));
           expect(
-            rect.overlaps(tester.getRect(find.byTooltip('Follow astronaut'))),
+            rect.overlaps(tester.getRect(find.byTooltip('Heading-up'))),
             isFalse,
           );
           previous = rect;
         }
         final recenter = find.byTooltip('Recenter on astronaut');
-        final follow = find.byTooltip('Follow astronaut');
+        final follow = find.byTooltip('Heading-up');
         expect(recenter, findsOneWidget);
         expect(follow, findsOneWidget);
         final sosRect = tester.getRect(
@@ -2005,6 +2256,7 @@ Future<DemoTerrainMap> _launch(
   FakeTrekTiles? tiles,
   DateTime Function()? clock,
   TargetPlatform? platform,
+  ConnectPresence? connectPresence,
   double textScale = 1,
   bool settle = true,
 }) async {
@@ -2024,8 +2276,9 @@ Future<DemoTerrainMap> _launch(
       home: MissionDashboard(
         astronaut: astronaut,
         tileSource: tiles ?? FakeTrekTiles(),
-        mission: mission ?? marsMissions.first,
+        mission: mission ?? marsMissionById['jezero']!,
         clock: clock,
+        connectPresence: connectPresence,
       ),
     ),
   );
@@ -2260,6 +2513,8 @@ final class _PhonePresence implements PresenceConnection {
   late SessionKey key;
   final crew = StreamController<PresenceSnapshot>();
   final writes = <AstronautPose>[];
+  final offlineWrites = <AstronautPose>[];
+  bool closed = false;
 
   void update(Map<String, Offset> positions) {
     crew.add({
@@ -2282,9 +2537,12 @@ final class _PhonePresence implements PresenceConnection {
 
   @override
   Future<void> publish(AstronautPose pose, {required bool online}) async {
-    if (online) writes.add(pose);
+    (online ? writes : offlineWrites).add(pose);
   }
 
   @override
-  void close() => unawaited(crew.close());
+  void close() {
+    closed = true;
+    unawaited(crew.close());
+  }
 }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import '../maps/mars_projection.dart';
@@ -10,9 +12,19 @@ Rect missionWorld(Size viewport) => Rect.fromCenter(
   height: viewport.shortestSide,
 );
 
-/// Controls the viewport transform shared by the image and all demo markers.
+/// Controls the viewport transform shared by the terrain and map overlays.
 final class TerrainViewController extends TransformationController {
   static const maxZoom = 4.0;
+
+  final headingUp = ValueNotifier(false);
+
+  double get rotation => math.atan2(value.entry(1, 0), value.entry(0, 0));
+
+  /// The north-up scene rectangle covering all four visible screen corners.
+  Rect visibleScene(Size viewport) => MatrixUtils.transformRect(
+    Matrix4.inverted(value),
+    Offset.zero & viewport,
+  );
 
   /// Matches the finest raster to the tile renderer's logical map pixels.
   static double rasterZoomLimit(MarsScene scene, TrekLayer layer) =>
@@ -29,11 +41,18 @@ final class TerrainViewController extends TransformationController {
     double groundWidth,
   ) => scene.groundMetersPerPixel(focus) * usableWidth / groundWidth;
 
-  /// Places a scene anchor at a screen point at the chosen uniform scale.
-  void frame(Offset scenePoint, Offset screenPoint, double scale) {
-    final position = screenPoint - scenePoint * scale;
-    value = Matrix4.diagonal3Values(scale, scale, scale)
-      ..setTranslationRaw(position.dx, position.dy, 0);
+  /// Places a scene anchor at a screen point with a uniform zoom and rotation.
+  void frame(
+    Offset scenePoint,
+    Offset screenPoint,
+    double scale, {
+    double? angle,
+  }) {
+    final matrix = Matrix4.rotationZ(angle ?? rotation)
+      ..scaleByDouble(scale, scale, scale, 1);
+    final position =
+        screenPoint - MatrixUtils.transformPoint(matrix, scenePoint);
+    value = matrix..setTranslationRaw(position.dx, position.dy, 0);
   }
 
   /// Limits free lateral exploration to a neighborhood around the mission view.
@@ -46,28 +65,27 @@ final class TerrainViewController extends TransformationController {
     final next = (scale * factor).clamp(1.0, limit);
     final center = viewport.center(Offset.zero);
     final scene = toScene(center);
-    final margin = panMargin(viewport).left * next;
-    final x = (center.dx - scene.dx * next).clamp(
-      viewport.width * (1 - next) - margin,
-      margin,
+    final boundary = panMargin(viewport).inflateRect(Offset.zero & viewport);
+    final extent = visibleScene(viewport).size * (scale / next / 2);
+    final focus = Offset(
+      scene.dx.clamp(
+        boundary.left + extent.width,
+        boundary.right - extent.width,
+      ),
+      scene.dy.clamp(
+        boundary.top + extent.height,
+        boundary.bottom - extent.height,
+      ),
     );
-    final y = (center.dy - scene.dy * next).clamp(
-      viewport.height * (1 - next) - margin,
-      margin,
-    );
-    value = Matrix4.identity()
-      ..setEntry(0, 0, next)
-      ..setEntry(1, 1, next)
-      ..setEntry(2, 2, next)
-      ..setTranslationRaw(x, y, 0);
+    frame(focus, center, next);
   }
 
-  /// Centers a geographic scene point and preserves the current zoom.
-  void recenter(Offset scenePoint, Size viewport) {
-    final scale = value.getMaxScaleOnAxis();
-    final position = viewport.center(Offset.zero) - scenePoint * scale;
-    value = Matrix4.copy(value)..setTranslationRaw(position.dx, position.dy, 0);
-  }
+  /// Centers a geographic scene point, preserving zoom and orientation.
+  void recenter(Offset scenePoint, Size viewport) => frame(
+    scenePoint,
+    viewport.center(Offset.zero),
+    value.getMaxScaleOnAxis(),
+  );
 
   /// Centers a local exploration window without changing the map projection.
   void fitArea(Offset sceneCenter, double scale, Size viewport) =>
@@ -75,4 +93,10 @@ final class TerrainViewController extends TransformationController {
 
   /// Restores the mission center and initial zoom.
   void reset() => value = Matrix4.identity();
+
+  @override
+  void dispose() {
+    headingUp.dispose();
+    super.dispose();
+  }
 }

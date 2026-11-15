@@ -40,7 +40,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1000));
       expect(find.bySemanticsLabel('Welcome Astronaut $name'), findsOneWidget);
       expect(
-        find.bySemanticsLabel(RegExp('Simulated dashboard initialization')),
+        find.bySemanticsLabel(RegExp('Mission dashboard initialization')),
         findsNothing,
       );
       await tester.pump(const Duration(milliseconds: 1300));
@@ -70,7 +70,7 @@ void main() {
       expect(find.text(name), findsOneWidget);
       expect(find.text(id), findsOneWidget);
       expect(find.text(initials), findsOneWidget);
-      expect(find.text('Jezero Crater'), findsOneWidget);
+      expect(find.text('Endeavour Crater'), findsOneWidget);
       expect(find.bySemanticsLabel('Welcome Astronaut $name'), findsNothing);
 
       await tester.tap(find.text('BACK'));
@@ -188,7 +188,13 @@ void main() {
   });
 
   test('The catalog has five distinct missions, images, and difficulties', () {
-    expect(marsMissions.map((mission) => mission.id).toSet(), hasLength(5));
+    expect(marsMissions.map((mission) => mission.id), [
+      'endeavour',
+      'gale',
+      'columbia-hills',
+      'valles-marineris',
+      'jezero',
+    ]);
     expect(
       marsMissions.map((mission) => mission.imagery.asset).toSet(),
       hasLength(5),
@@ -397,7 +403,7 @@ void main() {
       await tester.tap(find.text('START MISSION'));
       await tester.pumpAndSettle();
       expect(find.text('Adrian Flores — ARES-02'), findsOneWidget);
-      expect(find.text('Jezero Crater'), findsOneWidget);
+      expect(find.text('Endeavour Crater'), findsOneWidget);
       final secondMap = tester.widget<DemoTerrainMap>(
         find.byType(DemoTerrainMap),
       );

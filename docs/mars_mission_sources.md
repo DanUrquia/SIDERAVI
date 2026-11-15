@@ -4,17 +4,13 @@ SIDERA VI bundles credited Mars imagery for its educational simulations. [Scient
 
 The JPEGs are available offline. The bundled copies retain the original image proportions and published colors. The iPad viewing panel crops to fit. The Jezero, Endeavour and Valles assets were downsampled for display.
 
-## Jezero Crater · Moderate
+## Endeavour Crater · Challenging
 
-- **Image** — Perseverance Mastcam-Z viewed the ancient delta from Octavia E. Butler Landing. Credit NASA/JPL-Caltech/ASU/MSSS. [NASA Photojournal PIA24485](https://science.nasa.gov/photojournal/perseverance-view-of-the-delta-in-jezero-crater/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia24/pia24485/PIA24485.jpg)
+- **Image** — Opportunity Pancam captured the crater rim from Murray Ridge. The published mosaic is approximately true color. Credit NASA/JPL-Caltech/Cornell Univ./Arizona State Univ. [NASA Photojournal PIA18093](https://science.nasa.gov/photojournal/endeavour-crater-rim-from-murray-ridge-on-mars/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia18/pia18093/PIA18093.jpg)
 
 ## Gale Crater · Easy
 
 - **Image** — Curiosity Mastcam shows sandstone buttes on lower Mount Sharp. Credit NASA/JPL-Caltech/MSSS. [NASA Photojournal PIA21042](https://science.nasa.gov/photojournal/farewell-to-murray-buttes-image-2/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia21/pia21042/PIA21042.jpg)
-
-## Endeavour Crater · Challenging
-
-- **Image** — Opportunity Pancam captured the crater rim from Murray Ridge. The published mosaic is approximately true color. Credit NASA/JPL-Caltech/Cornell Univ./Arizona State Univ. [NASA Photojournal PIA18093](https://science.nasa.gov/photojournal/endeavour-crater-rim-from-murray-ridge-on-mars/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia18/pia18093/PIA18093.jpg)
 
 ## Columbia Hills · Hard
 
@@ -23,6 +19,10 @@ The JPEGs are available offline. The bundled copies retain the original image pr
 ## Valles Marineris · Extreme
 
 - **Image** — The globe mosaic uses Viking Orbiter 1 imagery and shows the canyon system across the center. Credit NASA/JPL-Caltech. [NASA Science PIA04304](https://science.nasa.gov/resource/valles-marineris-the-grand-canyon-of-mars/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia04/pia04304/PIA04304.jpg)
+
+## Jezero Crater · Moderate
+
+- **Image** — Perseverance Mastcam-Z viewed the ancient delta from Octavia E. Butler Landing. Credit NASA/JPL-Caltech/ASU/MSSS. [NASA Photojournal PIA24485](https://science.nasa.gov/photojournal/perseverance-view-of-the-delta-in-jezero-crater/) · [Original JPEG](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia24/pia24485/PIA24485.jpg)
 
 ## Phase 3 orbital backdrops
 
