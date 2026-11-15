@@ -421,6 +421,7 @@ class MobileCrewContent extends StatelessWidget {
     required this.member,
     required this.onTeammate,
     this.onCancelSos,
+    this.tablet = false,
   });
 
   final Astronaut astronaut;
@@ -431,6 +432,7 @@ class MobileCrewContent extends StatelessWidget {
   final CrewPresence? member;
   final VoidCallback? onTeammate;
   final VoidCallback? onCancelSos;
+  final bool tablet;
 
   @override
   Widget build(BuildContext context) {
@@ -480,7 +482,9 @@ class MobileCrewContent extends StatelessWidget {
             ),
             DashboardReadout(
               label: 'Measured steps',
-              value: tracking.measuredSteps?.toString() ?? 'Unavailable',
+              value: tablet && tracking.pedometer.state.isUnavailable
+                  ? 'Unavailable'
+                  : tracking.measuredSteps?.toString() ?? 'Unavailable',
             ),
           ],
         ),

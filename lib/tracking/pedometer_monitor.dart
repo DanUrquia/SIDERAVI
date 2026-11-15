@@ -15,6 +15,11 @@ enum PedometerState {
 
   const PedometerState(this.label);
   final String label;
+
+  bool get isUnavailable => switch (this) {
+    unsupported || denied || restricted || unavailable => true,
+    _ => false,
+  };
 }
 
 /// A timestamped native reading with deduplicated cumulative increments.

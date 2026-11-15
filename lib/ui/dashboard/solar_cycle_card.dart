@@ -10,10 +10,16 @@ import 'dashboard_style.dart';
 
 /// Two presentations of the same Habitat Base solar cycle.
 class SolarCycleCard extends StatelessWidget {
-  const SolarCycleCard({super.key, required this.cycle, this.compact = false});
+  const SolarCycleCard({
+    super.key,
+    required this.cycle,
+    this.compact = false,
+    this.tabletDensity = false,
+  });
 
   final ValueListenable<MarsSolarCycle> cycle;
   final bool compact;
+  final bool tabletDensity;
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
@@ -48,7 +54,7 @@ class SolarCycleCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  _SolarTrack(solar: solar, compact: true),
+                  _SolarTrack(solar: solar, compact: true, height: 23),
                 ],
               ),
             ),
@@ -57,43 +63,44 @@ class SolarCycleCard extends StatelessWidget {
             title: 'SOLAR CYCLE',
             icon: solar.isDaylight ? Icons.light_mode : Icons.dark_mode,
             children: [
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 12,
-                runSpacing: 6,
-                children: [
-                  Column(
-                    spacing: 3,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Mars time at Base (LMST)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: DashboardStyle.muted,
+              if (!tabletDensity)
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 6,
+                  children: [
+                    Column(
+                      spacing: 3,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Mars time at Base (LMST)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: DashboardStyle.muted,
+                          ),
                         ),
-                      ),
-                      Text(
-                        solar.localTime,
-                        style: MissionTheme.display(
-                          25,
-                        ).copyWith(color: DashboardStyle.cyan),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    solar.skyState,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: solar.isDaylight
-                          ? DashboardStyle.amber
-                          : DashboardStyle.muted,
+                        Text(
+                          solar.localTime,
+                          style: MissionTheme.display(
+                            25,
+                          ).copyWith(color: DashboardStyle.cyan),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
+                    Text(
+                      solar.skyState,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: solar.isDaylight
+                            ? DashboardStyle.amber
+                            : DashboardStyle.muted,
+                      ),
+                    ),
+                  ],
+                ),
               DecoratedBox(
                 decoration: DashboardStyle.surface(
                   color: DashboardStyle.inset,
@@ -101,9 +108,15 @@ class SolarCycleCard extends StatelessWidget {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: _SolarTrack(solar: solar, compact: false),
+                  child: _SolarTrack(
+                    solar: solar,
+                    compact: false,
+                    height: tabletDensity ? 62 : 104,
+                  ),
                 ),
               ),
+              if (tabletDensity)
+                DashboardReadout(label: 'Sky', value: solar.skyState),
               DashboardReadout(
                 label: 'Daylight duration',
                 value: solar.daylight,
@@ -127,10 +140,15 @@ final mapHudSurface = DashboardStyle.surface(
 );
 
 class _SolarTrack extends StatelessWidget {
-  const _SolarTrack({required this.solar, required this.compact});
+  const _SolarTrack({
+    required this.solar,
+    required this.compact,
+    required this.height,
+  });
 
   final MarsSolarCycle solar;
   final bool compact;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +163,7 @@ class _SolarTrack extends StatelessWidget {
       children: [
         SizedBox(
           width: double.infinity,
-          height: compact ? 23 : 104,
+          height: height,
           child: CustomPaint(
             key: ValueKey(solar.isDaylight ? 'daylight-arc' : 'night-arc'),
             painter: _SolarArc(progress: solar.progress, compact: compact),

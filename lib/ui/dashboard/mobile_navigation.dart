@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
@@ -18,7 +17,7 @@ import 'dashboard_style.dart';
 import 'mobile_map_controls.dart';
 import 'mobile_astronaut_content.dart';
 import 'mobile_mission_sheets.dart';
-import 'sos_emergency_dialog.dart';
+import 'mission_control_dialogs.dart';
 
 enum _Sheet {
   missions('Missions', Icons.flag_outlined),
@@ -41,6 +40,7 @@ class MobileNavigation extends StatefulWidget {
     required this.teammate,
     required this.mission,
     required this.navigation,
+    required this.checklist,
     required this.tracking,
     required this.presence,
     required this.member,
@@ -68,6 +68,7 @@ class MobileNavigation extends StatefulWidget {
   final Astronaut teammate;
   final MarsMission mission;
   final DemoNavigation navigation;
+  final MissionChecklist checklist;
   final AstronautTracking tracking;
   final MissionPresence presence;
   final CrewPresence? member;
@@ -96,14 +97,7 @@ class _MobileNavigationState extends State<MobileNavigation>
     with SingleTickerProviderStateMixin {
   late final AnimationController _slide;
   final _scrollPositions = PageStorageBucket();
-  late final _storage = MissionChecklistStore(
-    '${widget.astronaut.id}/${widget.mission.id}',
-  );
-  Set<String> _completed = {};
-  bool _loading = true;
-  bool _saving = false;
   bool _confirming = false;
-  String? _storageWarning;
   _Sheet? _sheet;
   bool _closing = false;
 
@@ -114,59 +108,12 @@ class _MobileNavigationState extends State<MobileNavigation>
       vsync: this,
       duration: const Duration(milliseconds: 220),
     );
-    unawaited(_loadChecklist());
   }
 
   @override
   void didUpdateWidget(MobileNavigation oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.revealRescue != oldWidget.revealRescue) unawaited(_close());
-  }
-
-  Future<void> _loadChecklist() async {
-    Set<String> completed = {};
-    try {
-      completed = await _storage.read();
-    } on PlatformException {
-      _storageWarning = 'Checklist storage unavailable.';
-    } on MissingPluginException {
-      _storageWarning = 'Checklist lasts for this visit.';
-    }
-    if (!mounted) return;
-    setState(() {
-      _completed = completed;
-      _loading = false;
-    });
-  }
-
-  Future<void> _changeObjective(String id) async {
-    if (_loading || _saving) return;
-    _saving = true;
-    setState(() {
-      _completed = {..._completed};
-      if (!_completed.remove(id)) _completed.add(id);
-    });
-    try {
-      await Future.wait([
-        _storage.write(_completed),
-        Future<void>.delayed(const Duration(milliseconds: 160)),
-      ]);
-      if (mounted && _storageWarning != null) {
-        setState(() => _storageWarning = null);
-      }
-    } on PlatformException {
-      if (mounted) {
-        setState(() {
-          _storageWarning = 'Could not save the checklist on this device.';
-        });
-      }
-    } on MissingPluginException {
-      if (mounted) {
-        setState(() => _storageWarning = 'Checklist lasts for this visit.');
-      }
-    } finally {
-      _saving = false;
-    }
   }
 
   void _open(_Sheet next) {
@@ -212,25 +159,7 @@ class _MobileNavigationState extends State<MobileNavigation>
   }
 
   Future<void> _returnToBase() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Return to habitat base?'),
-        content: const Text(
-          'Start direct guidance to Habitat Base. Keep the phone’s top edge pointed in your walking direction.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Return to base'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await confirmReturnToHabitatBase(context);
     if (!mounted || confirmed != true || !widget.navigation.canReturnToBase) {
       return;
     }
@@ -245,16 +174,7 @@ class _MobileNavigationState extends State<MobileNavigation>
     }
     _confirming = true;
     try {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        barrierColor: SosEmergencyDialog.barrierColor,
-        animationStyle: SosEmergencyDialog.animationStyle(context),
-        builder: (context) => SosEmergencyDialog.confirm(
-          key: const ValueKey('confirm-crew-sos'),
-          onPrimary: () => Navigator.pop(context, true),
-          onSecondary: () => Navigator.pop(context, false),
-        ),
-      );
+      final confirmed = await confirmCrewSos(context);
       if (mounted && confirmed == true) widget.onSos();
     } finally {
       _confirming = false;
@@ -262,19 +182,22 @@ class _MobileNavigationState extends State<MobileNavigation>
   }
 
   Widget _content(_Sheet sheet, Size viewport) => switch (sheet) {
-    _Sheet.missions => MobileMissionsContent(
-      mission: widget.mission,
-      landmarks: widget.navigation.map.landmarks,
-      completed: _completed,
-      loading: _loading,
-      storageWarning: _storageWarning,
-      onChange: _changeObjective,
-      onSelect: (landmark) {
-        if (!widget.onSelect(landmark.position, landmark.name)) return;
-        widget.tracking.setFollow(false);
-        widget.view.recenterMissionPoint(landmark.position, viewport);
-        unawaited(_close());
-      },
+    _Sheet.missions => ListenableBuilder(
+      listenable: widget.checklist,
+      builder: (context, _) => MobileMissionsContent(
+        mission: widget.mission,
+        landmarks: widget.navigation.map.landmarks,
+        completed: widget.checklist.completed,
+        loading: widget.checklist.loading,
+        storageWarning: widget.checklist.warning,
+        onChange: widget.checklist.toggle,
+        onSelect: (landmark) {
+          if (!widget.onSelect(landmark.position, landmark.name)) return;
+          widget.tracking.setFollow(false);
+          widget.view.recenterMissionPoint(landmark.position, viewport);
+          unawaited(_close());
+        },
+      ),
     ),
     _Sheet.astronaut => MobileAstronautContent(
       astronaut: widget.astronaut,

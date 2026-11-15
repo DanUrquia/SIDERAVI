@@ -41,6 +41,7 @@ class DemoTerrainMap extends StatefulWidget {
     this.sharedPins = const {},
     this.sharedSos,
     this.fullScreen = false,
+    this.tabletControls = false,
     this.showMapHud = true,
     this.solarCycle,
     this.layoutHud,
@@ -63,6 +64,7 @@ class DemoTerrainMap extends StatefulWidget {
   final Map<String, Offset> sharedPins;
   final ({String sender, Offset point})? sharedSos;
   final bool fullScreen;
+  final bool tabletControls;
   final bool showMapHud;
   final ValueListenable<MarsSolarCycle>? solarCycle;
   final Widget Function(Widget? status, Widget? footer)? layoutHud;
@@ -90,6 +92,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
   Timer? _gestureSettle;
   MarsScene? _scene;
   bool _openingZoom = false;
+  bool _didFrameTablet = false;
   bool _writingCamera = false;
   bool _interacting = false;
   ({Size viewport, Offset pixel})? _followTarget;
@@ -248,11 +251,12 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     }
   }
 
-  bool get _headingUp => widget.fullScreen && view.headingUp.value;
+  bool get _supportsHeading => widget.fullScreen || widget.tabletControls;
+  bool get _headingUp => _supportsHeading && view.headingUp.value;
 
   void _headingModeChanged() {
     final scene = _scene;
-    if (!widget.fullScreen || scene == null) return;
+    if (!_supportsHeading || scene == null) return;
     _gestureSettle?.cancel();
     _gestureSettle = null;
     _manualCameraInput();
@@ -287,7 +291,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
 
   void _settleHeading() {
     final scene = _scene;
-    if (!widget.fullScreen ||
+    if (!_supportsHeading ||
         _interacting ||
         _gestureSettle?.isActive == true ||
         scene == null) {
@@ -395,7 +399,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           final trek = missionTrekMaps[mission.id]!;
           final scene = trek.scene(mission, viewport);
           _scene = scene;
-          final maxZoom = widget.fullScreen
+          final maxZoom = _supportsHeading
               ? math.max(
                   areaScale,
                   TerrainViewController.rasterZoomLimit(
@@ -404,11 +408,20 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                   ),
                 )
               : math.max(TerrainViewController.maxZoom, areaScale * 4);
+          if (widget.tabletControls && !_didFrameTablet) {
+            _didFrameTablet = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && view.value.isIdentity()) {
+                view.fitArea(_project(world, config.base), areaScale, viewport);
+              }
+            });
+          }
           _follow(viewport, _project(world, navigation.position));
           final peerPoint = widget.peerPoint;
           final peer = widget.peer;
-          final pairOnPhone = widget.fullScreen && peerPoint != null;
-          final sharedAnchor = pairOnPhone && peerPoint == navigation.position
+          final separateCrewAnchors = _supportsHeading && peerPoint != null;
+          final sharedAnchor =
+              separateCrewAnchors && peerPoint == navigation.position
               ? peerPoint
               : null;
           final localAnchor = _project(world, navigation.position);
@@ -436,7 +449,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             source: widget.tileSource,
             detail: trek.detail,
             showStatus: widget.showMapHud,
-            showResolutionLimit: !widget.fullScreen,
+            showResolutionLimit: !_supportsHeading,
             statusFooter: !widget.fullScreen
                 ? null
                 : showSolar
@@ -505,7 +518,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             'Habitat base',
                             Icons.home_filled,
                             DashboardStyle.text,
-                            labelAvoidsMarker: pairOnPhone ? peerAnchor : null,
+                            labelAvoidsMarker: separateCrewAnchors
+                                ? peerAnchor
+                                : null,
                             onTap: () =>
                                 widget.onSelect(config.base, 'Habitat base'),
                           ),
@@ -541,17 +556,24 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                                   : DashboardStyle.muted,
                               key: ValueKey(widget.teammateId),
                               heading: peer?.pose.heading,
-                              animate: peer != null && !pairOnPhone,
+                              animate: peer != null && !separateCrewAnchors,
                               nearby: [
-                                if (!pairOnPhone) ...[localAnchor, baseAnchor],
+                                if (!separateCrewAnchors) ...[
+                                  localAnchor,
+                                  baseAnchor,
+                                ],
                               ],
-                              clusterWith: pairOnPhone ? localAnchor : null,
+                              clusterWith: separateCrewAnchors
+                                  ? localAnchor
+                                  : null,
                               firstInCluster:
                                   widget.teammateId.compareTo(
                                     widget.astronautId,
                                   ) <
                                   0,
-                              labelAvoidsBase: pairOnPhone ? baseAnchor : null,
+                              labelAvoidsBase: separateCrewAnchors
+                                  ? baseAnchor
+                                  : null,
                               description:
                                   'Select ${widget.teammateName} on map',
                               onTap: () => widget.onSelect(
@@ -644,12 +666,16 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                                 ? null
                                 : tracking.heading,
                             animate:
-                                !widget.fullScreen &&
+                                !_supportsHeading &&
                                 tracking.mode == TrackingMode.live,
                             emergency: navigation.sos,
                             localAstronaut: true,
-                            onTap: pairOnPhone ? widget.onAstronaut : null,
-                            clusterWith: pairOnPhone ? peerAnchor : null,
+                            onTap: separateCrewAnchors
+                                ? widget.onAstronaut
+                                : null,
+                            clusterWith: separateCrewAnchors
+                                ? peerAnchor
+                                : null,
                             firstInCluster:
                                 widget.astronautId.compareTo(
                                   widget.teammateId,
@@ -661,7 +687,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     ),
                   ),
                 ),
-                if (!widget.fullScreen)
+                if (!_supportsHeading)
                   Positioned(
                     left: 15,
                     top: 15,
@@ -673,7 +699,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                       color: DashboardStyle.warm,
                     ),
                   ),
-                if (!widget.fullScreen)
+                if (!_supportsHeading)
                   Positioned(
                     right: 14,
                     top: 14,
@@ -682,7 +708,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                       icon: Icons.navigation_rounded,
                     ),
                   ),
-                if (!widget.fullScreen)
+                if (!_supportsHeading)
                   Positioned(
                     right: 14,
                     bottom: 16,
@@ -728,10 +754,17 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                       },
                     ),
                   ),
+                if (widget.tabletControls)
+                  Positioned(
+                    left: 10,
+                    right: 10,
+                    top: 10,
+                    child: _tabletToolbar(viewport, maxZoom),
+                  ),
                 if (!widget.fullScreen)
                   Positioned(
                     left: 14,
-                    right: 82,
+                    right: widget.tabletControls ? 14 : 82,
                     bottom: 15,
                     child: Align(
                       alignment: Alignment.bottomLeft,
@@ -745,6 +778,73 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
       ),
     );
   }
+
+  Widget _tabletToolbar(Size viewport, double maxZoom) => ListenableBuilder(
+    listenable: Listenable.merge([view, view.headingUp]),
+    builder: (context, _) {
+      final zoom = view.value.getMaxScaleOnAxis();
+      return Wrap(
+        key: const ValueKey('tablet-map-toolbar'),
+        alignment: WrapAlignment.end,
+        spacing: 5,
+        runSpacing: 5,
+        children: [
+          _tabletMapButton(
+            'Zoom in',
+            Icons.add,
+            zoom < maxZoom
+                ? () => view.zoomBy(1.4, viewport, limit: maxZoom)
+                : null,
+          ),
+          _tabletMapButton(
+            'Zoom out',
+            Icons.remove,
+            zoom > 1
+                ? () => view.zoomBy(1 / 1.4, viewport, limit: maxZoom)
+                : null,
+          ),
+          _tabletMapButton(
+            'Recenter on astronaut',
+            Icons.my_location,
+            () => view.recenterMissionPoint(navigation.position, viewport),
+          ),
+          _tabletMapButton(
+            'Follow astronaut',
+            tracking.follow ? Icons.gps_fixed : Icons.gps_not_fixed,
+            () => tracking.setFollow(!tracking.follow),
+            selected: tracking.follow,
+          ),
+          _tabletMapButton(
+            _headingUp ? 'North-up' : 'Heading-up',
+            _headingUp ? Icons.navigation_rounded : Icons.navigation_outlined,
+            () => view.headingUp.value = !_headingUp,
+            selected: _headingUp,
+          ),
+        ],
+      );
+    },
+  );
+
+  Widget _tabletMapButton(
+    String label,
+    IconData icon,
+    VoidCallback? action, {
+    bool selected = false,
+  }) => IconButton(
+    tooltip: label,
+    isSelected: selected,
+    onPressed: action,
+    icon: Icon(icon, size: 19),
+    selectedIcon: Icon(icon, size: 19, color: DashboardStyle.cyan),
+    style: IconButton.styleFrom(
+      minimumSize: const Size(44, 44),
+      backgroundColor: DashboardStyle.inset,
+      side: BorderSide(
+        color: selected ? DashboardStyle.cyan : DashboardStyle.outline,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+  );
 
   Widget _mobileHud(ValueListenable<MarsSolarCycle> solar, Widget scalePanel) =>
       LayoutBuilder(
@@ -836,7 +936,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
               },
             ),
             _MarsScaleBar(scene: scene, view: view),
-            if (compact && navigation.routeTarget != null)
+            if (_supportsHeading && navigation.routeTarget != null)
               const Text(
                 'Direct guidance · Terrain unverified',
                 style: TextStyle(fontSize: 10, color: DashboardStyle.warm),

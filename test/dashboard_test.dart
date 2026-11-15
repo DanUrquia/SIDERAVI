@@ -9,6 +9,8 @@ import 'package:sidera_vi/dashboard/demo_navigation.dart';
 import 'package:sidera_vi/dashboard/mission_map_config.dart';
 import 'package:sidera_vi/dashboard/terrain_view_controller.dart';
 import 'package:sidera_vi/missions/mission.dart';
+import 'package:sidera_vi/missions/mars_climate.dart';
+import 'package:sidera_vi/missions/mars_solar_time.dart';
 import 'package:sidera_vi/missions/mission_catalog.dart';
 import 'package:sidera_vi/maps/mars_projection.dart';
 import 'package:sidera_vi/maps/mars_trek_layers.dart';
@@ -24,6 +26,7 @@ import 'package:sidera_vi/ui/dashboard/dashboard_style.dart';
 import 'package:sidera_vi/ui/dashboard/dashboard_panels.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/dashboard/mobile_navigation.dart';
+import 'package:sidera_vi/ui/dashboard/tablet_mission_control.dart';
 import 'package:sidera_vi/ui/mission_action_button.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
 
@@ -1283,6 +1286,336 @@ void main() {
           .arguments,
       isNull,
     );
+  });
+
+  testWidgets('iPad landscapes reserve the largest column for Mars Trek', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, (call) async {
+      if (call.method == 'readMissionChecklist') return <String>[];
+      if (call.method == 'snapshot') {
+        return {
+          'pedometer': {'stepCounting': false},
+        };
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final mission = marsMissionById['endeavour']!;
+    final now = DateTime.utc(2026, 11, 15, 20, 45);
+    final solar = MarsSolarCycle.at(
+      now,
+      planetocentricLatitude: mission.elevation!.location.latitude,
+      eastLongitude: mission.elevation!.location.eastLongitude,
+    );
+    final temperature = formatMarsClimate(
+      marsClimateCelsius(
+        mission.id,
+        solar,
+        eastLongitude: mission.elevation!.location.eastLongitude,
+      ),
+    );
+
+    for (final (size, scale, wide) in [
+      (const Size(1376, 1032), 1.0, true),
+      (const Size(1180, 820), 1.0, true),
+      (const Size(1024, 768), 1.0, true),
+      (const Size(1024, 768), 2.0, true),
+      (const Size(890, 680), 1.0, false),
+      (const Size(820, 1180), 2.0, false),
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _launch(
+        tester,
+        size: size,
+        mission: mission,
+        platform: TargetPlatform.iOS,
+        textScale: scale,
+        clock: () => now,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      final map = find.byKey(const ValueKey('demo-map-viewport'));
+      final left = find.byKey(const ValueKey('tablet-missions'));
+      final right = find.byKey(const ValueKey('tablet-mission-control'));
+      final mapRect = tester.getRect(map);
+      final rightRect = tester.getRect(right);
+      expect(find.byType(TabletMissionControl), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('mobile-navigation-dock')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('tablet-map-toolbar')), findsOneWidget);
+      for (final tooltip in [
+        'Recenter on astronaut',
+        'Follow astronaut',
+        'Heading-up',
+      ]) {
+        expect(find.byTooltip(tooltip).hitTestable(), findsOneWidget);
+      }
+      if (wide) {
+        final leftRect = tester.getRect(left);
+        expect(mapRect.left, greaterThan(leftRect.right));
+        expect(mapRect.right, lessThan(rightRect.left));
+        expect(mapRect.width, greaterThan(leftRect.width));
+        expect(mapRect.width, greaterThan(rightRect.width));
+      } else {
+        expect(left, findsNothing);
+        await tester.tap(find.byKey(const ValueKey('tablet-tab-missions')));
+        await tester.pumpAndSettle();
+      }
+      final panorama = find.byKey(const ValueKey('mission-panorama'));
+      final image = tester.widget<Image>(
+        find.descendant(of: panorama, matching: find.byType(Image)),
+      );
+      expect((image.image as AssetImage).assetName, mission.imagery.asset);
+      final lastWaypoint = find.byKey(
+        const ValueKey('objective-location-ancient-habitability'),
+      );
+      await Scrollable.ensureVisible(
+        tester.element(lastWaypoint),
+        alignment: .6,
+      );
+      await tester.pumpAndSettle();
+      expect(lastWaypoint.hitTestable(), findsOneWidget);
+      expect(tester.getRect(map), mapRect);
+      expect(tester.getRect(right), rightRect);
+      if (!wide) {
+        await tester.tap(find.byKey(const ValueKey('tablet-tab-astronaut')));
+        await tester.pumpAndSettle();
+      }
+      final telemetry = find.ancestor(
+        of: _within(right, 'MISSION TELEMETRY'),
+        matching: find.byType(DashboardPanel),
+      );
+      for (final value in [
+        solar.localTime,
+        temperature,
+        mission.elevationLabel,
+        '14:45',
+      ]) {
+        expect(_within(telemetry, value), findsOneWidget);
+      }
+      for (final value in [
+        solar.sunrise,
+        solar.sunset,
+        'EXPLORATION STATUS',
+        'STEP SENSORS UNAVAILABLE',
+      ]) {
+        expect(_within(right, value), findsOneWidget);
+      }
+      final controls = _within(right, 'SENSOR TEST');
+      await Scrollable.ensureVisible(tester.element(controls), alignment: .5);
+      await tester.pumpAndSettle();
+      expect(controls.hitTestable(), findsOneWidget);
+      expect(tester.getRect(map), mapRect);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('iPad links checklist, guidance, Crew and SOS to shared state', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final saved = <String, List<String>>{};
+    Offset? persisted;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, (call) async {
+      switch (call.method) {
+        case 'readMissionChecklist':
+          return saved[call.arguments] ?? <String>[];
+        case 'writeMissionChecklist':
+          final args = call.arguments as Map;
+          saved[args['scope'] as String] = (args['completed'] as List)
+              .cast<String>();
+        case 'writeMissionPosition':
+          final mars = (call.arguments as Map)['mars'] as List;
+          persisted = Offset(mars[0] as double, mars[1] as double);
+        case 'snapshot':
+          return {
+            'pedometer': {'stepCounting': false},
+          };
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final now = DateTime.utc(2026, 11, 15, 18);
+    final session = _PhonePresence(() => now);
+    final map = await _launch(
+      tester,
+      size: const Size(1376, 1032),
+      mission: marsMissionById['endeavour'],
+      platform: TargetPlatform.iOS,
+      clock: () => now,
+      connectPresence: (key) async {
+        session.key = key;
+        return session;
+      },
+    );
+    final nav = map.navigation;
+    final own = map.tracking.pose.mars;
+    final origin = nav.position;
+    final right = find.byKey(const ValueKey('tablet-mission-control'));
+    final crewTab = find.byKey(const ValueKey('tablet-tab-crew'));
+    final astronautTab = find.byKey(const ValueKey('tablet-tab-astronaut'));
+    await tester.tap(crewTab);
+    await tester.pumpAndSettle();
+    expect(_within(right, 'Unavailable'), findsOneWidget);
+    expect(_within(right, 'ARES-02 · OFFLINE'), findsOneWidget);
+    final peer = displaceOnMars(own, const Offset(18, 0));
+    session.update({'ARES-02': peer});
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    expect(_within(right, 'ARES-02 · ONLINE'), findsOneWidget);
+    expect(_within(right, 'Estimated separation'), findsOneWidget);
+    expect(_within(right, '18 m'), findsOneWidget);
+    expect(find.byKey(const ValueKey('ARES-02')), findsOneWidget);
+    expect(find.text('JOIN CREW'), findsNothing);
+
+    await _tapTooltip(tester, 'Send PIN');
+    expect(find.text('Select a destination on the map first.'), findsOneWidget);
+    expect(session.pinWrites, isEmpty);
+    final tile = find.byKey(const ValueKey('objective-survey-crater-rim'));
+    final locations = find.byKey(
+      const ValueKey('objective-location-survey-crater-rim'),
+    );
+    final body = _within(
+      tile,
+      marsMissionById['endeavour']!.objectives[1].label,
+    );
+    await Scrollable.ensureVisible(tester.element(body), alignment: .4);
+    await tester.pumpAndSettle();
+    await tester.tap(body.hitTestable());
+    await tester.pumpAndSettle();
+    expect(_objectiveColor(tester, tile), const Color(0xFF145341));
+    expect(saved.values.single, ['survey-crater-rim']);
+    expect(saved.keys.single, 'ARES-01/endeavour');
+
+    map.tracking.heading.value = 45;
+    await tester.pumpAndSettle();
+    await _tapTooltip(tester, 'Heading-up');
+    final view = map.view;
+    expect(view.rotation, closeTo(-math.pi / 4, .001));
+    expect(map.tracking.follow, isTrue);
+    final zoom = view.value.getMaxScaleOnAxis();
+    await Scrollable.ensureVisible(tester.element(locations), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(locations.hitTestable());
+    await tester.pumpAndSettle();
+    final landmark = nav.map.landmarks.singleWhere(
+      (point) => point.id == 'rim-outcrop',
+    );
+    expect(nav.selectedDestination, landmark.position);
+    expect(nav.guiding, isFalse);
+    expect(nav.position, origin);
+    expect(saved.values.single, ['survey-crater-rim']);
+    expect(view.value.getMaxScaleOnAxis(), zoom);
+    expect(view.rotation, closeTo(-math.pi / 4, .001));
+    final center = tester.getCenter(
+      find.byKey(const ValueKey('demo-map-viewport')),
+    );
+    expect(
+      (tester.getCenter(find.byIcon(Icons.flag)) - center).distance,
+      lessThan(.001),
+    );
+    await _tapTooltip(tester, 'North-up');
+    expect(view.rotation, closeTo(0, .001));
+    await _tapTooltip(tester, 'Follow astronaut');
+    expect(map.tracking.follow, isTrue);
+    await tester.tap(find.byKey(const ValueKey('tablet-start-navigation')));
+    await tester.pumpAndSettle();
+    expect(nav.guiding, isTrue);
+    expect(nav.position, origin);
+
+    await _tapTooltip(tester, 'Send PIN');
+    expect(
+      session.pinWrites.single,
+      nav.map.coordinates.toMars(landmark.position),
+    );
+    expect(find.byKey(const ValueKey('crew-pin-ARES-01')), findsOneWidget);
+    await _tapTooltip(tester, 'SOS');
+    final outgoing = find.byKey(const ValueKey('confirm-crew-sos'));
+    expect(outgoing, findsOneWidget);
+    final outgoingActions = find.descendant(
+      of: outgoing,
+      matching: find.byType(MissionActionButton),
+    );
+    expect(
+      tester.getSize(outgoingActions.first).width,
+      inInclusiveRange(280, 430),
+    );
+    await tester.tap(find.text('SEND SOS'));
+    await tester.pumpAndSettle();
+    expect(session.alert!.mars, own);
+    expect(session.alert!.sender, 'ARES-01');
+    expect(_missionRim(tester).color, DashboardStyle.danger.toARGB32());
+    await _tapTooltip(tester, 'Cancel SOS');
+    expect(session.finished, [SosState.canceled]);
+
+    session.alert = (
+      id: 'test-ipad-distress',
+      sender: 'ARES-02',
+      mars: peer,
+      started: now,
+      state: SosState.active,
+      finishedBy: null,
+    );
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    final incoming = find.byKey(const ValueKey('incoming-crew-sos'));
+    expect(_within(incoming, 'ARES-02 NEEDS HELP'), findsOneWidget);
+    final incomingActions = find.descendant(
+      of: incoming,
+      matching: find.byType(MissionActionButton),
+    );
+    expect(
+      tester.getSize(incomingActions.first).width,
+      inInclusiveRange(280, 430),
+    );
+    expect(find.byKey(const ValueKey('crew-sos-marker')), findsOneWidget);
+    expect(_missionRim(tester).color, DashboardStyle.danger.toARGB32());
+    await tester.tap(find.text('VIEW WAYPOINT'));
+    await tester.pumpAndSettle();
+    expect(incoming, findsNothing);
+    final rescue = map.tracking.gridPosition(peer);
+    final scene = tester.getSize(
+      find.byKey(const ValueKey('demo-map-viewport')),
+    );
+    final world = missionWorld(scene);
+    final point = MatrixUtils.transformPoint(
+      view.value,
+      world.topLeft + rescue * world.width,
+    );
+    expect((point - scene.center(Offset.zero)).distance, lessThan(.001));
+    expect(nav.position, origin);
+    session.alert = null;
+    session.updateSignals();
+    session.update({});
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('crew-sos-marker')), findsNothing);
+    expect(_within(right, 'ARES-02 · OFFLINE'), findsOneWidget);
+    expect(_within(right, 'Estimated separation'), findsNothing);
+
+    await tester.tap(astronautTab);
+    await tester.pumpAndSettle();
+    final start = _within(right, 'START NEW EXPEDITION');
+    await Scrollable.ensureVisible(tester.element(start), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(start.hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start at Habitat Base'));
+    await tester.pumpAndSettle();
+    expect(persisted, own);
+    expect(nav.selectedDestination, isNull);
+    expect(nav.guiding, isFalse);
+    expect(saved.values.single, ['survey-crater-rim']);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Phone sheets share one full-bleed map and preserve its camera', (

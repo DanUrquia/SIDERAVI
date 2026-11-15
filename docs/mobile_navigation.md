@@ -1,8 +1,8 @@
-# Smartphone navigation
+# Phone and iPad navigation
 
 For current automatic iPhone tracking and the walking procedure, see [Phase 6B.3](real_navigation_validation.md).
 
-Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The wider landscape iPad layout still uses the map, sidebar and action row.
+Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The iPad uses a landscape mission-control workspace with the same map and scientific models.
 
 ## Phone camera
 
@@ -38,6 +38,18 @@ The sheet has rounded top corners and square bottom corners. Its bottom edge mee
 - **Astronaut** starts with the current identity, mission and exploration state. **Mission Telemetry** groups Habitat Base LMST, the MACDA climate estimate, Habitat Base MOLA elevation and Tegucigalpa time (UTC−6). Both clocks refresh with the shared solar model. **Solar Cycle** shows the modeled sun arc, sunrise, sunset, daylight duration, solar elevation and sky state. **Exploration Status** shows estimated Mars position and quality, distance traveled, distance to base, total measured steps and applied steps. Distance accumulates accepted walking intervals. The OS may batch step measurements. The total uses foreground sensor windows and excludes retrospective reports and the Walking Detection Lab. **Mission Controls** retains pause, resume and the confirmed iOS expedition reset. **Mars Topography** gives the highest sampled grid-cell elevation inside the mission radius, with the MOLA source, datum and resolution. **Device Sensors** keeps the live status, direction calibration, stride adjustment, sensor test and movement log together. At larger text sizes the telemetry cards stack when needed.
 - **Crew** connects automatically on an enrolled iOS device. A teammate in the same mission appears with an estimated Mars position and spherical separation. The offline card shows their name, astronaut ID and **OFFLINE**. [Crew setup and Firebase authorization](live_astronaut_tracking.md)
 
+## iPad mission control
+
+In landscape, **Missions** is an independent scrollable panel on the left. It uses the same panorama, briefing, checklist IDs and waypoint buttons as the phone. Select a location to center the map and set the destination while leaving the checklist open. Each device retains its own checklist.
+
+The central **NASA Mars Trek** map starts at the mission area. Use its toolbar to zoom, recenter, follow the astronaut or switch between Heading-up and North-up. Fit Area and View Region preserve the mission's published radius and map scale. Centering a waypoint releases Follow so the waypoint stays in view.
+
+**Mission Control** on the right switches between **Astronaut** and **Crew**. Astronaut includes the four scientific and Earth-time readings, the sunrise and sunset arc, exploration metrics, expedition controls, topography and sensor diagnostics. The route controls show the selected waypoint and estimated distance. Start Navigation, Return to Base, Send PIN and SOS share the same guidance and Crew actions as the phone. Crew shows online and offline states and estimates separation from a fresh shared position.
+
+The iPad connects automatically with its own authorized device identity. An incoming SOS uses the bounded emergency dialog and highlights the waypoint on the red mission boundary. **View Waypoint** centers the rescue. Simulated iPad sensors can report step counting as unavailable. The map and direct guidance remain usable while the device waits for real movement readings.
+
+Wide landscape windows show all three areas. The adaptive layout places the map next to or above a single switchable panel in tighter windows. The iPad app declares both landscape orientations.
+
 ## Platform readiness
 
 | Platform | Collection |
@@ -65,6 +77,13 @@ Run `flutter doctor -v` and `flutter devices`. Supply the existing SIDERA VI Fir
 ## Verification
 
 Flutter widget tests cover the four circular controls, safe-area layout, stable header, telemetry, near-full-height scrolling sheets, fixed-size markers, objective card state and persistence, safe return, and cancellation and confirmation of the local ping and SOS actions. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+
+### Phase 6K validation
+
+- The open iPad Pro 13-inch (M5) simulator ran iPadOS 26.5 at 2752 × 2064 pixels in landscape. The previous dashboard placed the checklist below the other right-side readouts and provided a demo ping and SOS. The updated build shows separate Missions and Mission Control panels and keeps the map largest.
+- The installed build displayed Endeavour's panorama, all three scrollable objectives, four telemetry cards, the solar arc, and truthful unavailable step and heading states. Selecting Rim outcrop centered the existing waypoint while keeping the checklist open. Start Navigation began guidance as a separate action. The original checklist state was restored after the check.
+- The simulator's own Firebase identity showed **Crew device setup pending**. PIN, online Crew and the incoming SOS were exercised with a temporary local test connection. The saved screenshots label the test data. The original app remained installed and was left open in Endeavour. No physical sensor or two-device live connection was validated for this phase.
+- Flutter analysis, all 124 Flutter tests, 8 iOS XCTest cases and the Firebase emulator suite passed. The widget tests include landscape sizes for standard iPad, iPad Air and iPad Pro, enlarged text, constrained windows, both heading modes, and the existing phone flows.
 
 ### Phase 6J validation
 

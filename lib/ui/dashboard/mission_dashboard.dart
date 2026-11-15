@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
+import '../../dashboard/mission_checklist.dart';
 import '../../dashboard/terrain_view_controller.dart';
 import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
@@ -26,6 +27,7 @@ import 'movement_diagnostics.dart';
 import 'mobile_navigation.dart';
 import 'sos_emergency_dialog.dart';
 import 'tracking_controls.dart';
+import 'tablet_mission_control.dart';
 
 /// Hosts one astronaut's interactive offline mission scenario.
 class MissionDashboard extends StatefulWidget {
@@ -62,6 +64,7 @@ class _MissionDashboardState extends State<MissionDashboard>
   late final Ticker _movement;
   late final AstronautTracking _tracking;
   late final MissionPresence _presence;
+  MissionChecklist? _checklist;
   late final ValueNotifier<MarsSolarCycle> _solarCycle;
   Timer? _solarRefresh;
   MarsCoordinates get _solarLocation =>
@@ -83,6 +86,11 @@ class _MissionDashboardState extends State<MissionDashboard>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_isCompactMission() || _isNativeTablet()) {
+      _checklist ??= MissionChecklist(
+        '${widget.astronaut.id}/${widget.mission.id}',
+      )..load();
+    }
     if (_initialized) return;
     _initialized = true;
     _map = missionMaps[widget.mission.id]!;
@@ -100,7 +108,7 @@ class _MissionDashboardState extends State<MissionDashboard>
       sensors: widget.sensors,
       astronautId: widget.astronaut.id,
       missionId: widget.mission.id,
-      automaticPhysical: _isCompactMission(),
+      automaticPhysical: _isCompactMission() || _isNativeTablet(),
       clock: widget.clock ?? DateTime.now,
     );
     _presence = MissionPresence(
@@ -135,6 +143,9 @@ class _MissionDashboardState extends State<MissionDashboard>
   }
 
   bool _isCompactMission() => MediaQuery.sizeOf(context).shortestSide < 600;
+
+  bool _isNativeTablet() =>
+      !_isCompactMission() && Theme.of(context).platform == TargetPlatform.iOS;
 
   /// Records connection transitions alongside local movement diagnostics.
   void _noteConnection() {
@@ -371,6 +382,7 @@ class _MissionDashboardState extends State<MissionDashboard>
     final messenger = _messages.currentState;
     if (messenger == null) return;
     messenger.clearSnackBars();
+    final tablet = _isNativeTablet();
     messenger.showSnackBar(
       SnackBar(
         content: Text(
@@ -381,7 +393,8 @@ class _MissionDashboardState extends State<MissionDashboard>
         ),
         backgroundColor: DashboardStyle.inset,
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(18, 0, 18, 94),
+        width: tablet ? 380 : null,
+        margin: tablet ? null : const EdgeInsets.fromLTRB(18, 0, 18, 94),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -440,6 +453,7 @@ class _MissionDashboardState extends State<MissionDashboard>
     _navigation.removeListener(_observeRescueStep);
     _presence.removeListener(_noteConnection);
     _presence.dispose();
+    _checklist?.dispose();
     _tracking.dispose();
     _navigation.dispose();
     _movement.dispose();
@@ -453,22 +467,24 @@ class _MissionDashboardState extends State<MissionDashboard>
     final astronaut = widget.astronaut;
     final mission = widget.mission;
     final mobile = _isCompactMission();
+    final tablet = _isNativeTablet();
+    final sharedDashboard = mobile || tablet;
     final dashboard = ListenableBuilder(
       listenable: Listenable.merge([
         _navigation,
         _tracking,
         _presence,
-        if (mobile) _tracking.pedometer,
+        if (sharedDashboard) _tracking.pedometer,
       ]),
       builder: (context, _) {
         final shared = _presence.crew[_teammate.id];
         final fresh = shared != null && _presence.isFresh(shared);
         final member =
-            mobile && (!fresh || shared.pose.mode != TrackingMode.live)
+            sharedDashboard && (!fresh || shared.pose.mode != TrackingMode.live)
             ? null
             : shared;
         final demoPeer =
-            !mobile &&
+            !sharedDashboard &&
             member == null &&
             _presence.status == ConnectionStatus.offline &&
             _tracking.mode == TrackingMode.demo;
@@ -515,12 +531,12 @@ class _MissionDashboardState extends State<MissionDashboard>
           peerPoint: peerPoint,
           peer: member,
           peerFresh: member != null && fresh,
-          sharedPins: mobile
+          sharedPins: sharedDashboard
               ? _presence.pins.map(
                   (id, pin) => MapEntry(id, _tracking.gridPosition(pin.mars)),
                 )
               : const {},
-          sharedSos: mobile && _activeSos != null
+          sharedSos: sharedDashboard && _activeSos != null
               ? (
                   sender: _activeSos!.sender,
                   point: _tracking.gridPosition(_activeSos!.mars),
@@ -530,6 +546,7 @@ class _MissionDashboardState extends State<MissionDashboard>
           onSelect: _selectDestination,
           onAstronaut: onAstronaut,
           fullScreen: mobile,
+          tabletControls: tablet,
           showMapHud: showMapHud,
           solarCycle: mobile ? _solarCycle : null,
           layoutHud: layoutHud,
@@ -551,6 +568,7 @@ class _MissionDashboardState extends State<MissionDashboard>
             teammate: _teammate,
             mission: mission,
             navigation: _navigation,
+            checklist: _checklist!,
             tracking: _tracking,
             presence: _presence,
             member: member,
@@ -564,6 +582,31 @@ class _MissionDashboardState extends State<MissionDashboard>
             onPing: () => unawaited(_sendCrewPin()),
             onSos: () => unawaited(_changeSharedSos()),
             revealRescue: _revealRescue,
+          );
+        }
+        if (tablet) {
+          return TabletMissionControl(
+            map: terrain(true),
+            view: _view,
+            mission: mission,
+            astronaut: astronaut,
+            teammate: _teammate,
+            navigation: _navigation,
+            checklist: _checklist!,
+            tracking: _tracking,
+            solarCycle: _solarCycle,
+            presence: _presence,
+            member: member,
+            peerPoint: peerPoint,
+            revealRescue: _revealRescue,
+            onBack: () => Navigator.of(context).maybePop(),
+            onSelect: _selectDestination,
+            onNavigate: () => _navigation.start(instant: reducedMotion),
+            onReturn: _navigation.returnToBase,
+            onSensorTest: _openDiagnostics,
+            onMovementLog: movementLog,
+            onPin: () => unawaited(_sendCrewPin()),
+            onSos: () => unawaited(_changeSharedSos()),
           );
         }
         final map = Stack(

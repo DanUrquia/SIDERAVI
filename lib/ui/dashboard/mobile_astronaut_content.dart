@@ -27,6 +27,8 @@ class MobileAstronautContent extends StatelessWidget {
     required this.solarCycle,
     required this.onSensorTest,
     required this.onMovementLog,
+    this.tablet = false,
+    this.emergencyActive = false,
   });
 
   final Astronaut astronaut;
@@ -36,11 +38,14 @@ class MobileAstronautContent extends StatelessWidget {
   final ValueListenable<MarsSolarCycle> solarCycle;
   final VoidCallback onSensorTest;
   final VoidCallback onMovementLog;
+  final bool tablet;
+  final bool emergencyActive;
 
   @override
   Widget build(BuildContext context) {
     final stepState = tracking.pedometer.state;
-    final stepSensorUnavailable = _stepSensorUnavailable(stepState);
+    final stepSensorUnavailable = stepState.isUnavailable;
+    final controlsLocked = navigation.sos || emergencyActive;
     final measuredSteps = stepSensorUnavailable ? null : tracking.measuredSteps;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -48,6 +53,7 @@ class MobileAstronautContent extends StatelessWidget {
       children: [
         _IdentityHeader(
           astronaut: astronaut,
+          tablet: tablet,
           mission: mission.title,
           status: tracking.stepStatus,
           statusColor: stepSensorUnavailable
@@ -56,8 +62,8 @@ class MobileAstronautContent extends StatelessWidget {
               ? DashboardStyle.amber
               : DashboardStyle.cyan,
         ),
-        _MissionTelemetry(mission: mission, cycle: solarCycle),
-        SolarCycleCard(cycle: solarCycle),
+        _MissionTelemetry(mission: mission, cycle: solarCycle, tablet: tablet),
+        SolarCycleCard(cycle: solarCycle, tabletDensity: tablet),
         DashboardPanel(
           title: 'EXPLORATION STATUS',
           icon: Icons.explore_outlined,
@@ -104,18 +110,20 @@ class MobileAstronautContent extends StatelessWidget {
             MissionActionButton(
               label: navigation.paused ? 'RESUME MISSION' : 'PAUSE MISSION',
               icon: navigation.paused ? Icons.play_arrow : Icons.pause,
-              onPressed: navigation.sos ? null : navigation.togglePause,
+              onPressed: controlsLocked ? null : navigation.togglePause,
               wrapLabel: true,
+              minimumHeight: tablet ? 52 : 72,
             ),
             if (Theme.of(context).platform == TargetPlatform.iOS)
               MissionActionButton(
                 label: 'START NEW EXPEDITION',
                 icon: Icons.restart_alt,
                 appearance: MissionActionAppearance.secondary,
-                onPressed: navigation.sos
+                onPressed: controlsLocked
                     ? null
                     : () => _confirmNewExpedition(context),
                 wrapLabel: true,
+                minimumHeight: tablet ? 52 : 72,
               ),
           ],
         ),
@@ -123,6 +131,7 @@ class MobileAstronautContent extends StatelessWidget {
         _DeviceSensors(
           tracking: tracking,
           paused: navigation.paused,
+          tablet: tablet,
           onSensorTest: onSensorTest,
           onMovementLog: onMovementLog,
         ),
@@ -169,12 +178,14 @@ class MobileAstronautContent extends StatelessWidget {
 class _IdentityHeader extends StatelessWidget {
   const _IdentityHeader({
     required this.astronaut,
+    required this.tablet,
     required this.mission,
     required this.status,
     required this.statusColor,
   });
 
   final Astronaut astronaut;
+  final bool tablet;
   final String mission;
   final String status;
   final Color statusColor;
@@ -183,14 +194,14 @@ class _IdentityHeader extends StatelessWidget {
   Widget build(BuildContext context) => DecoratedBox(
     decoration: DashboardStyle.surface(),
     child: Padding(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(tablet ? 11 : 14),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         spacing: 12,
         children: [
           Container(
-            width: 46,
-            height: 46,
+            width: tablet ? 38 : 46,
+            height: tablet ? 38 : 46,
             decoration: DashboardStyle.surface(
               color: DashboardStyle.inset,
               border: DashboardStyle.warm.withValues(alpha: .5),
@@ -214,7 +225,10 @@ class _IdentityHeader extends StatelessWidget {
                     tracking: 1.1,
                   ).copyWith(color: DashboardStyle.cyan),
                 ),
-                Text(astronaut.fullName, style: MissionTheme.display(27)),
+                Text(
+                  astronaut.fullName,
+                  style: MissionTheme.display(tablet ? 24 : 27),
+                ),
                 Text(
                   mission,
                   style: const TextStyle(
@@ -234,9 +248,14 @@ class _IdentityHeader extends StatelessWidget {
 }
 
 class _MissionTelemetry extends StatelessWidget {
-  const _MissionTelemetry({required this.mission, required this.cycle});
+  const _MissionTelemetry({
+    required this.mission,
+    required this.cycle,
+    required this.tablet,
+  });
 
   final MarsMission mission;
+  final bool tablet;
   final ValueListenable<MarsSolarCycle> cycle;
 
   @override
@@ -256,6 +275,7 @@ class _MissionTelemetry extends StatelessWidget {
         children: [
           _MetricPair(
             first: _Metric(
+              tablet: tablet,
               label: 'MARS TIME',
               value: solar.localTime,
               note: 'LMST · Habitat Base',
@@ -263,6 +283,7 @@ class _MissionTelemetry extends StatelessWidget {
               highlight: true,
             ),
             second: _Metric(
+              tablet: tablet,
               label: 'TEMPERATURE',
               value: climate == null
                   ? 'Unavailable'
@@ -273,14 +294,18 @@ class _MissionTelemetry extends StatelessWidget {
           ),
           _MetricPair(
             first: _Metric(
+              tablet: tablet,
               label: 'ELEVATION',
               value: elevation?.label ?? 'Unavailable',
               note: elevation == null
                   ? 'Habitat Base'
+                  : tablet
+                  ? 'Habitat Base · MOLA'
                   : 'Habitat Base MOLA · ${MarsBaseElevation.datum}',
               icon: Icons.terrain,
             ),
             second: _Metric(
+              tablet: tablet,
               label: 'EARTH TIME',
               value: formatTegucigalpaTime(solar.timestamp),
               note: 'Tegucigalpa · UTC−6',
@@ -333,6 +358,7 @@ class _Metric extends StatelessWidget {
     required this.note,
     this.icon,
     this.highlight = false,
+    this.tablet = false,
   });
 
   final String label;
@@ -340,11 +366,12 @@ class _Metric extends StatelessWidget {
   final String note;
   final IconData? icon;
   final bool highlight;
+  final bool tablet;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(10),
-    constraints: const BoxConstraints(minHeight: 98),
+    padding: EdgeInsets.all(tablet ? 8 : 10),
+    constraints: BoxConstraints(minHeight: tablet ? 82 : 98),
     decoration: DashboardStyle.surface(color: DashboardStyle.inset, radius: 11),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,12 +456,14 @@ class _DeviceSensors extends StatelessWidget {
   const _DeviceSensors({
     required this.tracking,
     required this.paused,
+    required this.tablet,
     required this.onSensorTest,
     required this.onMovementLog,
   });
 
   final AstronautTracking tracking;
   final bool paused;
+  final bool tablet;
   final VoidCallback onSensorTest;
   final VoidCallback onMovementLog;
 
@@ -442,10 +471,7 @@ class _DeviceSensors extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = tracking.pedometer.state;
     final (status, color) = switch (state) {
-      _ when _stepSensorUnavailable(state) => (
-        'UNAVAILABLE',
-        DashboardStyle.muted,
-      ),
+      _ when state.isUnavailable => ('UNAVAILABLE', DashboardStyle.muted),
       _ when paused => ('PAUSED', DashboardStyle.amber),
       PedometerState.fresh => ('ACTIVE', DashboardStyle.cyan),
       PedometerState.stale => ('STALE', DashboardStyle.amber),
@@ -492,8 +518,8 @@ class _DeviceSensors extends StatelessWidget {
             );
           },
         ),
-        const Text(
-          'The direction the phone first points sets local map north.',
+        Text(
+          'The direction the ${tablet ? 'iPad' : 'phone'} first points sets local map north.',
           style: _noteStyle,
         ),
         DashboardReadout(
@@ -580,11 +606,3 @@ class _StatusBadge extends StatelessWidget {
 }
 
 const _noteStyle = TextStyle(color: DashboardStyle.muted, fontSize: 12);
-
-bool _stepSensorUnavailable(PedometerState state) => switch (state) {
-  PedometerState.unsupported ||
-  PedometerState.denied ||
-  PedometerState.restricted ||
-  PedometerState.unavailable => true,
-  _ => false,
-};

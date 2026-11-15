@@ -13,6 +13,7 @@ class MissionActionButton extends StatelessWidget {
     required this.onPressed,
     this.appearance = MissionActionAppearance.launch,
     this.wrapLabel = false,
+    this.minimumHeight = 72,
   });
 
   final String label;
@@ -20,6 +21,7 @@ class MissionActionButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final MissionActionAppearance appearance;
   final bool wrapLabel;
+  final double minimumHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -58,8 +60,8 @@ class MissionActionButton extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(
           minWidth: double.infinity,
-          minHeight: 72,
-          maxHeight: wrapLabel ? double.infinity : 72,
+          minHeight: minimumHeight,
+          maxHeight: wrapLabel ? double.infinity : minimumHeight,
         ),
         child: FilledButton(
           onPressed: onPressed,
