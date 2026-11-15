@@ -1387,6 +1387,76 @@ void main() {
     expect(_objectiveColor(tester, survey), const Color(0xFF145341));
   });
 
+  testWidgets('Solar HUD fits the portrait dock and action rail', (
+    tester,
+  ) async {
+    final mini = find.byKey(const ValueKey('map-solar-cycle'));
+    final fit = find.byKey(const ValueKey('map-scale-panel'));
+    final rail = find.byKey(const ValueKey('mobile-map-controls'));
+    final dock = find.byKey(const ValueKey('mobile-navigation-dock'));
+    addTearDown(tester.view.resetViewPadding);
+    for (final (size, scale, stacked) in [
+      (const Size(393, 852), 1.0, false), // iPhone 16
+      (const Size(428, 926), 1.0, false), // iPhone 14 Plus
+      (const Size(320, 568), 2.0, false),
+      (const Size(300, 640), 1.4, true),
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      tester.view.viewPadding = const FakeViewPadding(top: 20, bottom: 20);
+      await _launch(tester, size: size, textScale: scale);
+      final left = tester.getRect(mini);
+      final right = tester.getRect(fit);
+      if (stacked) {
+        expect(left.bottom, lessThan(right.top));
+      } else {
+        expect(left.right, lessThan(right.left));
+        expect(left.top, closeTo(right.top, .01));
+        expect(left.height, closeTo(right.height, .01));
+      }
+      expect(right.bottom, lessThan(tester.getRect(dock).top));
+      expect(left.overlaps(tester.getRect(rail)), isFalse);
+      expect(right.overlaps(tester.getRect(rail)), isFalse);
+      expect(
+        find.text('Fit area · 500 m radius').hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.text('NASA Mars Trek').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('One clock refreshes the map arc and Astronaut solar detail', (
+    tester,
+  ) async {
+    var timestamp = DateTime.utc(2026, 11, 15, 18);
+    await _launch(
+      tester,
+      size: const Size(393, 852),
+      mission: marsMissionById['endeavour'],
+      clock: () => timestamp,
+    );
+    final mini = find.byKey(const ValueKey('map-solar-cycle'));
+    expect(find.byKey(const ValueKey('night-arc')), findsOneWidget);
+    expect(find.byIcon(Icons.dark_mode), findsOneWidget);
+    expect(_within(mini, '06:27'), findsOneWidget);
+    expect(_within(mini, '18:24'), findsOneWidget);
+    await _mobileTab(tester, 'astronaut');
+    expect(mini, findsNothing);
+    expect(find.byKey(const ValueKey('map-scale-panel')), findsNothing);
+    expect(find.text('06:27'), findsOneWidget);
+    expect(find.text('18:24'), findsOneWidget);
+    expect(find.text('05:48'), findsWidgets);
+
+    timestamp = timestamp.add(const Duration(hours: 4));
+    await tester.pump(const Duration(minutes: 1));
+    expect(find.byKey(const ValueKey('daylight-arc')), findsOneWidget);
+    expect(find.text('05:48'), findsNothing);
+    expect(find.text('Daylight'), findsOneWidget);
+    await _mobileTab(tester, 'astronaut');
+    expect(find.byKey(const ValueKey('daylight-arc')), findsOneWidget);
+    expect(mini, findsOneWidget);
+  });
+
   testWidgets('Phone tile status has its own space above the compact scale', (
     tester,
   ) async {
@@ -2151,6 +2221,8 @@ void main() {
     final normal = _missionRim(tester);
     final captured = map.tracking.pose.mars;
 
+    final solar = find.byKey(const ValueKey('map-solar-cycle'));
+    expect(solar, findsOneWidget);
     await _tapTooltip(tester, 'SOS');
     expect(session.started, 0);
     await tester.tap(find.text('SEND SOS'));
@@ -2158,6 +2230,8 @@ void main() {
     expect(session.started, 1);
     expect(session.alert!.mars, captured);
     expect(find.text('SOS ACTIVE'), findsOneWidget);
+    expect(solar, findsNothing);
+    expect(find.text('NASA Mars Trek'), findsOneWidget);
     expect(find.byKey(const ValueKey('incoming-crew-sos')), findsNothing);
     final active = _missionRim(tester);
     expect(active.color, DashboardStyle.danger.toARGB32());
@@ -2174,6 +2248,7 @@ void main() {
 
     await _tapTooltip(tester, 'Cancel SOS');
     expect(session.finished.single, SosState.canceled);
+    expect(solar, findsOneWidget);
     expect(find.byKey(const ValueKey('crew-sos-marker')), findsNothing);
     expect(_missionRim(tester), normal);
     expect(find.text('Crew SOS canceled.'), findsOneWidget);
@@ -2366,11 +2441,17 @@ void main() {
           final rect = tester.getRect(find.byKey(button.key!));
           expect(rect.width, closeTo(rect.height, .001));
           expect(rect.width, greaterThanOrEqualTo(44));
-          expect(rect.right, closeTo(size.width - 12, .001));
-          expect(
-            rect.top,
-            greaterThan(previous?.bottom ?? readingsRect.bottom),
-          );
+          if (size.height <= 600) {
+            expect(rect.left, greaterThan(previous?.right ?? 12));
+            expect(rect.top, greaterThan(readingsRect.bottom));
+            expect(find.byKey(button.key!).hitTestable(), findsOneWidget);
+          } else {
+            expect(rect.right, closeTo(size.width - 12, .001));
+            expect(
+              rect.top,
+              greaterThan(previous?.bottom ?? readingsRect.bottom),
+            );
+          }
           expect(rect.bottom, lessThan(tester.getTopLeft(dock).dy));
           expect(
             rect.overlaps(tester.getRect(find.byTooltip('Heading-up'))),
@@ -2387,19 +2468,25 @@ void main() {
         );
         final recenterRect = tester.getRect(recenter);
         final followRect = tester.getRect(follow);
-        expect(recenterRect.center.dx, closeTo(sosRect.center.dx, .001));
-        expect(followRect.center.dx, closeTo(sosRect.center.dx, .001));
-        expect(recenterRect.top, greaterThan(sosRect.bottom));
-        expect(followRect.top, greaterThan(recenterRect.bottom));
-        expect(
-          followRect.top - recenterRect.bottom,
-          closeTo(recenterRect.top - sosRect.bottom, .001),
-        );
-        if (size.height > 600) {
-          expect(recenter.hitTestable(), findsOneWidget);
-          expect(follow.hitTestable(), findsOneWidget);
-          expect(followRect.bottom, lessThan(tester.getTopLeft(dock).dy));
+        if (size.height <= 600) {
+          expect(recenterRect.center.dy, closeTo(sosRect.center.dy, .001));
+          expect(followRect.center.dy, closeTo(sosRect.center.dy, .001));
+          expect(recenterRect.left, greaterThan(sosRect.right));
+          expect(followRect.left, greaterThan(recenterRect.right));
+          expect(followRect.right, closeTo(size.width - 12, .001));
+        } else {
+          expect(recenterRect.center.dx, closeTo(sosRect.center.dx, .001));
+          expect(followRect.center.dx, closeTo(sosRect.center.dx, .001));
+          expect(recenterRect.top, greaterThan(sosRect.bottom));
+          expect(followRect.top, greaterThan(recenterRect.bottom));
+          expect(
+            followRect.top - recenterRect.bottom,
+            closeTo(recenterRect.top - sosRect.bottom, .001),
+          );
         }
+        expect(recenter.hitTestable(), findsOneWidget);
+        expect(follow.hitTestable(), findsOneWidget);
+        expect(followRect.bottom, lessThan(tester.getTopLeft(dock).dy));
         map.navigation.select(
           map.navigation.map.teammate,
           'A long destination label for the terrain survey',

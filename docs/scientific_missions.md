@@ -64,7 +64,7 @@ Jezero is an impact crater in the Syrtis Major quadrangle of Mars. Its center is
 
 ## Local mean solar time
 
-The phone calculates Mars Local Mean Solar Time (LMST) at the Habitat Base longitude from the device's UTC timestamp. The card updates while open and displays hours and minutes. It follows NASA GISS Mars24 with the mission catalog's east-positive longitude convention. [NASA Mars24 algorithm and worked examples](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [Allison and McEwen 2000](https://doi.org/10.1016/S0032-0633(99)00092-6)
+The dashboard calculates Mars Local Mean Solar Time (LMST) at Habitat Base from the device's UTC timestamp. The map clock, mini solar card and Astronaut sheet share an update every foreground minute and immediately on resume. It follows NASA GISS Mars24 with the mission catalog's east-positive longitude convention. [NASA Mars24 algorithm and worked examples](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [Allison and McEwen 2000](https://doi.org/10.1016/S0032-0633(99)00092-6)
 
 ```text
 JD_UTC = 2440587.5 + Unix UTC seconds / 86400
@@ -78,17 +78,51 @@ One mean solar sol is approximately 88,775.244 Earth seconds. The bundled histor
 
 Both published Mars24 worked examples agree within one Mars second using their reference dates and longitudes. The minute display and the device's UTC clock bound practical precision. Local True Solar Time (LTST) additionally applies the equation of time, which can differ from LMST by tens of minutes depending on season. [Mars24 technical notes](https://www.giss.nasa.gov/tools/mars24/help/notes.html)
 
-## Temperature availability
+## Solar cycle
 
-The phone shows **Unavailable** for all five missions. SIDERA VI has no verified current point-temperature source or local climatology for the time, season, and measurement height at these Habitat Base coordinates. Archived rover observations refer to their own dates and locations.
+The calculation takes solar longitude Ls, the equation of time and planetographic solar declination from Mars24. It converts the catalog's planetocentric latitude to planetographic latitude using the IAU equatorial and polar radii of 3396.19 and 3376.20 km. [NASA Mars24 algorithm, sections B–D](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [JPL planetographic transformation](https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/FORTRAN/spicelib/recpgr.html)
 
-| Mission | Temperature card | Available scientific context |
-| --- | --- | --- |
-| Endeavour Crater | Unavailable | Archived Opportunity Mini-TES temperature products have observation-specific dates and locations. [NASA PDS MER archive](https://pds-geosciences.wustl.edu/missions/mer/geo_mer_datasets.htm) |
-| Gale Crater | Unavailable | Curiosity's REMS archive contains air and ground temperatures at the rover. [NASA PDS REMS archive](https://pds.nasa.gov/ds-view/pds/viewProfile.jsp?dsid=MSL-M-REMS-2-EDR-V1.0) |
-| Columbia Hills | Unavailable | Archived Spirit Mini-TES data provide historical derived brightness temperatures along the traverse. [NASA PDS Spirit Mini-TES archive](https://pds.nasa.gov/ds-view/pds/viewCollection.jsp?identifier=urn%3Anasa%3Apds%3Amer2_mtes_derived_temperature%3Adata) |
-| Valles Marineris | Unavailable | SIDERA VI has no sourced point-temperature series or vetted local model at this Habitat Base. |
-| Jezero Crater | Unavailable | Perseverance's MEDA archive contains observations at the rover, with times and sensor metadata. [NASA PDS MEDA archive](https://pds.nasa.gov/ds-view/pds/viewBundle.jsp?identifier=urn%3Anasa%3Apds%3Amars2020_meda) |
+```text
+φ = atan2(sin φ_c, (polar_radius / equatorial_radius)^2 × cos φ_c)
+δ = asin(0.42565 × sin Ls) + 0.25° × sin Ls
+true_noon_LMST = 12 − EOT_degrees / 15
+H = 15° × (LMST − true_noon_LMST), wrapped to [−180°, 180°)
+sin altitude = sin φ × sin δ + cos φ × cos δ × cos H
+crossing_hour_angle = acos(−tan φ × tan δ)
+rise / set = true_noon_LMST ∓ crossing_hour_angle / 15°, wrapped to 24 hours
+daylight = 2 × crossing_hour_angle / 15°
+progress = (H + crossing_hour_angle) / (2 × crossing_hour_angle), during daylight
+```
+
+The model places the center of the Sun on an unobstructed geometric horizon at 0°. Both crossings use the orbital parameters at the calculation time, so the displayed estimates can shift slightly over the sol. The model omits the apparent solar limb, atmospheric refraction and terrain obstruction. Mars24's rise/set display uses the apparent upper limb. Polar day and polar night have no rise/set pair. The stylized arc shows the fraction of the daylight interval, with a moon icon and no Sun marker when below the horizon. The two published Mars24 examples are checked for solar longitude, equation of time and elevation to 0.002°. [NASA Mars24 technical notes](https://www.giss.nasa.gov/tools/mars24/help/notes.html)
+
+## Near-surface climate estimates
+
+The **Climate estimate** uses MACDA v2.0, an archived global atmospheric reanalysis from the Mars PCM UK spectral model (v5.2) with orbital data assimilation. The app derives a seasonal and diurnal reference from the complete MRO/MCS Mars Year 33. It uses `temp` in kelvin at the lowest published sigma level, 0.9995 × local model surface pressure. Nearby cells have their own model elevations. The reference represents regional near-surface air. Its 5° × 5° grid and terrain-following level cannot resolve crater walls, canyon-floor microclimates, or a fixed height above the MOLA elevation. [MACDA v2.0 data and metadata](https://doi.org/10.5285/cd037a9ea387438fabf4d674dbe53088)
+
+1. Subset the public CEDA NetCDF archive over OPeNDAP. The original archive covers MY24–35 and occupies about 201 GB. The generator reads the 23 files intersecting solar-longitude-based MY33, selecting only the nearest-surface air temperature, nine latitude rows, and the required time and coordinate arrays. It checks the level, indexing, finite values, bin counts and full seasonal coverage.
+2. At each two-Mars-hour output time, bilinearly interpolate the four gridded air temperatures adjacent to each Habitat Base, wrapping longitude across ±180°. Average MY33 samples in windows of 15° of model Ls centered on multiples of 15°, grouped by the native mean solar time at the prime meridian (MTC). The MY33 table stores tenths of a kelvin.
+3. At runtime, use the shared astronomical Ls and shift the base LMST to MTC by subtracting east longitude/15. Interpolate linearly across the two nearest seasonal bins and the two nearest time slots, wrapping at the equinox and midnight. Convert kelvin to Celsius and round to a whole degree for display. The bundled values are approximately 9 KB of Dart source and the app needs no network request. A missing table shows **Unavailable · No verified model**.
+
+The temperature represents climatology from one historical model year. The estimate cannot predict the weather of the current sol, dust events, short-term extremes, ground skin temperature or point conditions. The MCD 6.2 full database requires registration and its terms restrict commercial use without specific authorization. The NASA PDS REMS and MEDA instruments separate air and ground measurements at the rovers' own coordinates and times. These archives provide observational context for Gale and Jezero. SIDERA VI applies the same MACDA source across all five bases. [MCD access and use terms](https://www-mars.lmd.jussieu.fr/mars/access) · [NASA PDS REMS](https://pds.nasa.gov/ds-view/pds/viewProfile.jsp?dsid=MSL-M-REMS-2-EDR-V1.0) · [NASA PDS MEDA](https://pds.nasa.gov/ds-view/pds/viewBundle.jsp?identifier=urn%3Anasa%3Apds%3Amars2020_meda)
+
+**Data attribution**
+
+Valeanu, A., Rajendran, K., Montabone, L., and Read, P. L. (2026). *Mars Analysis Correction Data Assimilation (MACDA): Atmospheric and surface fields produced from assimilated MGS/TES, ODY/THEMIS, and MRO/MCS observations, v2.0.* NERC EDS Centre for Environmental Data Analysis, 30 January 2026. SIDERA VI spatially interpolated, averaged and rounded the source values. [Dataset citation](https://doi.org/10.5285/cd037a9ea387438fabf4d674dbe53088) · [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/)
+
+Regenerate with `python3 tool/generate_macda_climate.py --output lib/missions/macda_climate_data.dart` from the Flutter project. The checked-in table contains 1,440 values. Tests use an exact grid point from this table, the mean of its four surrounding bins at a midpoint, and both periodic boundaries.
+
+### Reference snapshot
+
+Inputs use the existing Habitat Base locations at **2026-11-15 18:00 UTC** (Ls 22.39°). The clock, sunrise and sunset use LMST. Daylight uses Mars hours and minutes.
+
+| Mission | Current LMST | Sunrise | Sunset | Daylight | Air estimate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Endeavour Crater | 05:48 | 06:27 | 18:24 | 11 h 57 min | −85 °C |
+| Gale Crater | 15:19 | 06:29 | 18:22 | 11 h 53 min | −40 °C |
+| Columbia Hills | 17:51 | 06:35 | 18:15 | 11 h 40 min | −55 °C |
+| Valles Marineris | 02:12 | 06:35 | 18:16 | 11 h 41 min | −80 °C |
+| Jezero Crater | 11:19 | 06:13 | 18:38 | 12 h 26 min | −51 °C |
 
 ## MOLA elevations and sampling
 

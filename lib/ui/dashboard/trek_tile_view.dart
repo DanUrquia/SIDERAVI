@@ -24,6 +24,7 @@ class TrekTileView extends StatefulWidget {
     this.statusLeft = 15,
     this.statusRight = 15,
     this.statusFooter,
+    this.layoutHud,
     this.showStatus = true,
     this.showResolutionLimit = true,
   });
@@ -36,6 +37,7 @@ class TrekTileView extends StatefulWidget {
   final double statusLeft;
   final double statusRight;
   final Widget? statusFooter;
+  final Widget Function(Widget? status, Widget? footer)? layoutHud;
   final bool showStatus;
   final bool showResolutionLimit;
   final Widget child;
@@ -216,6 +218,18 @@ class _TrekTileViewState extends State<TrekTileView> {
     final baseError = _base.any((tile) => _failed.contains(tile.uri));
     final loading = _running.any(_wanted.containsKey);
     final showResolution = widget.showResolutionLimit && _resolutionLimit;
+    final status = widget.showStatus && (loading || hasError || showResolution)
+        ? _MapTileStatus(
+            loading: loading,
+            error: hasError
+                ? baseError
+                      ? 'Map connection unavailable'
+                      : 'Detail tiles unavailable'
+                : null,
+            onRetry: _retry,
+          )
+        : null;
+    final footer = widget.showStatus ? widget.statusFooter : null;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -233,11 +247,9 @@ class _TrekTileViewState extends State<TrekTileView> {
           ),
         ),
         widget.child,
-        if (widget.showStatus &&
-            (loading ||
-                hasError ||
-                showResolution ||
-                widget.statusFooter != null))
+        if (widget.layoutHud case final layout?)
+          layout(status, footer)
+        else if (status != null || footer != null)
           Positioned(
             bottom: widget.statusBottom,
             left: widget.statusLeft,
@@ -248,19 +260,7 @@ class _TrekTileViewState extends State<TrekTileView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 spacing: 6,
-                children: [
-                  if (loading || hasError || showResolution)
-                    _MapTileStatus(
-                      loading: loading,
-                      error: hasError
-                          ? baseError
-                                ? 'Map connection unavailable'
-                                : 'Detail tiles unavailable'
-                          : null,
-                      onRetry: _retry,
-                    ),
-                  if (widget.statusFooter case final footer?) footer,
-                ],
+                children: [?status, ?footer],
               ),
             ),
           ),

@@ -7,6 +7,7 @@ import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
 import '../../dashboard/terrain_view_controller.dart';
+import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../../maps/trek_tile_source.dart';
 import '../../sensors/sensor_service.dart';
@@ -60,6 +61,10 @@ class _MissionDashboardState extends State<MissionDashboard>
   late final Ticker _movement;
   late final AstronautTracking _tracking;
   late final MissionPresence _presence;
+  late final ValueNotifier<MarsSolarCycle> _solarCycle;
+  Timer? _solarRefresh;
+  MarsCoordinates get _solarLocation =>
+      widget.mission.elevation?.location ?? widget.mission.coordinates;
   final _firebase = FirebasePresenceConfig.current;
   static final _shownSos = <SessionKey, String>{};
   CrewSos? _activeSos;
@@ -80,6 +85,8 @@ class _MissionDashboardState extends State<MissionDashboard>
     if (_initialized) return;
     _initialized = true;
     _map = missionMaps[widget.mission.id]!;
+    _solarCycle = ValueNotifier(_readSolarCycle());
+    _startSolarRefresh();
     _teammate = DemoCrew.roster.firstWhere(
       (astronaut) => astronaut.id != widget.astronaut.id,
     );
@@ -112,6 +119,18 @@ class _MissionDashboardState extends State<MissionDashboard>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_tracking.resume());
     unawaited(_startCrew());
+  }
+
+  MarsSolarCycle _readSolarCycle() => MarsSolarCycle.at(
+    (widget.clock ?? DateTime.now)(),
+    planetocentricLatitude: _solarLocation.latitude,
+    eastLongitude: _solarLocation.eastLongitude,
+  );
+
+  void _startSolarRefresh() {
+    _solarRefresh = Timer.periodic(const Duration(minutes: 1), (_) {
+      _solarCycle.value = _readSolarCycle();
+    });
   }
 
   bool _isCompactMission() => MediaQuery.sizeOf(context).shortestSide < 600;
@@ -402,11 +421,14 @@ class _MissionDashboardState extends State<MissionDashboard>
         state == AppLifecycleState.paused) {
       if (!_foreground) return;
       _foreground = false;
+      _solarRefresh?.cancel();
       unawaited(_tracking.suspend());
       _presence.suspend();
     } else if (state == AppLifecycleState.resumed) {
       if (_foreground) return;
       _foreground = true;
+      _solarCycle.value = _readSolarCycle();
+      _startSolarRefresh();
       if (!_showingDiagnostics) unawaited(_tracking.resume());
       unawaited(_startCrew());
     }
@@ -415,6 +437,8 @@ class _MissionDashboardState extends State<MissionDashboard>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _solarRefresh?.cancel();
+    _solarCycle.dispose();
     _navigation.removeListener(_presence.pulse);
     _navigation.removeListener(_announceArrival);
     _navigation.removeListener(_observeRescueStep);
@@ -463,6 +487,7 @@ class _MissionDashboardState extends State<MissionDashboard>
           mission: mission,
           navigation: _navigation,
           tracking: _tracking,
+          solarCycle: _solarCycle,
           teammateStatus: member != null
               ? fresh
                     ? member.pose.mode.label
@@ -479,47 +504,52 @@ class _MissionDashboardState extends State<MissionDashboard>
         void movementLog() =>
             showMovementDiagnostics(context, _tracking, mission.id);
         final insets = MediaQuery.viewPaddingOf(context);
-        Widget terrain(bool showMapHud, [VoidCallback? onAstronaut]) =>
-            DemoTerrainMap(
-              navigation: _navigation,
-              view: _view,
-              mission: mission,
-              tileSource: widget.tileSource,
-              tracking: _tracking,
-              astronautId: astronaut.id,
-              teammateId: _teammate.id,
-              peerPoint: peerPoint,
-              peer: member,
-              peerFresh: member != null && fresh,
-              sharedPins: mobile
-                  ? _presence.pins.map(
-                      (id, pin) =>
-                          MapEntry(id, _tracking.gridPosition(pin.mars)),
-                    )
-                  : const {},
-              sharedSos: mobile && _activeSos != null
-                  ? (
-                      sender: _activeSos!.sender,
-                      point: _tracking.gridPosition(_activeSos!.mars),
-                    )
-                  : null,
-              teammateName: _teammate.fullName,
-              onSelect: _selectDestination,
-              onAstronaut: onAstronaut,
-              fullScreen: mobile,
-              showMapHud: showMapHud,
-              overlayInsets: mobile
-                  ? EdgeInsets.fromLTRB(
-                      insets.left,
-                      0,
-                      insets.right,
-                      MobileNavigation.chromeBottom(context),
-                    )
-                  : EdgeInsets.zero,
-            );
+        Widget terrain(
+          bool showMapHud, [
+          VoidCallback? onAstronaut,
+          Widget Function(Widget? status, Widget? footer)? layoutHud,
+        ]) => DemoTerrainMap(
+          navigation: _navigation,
+          view: _view,
+          mission: mission,
+          tileSource: widget.tileSource,
+          tracking: _tracking,
+          astronautId: astronaut.id,
+          teammateId: _teammate.id,
+          peerPoint: peerPoint,
+          peer: member,
+          peerFresh: member != null && fresh,
+          sharedPins: mobile
+              ? _presence.pins.map(
+                  (id, pin) => MapEntry(id, _tracking.gridPosition(pin.mars)),
+                )
+              : const {},
+          sharedSos: mobile && _activeSos != null
+              ? (
+                  sender: _activeSos!.sender,
+                  point: _tracking.gridPosition(_activeSos!.mars),
+                )
+              : null,
+          teammateName: _teammate.fullName,
+          onSelect: _selectDestination,
+          onAstronaut: onAstronaut,
+          fullScreen: mobile,
+          showMapHud: showMapHud,
+          solarCycle: mobile ? _solarCycle : null,
+          layoutHud: layoutHud,
+          overlayInsets: mobile
+              ? EdgeInsets.fromLTRB(
+                  insets.left,
+                  0,
+                  insets.right,
+                  MobileNavigation.chromeBottom(context),
+                )
+              : EdgeInsets.zero,
+        );
         if (mobile) {
           return MobileNavigation(
             mapBuilder: terrain,
+            solarCycle: _solarCycle,
             view: _view,
             astronaut: astronaut,
             teammate: _teammate,
@@ -727,6 +757,7 @@ class _DashboardSidebar extends StatelessWidget {
     required this.navigation,
     required this.tracking,
     required this.teammateStatus,
+    required this.solarCycle,
     required this.onNavigate,
     required this.onReturn,
     required this.onTeammate,
@@ -738,6 +769,7 @@ class _DashboardSidebar extends StatelessWidget {
   final DemoNavigation navigation;
   final AstronautTracking tracking;
   final String teammateStatus;
+  final ValueNotifier<MarsSolarCycle> solarCycle;
   final VoidCallback onNavigate;
   final VoidCallback onReturn;
   final VoidCallback? onTeammate;
@@ -761,7 +793,7 @@ class _DashboardSidebar extends StatelessWidget {
           tracking: tracking,
         ),
         const SizedBox(height: 10),
-        PlanetaryConditionsPanel(mission: mission, navigation: navigation),
+        PlanetaryConditionsPanel(mission: mission, cycle: solarCycle),
         const SizedBox(height: 10),
         AstronautListPanel(
           astronaut: astronaut,

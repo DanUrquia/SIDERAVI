@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../dashboard/demo_navigation.dart';
+import '../../missions/mars_climate.dart';
 import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../mission_theme.dart';
@@ -34,75 +33,101 @@ class MobileMapControls extends StatelessWidget {
   final VoidCallback onRecenter;
   final VoidCallback onToggleHeading;
 
+  static bool usesHorizontalRow(BoxConstraints constraints) =>
+      constraints.maxHeight < 279 && constraints.maxWidth >= 279;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
+    key: const ValueKey('mobile-map-controls'),
     builder: (context, constraints) {
       final height = constraints.maxHeight;
-      final gap = ((height - 6 * 44) / 5).clamp(3.0, 8.0);
-      final diameter = ((height - 5 * gap) / 6).clamp(44.0, 52.0);
+      final oneRow = usesHorizontalRow(constraints);
+      final gap = oneRow ? 3.0 : ((height - 6 * 44) / 5).clamp(3.0, 8.0);
+      final diameter = oneRow
+          ? 44.0
+          : ((height - 5 * gap) / 6).clamp(44.0, 52.0);
+      final actions = [
+        _button(
+          'start',
+          'Start Navigation',
+          Icons.navigation_rounded,
+          diameter,
+          navigation.canNavigate ? onNavigate : null,
+        ),
+        _button(
+          'return',
+          'Return to Base',
+          Icons.home_rounded,
+          diameter,
+          navigation.canReturnToBase ? onReturn : null,
+        ),
+        _button(
+          'ping',
+          'Send PIN',
+          Icons.location_on_outlined,
+          diameter,
+          onPing,
+        ),
+        _button(
+          'sos',
+          ownsActiveSos ? 'Cancel SOS' : 'SOS',
+          Icons.warning_amber_rounded,
+          diameter,
+          onSos,
+        ),
+      ];
+      final camera = [
+        _cameraButton(
+          label: 'Recenter on astronaut',
+          icon: Icons.my_location,
+          size: diameter,
+          onPressed: onRecenter,
+        ),
+        ValueListenableBuilder(
+          valueListenable: headingUp,
+          builder: (context, active, _) => Semantics(
+            button: true,
+            label: 'Heading-up map',
+            toggled: active,
+            onTap: onToggleHeading,
+            excludeSemantics: true,
+            child: _cameraButton(
+              label: active ? 'North-up' : 'Heading-up',
+              icon: Icons.navigation_outlined,
+              size: diameter,
+              onPressed: onToggleHeading,
+              selected: active,
+            ),
+          ),
+        ),
+      ];
+      const actionsKey = ValueKey('mobile-map-actions');
+      if (oneRow) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: gap,
+          children: [
+            Row(
+              key: actionsKey,
+              mainAxisSize: MainAxisSize.min,
+              spacing: gap,
+              children: actions,
+            ),
+            ...camera,
+          ],
+        );
+      }
       final column = Column(
-        key: const ValueKey('mobile-map-controls'),
         mainAxisSize: MainAxisSize.min,
         spacing: gap,
         children: [
           Column(
-            key: const ValueKey('mobile-map-actions'),
+            key: actionsKey,
             mainAxisSize: MainAxisSize.min,
             spacing: gap,
-            children: [
-              _button(
-                'start',
-                'Start Navigation',
-                Icons.navigation_rounded,
-                diameter,
-                navigation.canNavigate ? onNavigate : null,
-              ),
-              _button(
-                'return',
-                'Return to Base',
-                Icons.home_rounded,
-                diameter,
-                navigation.canReturnToBase ? onReturn : null,
-              ),
-              _button(
-                'ping',
-                'Send PIN',
-                Icons.location_on_outlined,
-                diameter,
-                onPing,
-              ),
-              _button(
-                'sos',
-                ownsActiveSos ? 'Cancel SOS' : 'SOS',
-                Icons.warning_amber_rounded,
-                diameter,
-                onSos,
-              ),
-            ],
+            children: actions,
           ),
-          _cameraButton(
-            label: 'Recenter on astronaut',
-            icon: Icons.my_location,
-            size: diameter,
-            onPressed: onRecenter,
-          ),
-          ValueListenableBuilder(
-            valueListenable: headingUp,
-            builder: (context, active, _) => Semantics(
-              button: true,
-              label: 'Heading-up map',
-              toggled: active,
-              onTap: onToggleHeading,
-              excludeSemantics: true,
-              child: _cameraButton(
-                label: active ? 'North-up' : 'Heading-up',
-                icon: Icons.navigation_outlined,
-                size: diameter,
-                onPressed: onToggleHeading,
-                selected: active,
-              ),
-            ),
-          ),
+          ...camera,
         ],
       );
       if (6 * diameter + 5 * gap > height + .01) {
@@ -179,100 +204,65 @@ class MobileMapControls extends StatelessWidget {
 class MobileMapTelemetry extends StatelessWidget {
   const MobileMapTelemetry({
     super.key,
-    required this.eastLongitude,
+    required this.cycle,
     required this.mission,
-    this.clock = DateTime.now,
   });
 
-  final double eastLongitude;
+  final ValueListenable<MarsSolarCycle> cycle;
   final MarsMission mission;
-  final DateTime Function() clock;
 
   @override
-  Widget build(BuildContext context) => IntrinsicHeight(
-    child: Row(
-      key: const ValueKey('mobile-map-telemetry'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      spacing: 6,
-      children: [
-        Expanded(
-          child: _MarsTimeCard(eastLongitude: eastLongitude, clock: clock),
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: cycle,
+    builder: (context, solar, _) {
+      final temperature = marsClimateCelsius(
+        mission.id,
+        solar,
+        eastLongitude:
+            (mission.elevation?.location ?? mission.coordinates).eastLongitude,
+      );
+      return IntrinsicHeight(
+        child: Row(
+          key: const ValueKey('mobile-map-telemetry'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 6,
+          children: [
+            Expanded(
+              child: _TelemetryCard(
+                label: 'MARS TIME',
+                value: solar.localTime,
+                note: 'LMST at Base',
+                detail: 'Mars local mean solar time at Habitat Base',
+              ),
+            ),
+            Expanded(
+              child: _TelemetryCard(
+                label: 'TEMP',
+                value: formatMarsClimate(temperature),
+                note: temperature == null
+                    ? 'No verified model'
+                    : 'Climate estimate',
+                detail: temperature == null
+                    ? 'No verified air temperature estimate for Habitat Base'
+                    : 'Near-surface air temperature at Habitat Base · $marsClimateSource',
+              ),
+            ),
+            Expanded(
+              child: _TelemetryCard(
+                label: 'ELEVATION',
+                value: mission.elevationLabel,
+                note: mission.elevation == null
+                    ? 'Base point'
+                    : 'MOLA estimate',
+                detail: mission.elevation == null
+                    ? 'Habitat Base elevation unavailable'
+                    : 'Habitat Base elevation, MOLA grid estimate relative to the GMM3 Martian areoid',
+              ),
+            ),
+          ],
         ),
-        const Expanded(
-          child: _TelemetryCard(
-            label: 'TEMP',
-            value: 'Unavailable',
-            note: 'No local reading',
-            detail: 'Mars temperature at Habitat Base',
-          ),
-        ),
-        Expanded(
-          child: _TelemetryCard(
-            label: 'ELEVATION',
-            value: mission.elevation == null
-                ? 'Unavailable'
-                : mission.elevationLabel,
-            note: mission.elevation == null ? 'Base point' : 'MOLA estimate',
-            detail: mission.elevation == null
-                ? 'Habitat Base elevation unavailable'
-                : 'Habitat Base elevation, MOLA grid estimate relative to the GMM3 Martian areoid',
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _MarsTimeCard extends StatefulWidget {
-  const _MarsTimeCard({required this.eastLongitude, required this.clock});
-
-  final double eastLongitude;
-  final DateTime Function() clock;
-
-  @override
-  State<_MarsTimeCard> createState() => _MarsTimeCardState();
-}
-
-class _MarsTimeCardState extends State<_MarsTimeCard> {
-  late final Timer _timer;
-  late String _value;
-
-  String _readTime() => formatMarsLocalMeanSolarTime(
-    widget.clock(),
-    eastLongitude: widget.eastLongitude,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _value = _readTime();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final value = _readTime();
-      if (value != _value) setState(() => _value = value);
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _MarsTimeCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.eastLongitude != oldWidget.eastLongitude ||
-        widget.clock != oldWidget.clock) {
-      _value = _readTime();
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => _TelemetryCard(
-    label: 'MARS TIME',
-    value: _value,
-    note: 'LMST at Base',
-    detail: 'Mars local mean solar time at Habitat Base',
+      );
+    },
   );
 }
 

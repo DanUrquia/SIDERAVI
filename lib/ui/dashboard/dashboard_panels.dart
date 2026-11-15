@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
+import '../../missions/mars_climate.dart';
+import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
@@ -146,58 +149,71 @@ class NavigationPanel extends StatelessWidget {
   }
 }
 
-/// Pairs three reference conditions with the current Tegucigalpa clock.
+/// Pairs three Mars conditions with the current Tegucigalpa clock.
 class PlanetaryConditionsPanel extends StatelessWidget {
   /// Shows the sourced base-point elevation when available.
   const PlanetaryConditionsPanel({
     super.key,
     required this.mission,
-    required this.navigation,
+    required this.cycle,
   });
 
   final MarsMission mission;
-  final DemoNavigation navigation;
+  final ValueListenable<MarsSolarCycle> cycle;
 
   @override
-  Widget build(BuildContext context) => DashboardPanel(
-    title: 'PLANETARY CONDITIONS',
-    icon: Icons.public,
-    children: [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        spacing: 7,
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: cycle,
+    builder: (context, solar, _) {
+      final temperature = marsClimateCelsius(
+        mission.id,
+        solar,
+        eastLongitude:
+            (mission.elevation?.location ?? mission.coordinates).eastLongitude,
+      );
+      return DashboardPanel(
+        title: 'PLANETARY CONDITIONS',
+        icon: Icons.public,
         children: [
-          Expanded(
-            child: _Condition(
-              label: 'MARS LOCAL SOLAR TIME',
-              value: navigation.map.marsTime,
-              note: 'Demo reference',
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 7,
+            children: [
+              Expanded(
+                child: _Condition(
+                  label: 'MARS LOCAL SOLAR TIME',
+                  value: solar.localTime,
+                  note: 'LMST at Base',
+                ),
+              ),
+              const Expanded(child: TegucigalpaClock()),
+            ],
           ),
-          const Expanded(child: TegucigalpaClock()),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 7,
+            children: [
+              Expanded(
+                child: _Condition(
+                  label: 'MARS TEMPERATURE',
+                  value: formatMarsClimate(temperature),
+                  note: temperature == null
+                      ? 'No verified model'
+                      : 'Climate estimate',
+                ),
+              ),
+              Expanded(
+                child: _Condition(
+                  label: 'ELEVATION / RELIEF',
+                  value: mission.elevationLabel,
+                  note: mission.elevation == null ? null : 'MOLA base estimate',
+                ),
+              ),
+            ],
+          ),
         ],
-      ),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        spacing: 7,
-        children: [
-          Expanded(
-            child: _Condition(
-              label: 'MARS TEMPERATURE',
-              value: navigation.map.marsTemperature,
-              note: 'Illustrative',
-            ),
-          ),
-          Expanded(
-            child: _Condition(
-              label: 'ELEVATION / RELIEF',
-              value: mission.elevationLabel,
-              note: mission.elevation == null ? null : 'MOLA base estimate',
-            ),
-          ),
-        ],
-      ),
-    ],
+      );
+    },
   );
 }
 

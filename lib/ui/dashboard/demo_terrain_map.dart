@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../dashboard/demo_navigation.dart';
@@ -8,6 +9,7 @@ import '../../dashboard/terrain_view_controller.dart';
 import '../../maps/mars_projection.dart';
 import '../../maps/mars_trek_layers.dart';
 import '../../maps/trek_tile_source.dart';
+import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../../sensors/sensor_measurements.dart';
 import '../../tracking/astronaut_tracking.dart';
@@ -15,6 +17,7 @@ import '../../tracking/mission_presence.dart';
 import '../../tracking/tracking_geometry.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
+import 'solar_cycle_card.dart';
 import 'trek_tile_view.dart';
 
 /// Offers pan, pinch, and geographic destination selection.
@@ -39,6 +42,8 @@ class DemoTerrainMap extends StatefulWidget {
     this.sharedSos,
     this.fullScreen = false,
     this.showMapHud = true,
+    this.solarCycle,
+    this.layoutHud,
     this.overlayInsets = EdgeInsets.zero,
   });
 
@@ -59,6 +64,8 @@ class DemoTerrainMap extends StatefulWidget {
   final ({String sender, Offset point})? sharedSos;
   final bool fullScreen;
   final bool showMapHud;
+  final ValueListenable<MarsSolarCycle>? solarCycle;
+  final Widget Function(Widget? status, Widget? footer)? layoutHud;
   final EdgeInsets overlayInsets;
 
   @override
@@ -420,6 +427,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                       '${trek.detail?.product ?? globalTrekLayer.product}'
                       '${trek.detail == null ? '' : ' / Global CTX'}',
           );
+          final solar = widget.solarCycle;
+          final showSolar =
+              solar != null && widget.sharedSos == null && !navigation.sos;
           return TrekTileView(
             scene: scene,
             view: view,
@@ -427,11 +437,22 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             detail: trek.detail,
             showStatus: widget.showMapHud,
             showResolutionLimit: !widget.fullScreen,
-            statusFooter: widget.fullScreen ? scalePanel : null,
+            statusFooter: !widget.fullScreen
+                ? null
+                : showSolar
+                ? _mobileHud(solar, scalePanel)
+                : Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 68),
+                      child: scalePanel,
+                    ),
+                  ),
+            layoutHud: widget.layoutHud,
             statusBottom:
-                widget.overlayInsets.bottom + (widget.fullScreen ? 15 : 113),
-            statusLeft: widget.overlayInsets.left + 14,
-            statusRight: widget.overlayInsets.right + 78,
+                widget.overlayInsets.bottom + (widget.fullScreen ? 11 : 113),
+            statusLeft: widget.overlayInsets.left + (showSolar ? 11 : 14),
+            statusRight: widget.overlayInsets.right + (showSolar ? 11 : 78),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -711,6 +732,31 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     );
   }
 
+  Widget _mobileHud(ValueListenable<MarsSolarCycle> solar, Widget scalePanel) =>
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final card = SolarCycleCard(cycle: solar, compact: true);
+          if (constraints.maxWidth < 282) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 5,
+              children: [card, scalePanel],
+            );
+          }
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 5,
+              children: [
+                Expanded(child: card),
+                Expanded(child: scalePanel),
+              ],
+            ),
+          );
+        },
+      );
+
   Widget _scalePanel({
     required MarsScene scene,
     required Rect world,
@@ -721,18 +767,18 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     final compact = widget.fullScreen;
     return DecoratedBox(
       key: const ValueKey('map-scale-panel'),
-      decoration: DashboardStyle.surface(
-        color: const Color(0xEE0B1320),
-        radius: 10,
-      ),
+      decoration: mapHudSurface,
       child: Padding(
         padding: compact
-            ? const EdgeInsets.fromLTRB(10, 4, 10, 7)
+            ? const EdgeInsets.fromLTRB(8, 4, 8, 6)
             : const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          spacing: compact ? 3 : 4,
+          mainAxisAlignment: compact
+              ? MainAxisAlignment.center
+              : MainAxisAlignment.start,
+          spacing: compact ? 2 : 4,
           children: [
             ValueListenableBuilder(
               valueListenable: view,
@@ -765,12 +811,12 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     padding: compact
                         ? const EdgeInsets.only(bottom: 2)
                         : EdgeInsets.zero,
-                    minimumSize: Size(0, compact ? 28 : 36),
+                    minimumSize: Size(0, compact ? 27 : 36),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
                     '${local ? 'View region' : 'Fit area'} · ${widget.mission.radiusLabel} radius',
-                    style: const TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: compact ? 11 : 12),
                   ),
                 );
               },
@@ -779,7 +825,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             if (compact && navigation.routeTarget != null)
               const Text(
                 'Direct guidance · Terrain unverified',
-                style: TextStyle(fontSize: 11, color: DashboardStyle.warm),
+                style: TextStyle(fontSize: 10, color: DashboardStyle.warm),
               ),
             Text(
               attribution,
@@ -1295,9 +1341,10 @@ class _MarsScaleBar extends StatelessWidget {
       final start = scene.toGeographic(view.toScene(center - half));
       final end = scene.toGeographic(view.toScene(center + half));
       final meters = surfaceDistance(start, end, MarsProjection.radiusMeters);
-      return Row(
-        mainAxisSize: MainAxisSize.min,
+      return Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 7,
+        runSpacing: 2,
         children: [
           Container(width: width, height: 2, color: DashboardStyle.warm),
           Text(

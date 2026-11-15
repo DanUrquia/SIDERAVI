@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Mars24 local mean solar time (in Mars seconds since local midnight).
 ///
 /// The longitude is positive east and may use either signed or 0–360° form.
@@ -6,10 +8,7 @@ double marsLocalMeanSolarSeconds(
   DateTime timestamp, {
   required double eastLongitude,
 }) {
-  final utc = timestamp.toUtc();
-  final jdUtc =
-      2440587.5 + utc.microsecondsSinceEpoch / Duration.microsecondsPerDay;
-  final jdTt = jdUtc + _ttMinusUtc(utc, jdUtc) / Duration.secondsPerDay;
+  final jdTt = _julianDateTt(timestamp);
   final solDate = (jdTt - 2451549.5) / 1.0274912517 + 44796.0 - 0.0009626;
   // Mars24 subtracts west-positive longitude. The mission catalog uses east.
   final localSol = solDate + eastLongitude / 360;
@@ -20,14 +19,162 @@ double marsLocalMeanSolarSeconds(
 String formatMarsLocalMeanSolarTime(
   DateTime timestamp, {
   required double eastLongitude,
-}) {
-  final minutes =
-      marsLocalMeanSolarSeconds(timestamp, eastLongitude: eastLongitude) ~/
-      Duration.secondsPerMinute;
-  final hour = (minutes ~/ Duration.minutesPerHour).toString().padLeft(2, '0');
-  final minute = (minutes % Duration.minutesPerHour).toString().padLeft(2, '0');
+}) => formatMarsSolarHours(
+  marsLocalMeanSolarSeconds(timestamp, eastLongitude: eastLongitude) / 3600,
+);
+
+/// Formats an hour on the 24-hour Mars clock, at display precision.
+String formatMarsSolarHours(double hours) {
+  final minutes = ((hours % 24) * 60).floor();
+  final hour = (minutes ~/ 60).toString().padLeft(2, '0');
+  final minute = (minutes % 60).toString().padLeft(2, '0');
   return '$hour:$minute';
 }
+
+double _julianDateTt(DateTime timestamp) {
+  final utc = timestamp.toUtc();
+  final jdUtc =
+      2440587.5 + utc.microsecondsSinceEpoch / Duration.microsecondsPerDay;
+  return jdUtc + _ttMinusUtc(utc, jdUtc) / Duration.secondsPerDay;
+}
+
+/// The Sun's position and geometric horizon crossings at a fixed Mars site.
+///
+/// All clock fields use LMST. A Mars hour is one twenty-fourth of a mean sol.
+final class MarsSolarCycle {
+  MarsSolarCycle._({
+    required this.localMeanHours,
+    required this.solarLongitude,
+    required this.equationOfTimeDegrees,
+    required this.elevationDegrees,
+    required this.sunriseHours,
+    required this.sunsetHours,
+    required this.daylightHours,
+    required this.isDaylight,
+    required this.progress,
+  });
+
+  factory MarsSolarCycle.at(
+    DateTime timestamp, {
+    required double planetocentricLatitude,
+    required double eastLongitude,
+  }) {
+    final localMean =
+        marsLocalMeanSolarSeconds(timestamp, eastLongitude: eastLongitude) /
+        3600;
+    final orbit = _marsOrbit(_julianDateTt(timestamp) - 2451545.0);
+    final noon = 12 - orbit.equationOfTime / 15;
+    final hourAngleHours = (localMean - noon + 12) % 24 - 12;
+
+    // Convert planetocentric latitude to the IAU planetographic latitude.
+    const radiiRatio = 3376.20 / 3396.19;
+    final latitude = planetocentricLatitude * _radiansPerDegree;
+    final graphic = math.atan2(
+      math.sin(latitude),
+      radiiRatio * radiiRatio * math.cos(latitude),
+    );
+    final offset = math.sin(graphic) * math.sin(orbit.declination);
+    final amplitude = math.cos(graphic) * math.cos(orbit.declination);
+    final sineElevation = offset + amplitude * _cosDegrees(15 * hourAngleHours);
+    final elevation = math.asin(sineElevation.clamp(-1, 1)) / _radiansPerDegree;
+
+    // The center crosses a level geometric horizon. Use the current orbital
+    // parameters for both crossings, consistent with the instantaneous altitude.
+    final continuousNight = offset + amplitude <= 0;
+    final continuousDay = !continuousNight && offset - amplitude >= 0;
+    final crossesHorizon = !continuousDay && !continuousNight;
+    final halfDay = crossesHorizon
+        ? math.acos((-offset / amplitude).clamp(-1, 1)) / _radiansPerDegree / 15
+        : continuousDay
+        ? 12.0
+        : 0.0;
+    final isDaylight =
+        continuousDay ||
+        (crossesHorizon && hourAngleHours.abs() <= halfDay + 1e-10);
+    return MarsSolarCycle._(
+      localMeanHours: localMean,
+      solarLongitude: orbit.solarLongitude,
+      equationOfTimeDegrees: orbit.equationOfTime,
+      elevationDegrees: elevation,
+      sunriseHours: crossesHorizon ? (noon - halfDay) % 24 : null,
+      sunsetHours: crossesHorizon ? (noon + halfDay) % 24 : null,
+      daylightHours: 2 * halfDay,
+      isDaylight: isDaylight,
+      progress: isDaylight
+          ? ((hourAngleHours + halfDay) / (2 * halfDay)).clamp(0, 1).toDouble()
+          : null,
+    );
+  }
+
+  final double localMeanHours;
+  final double solarLongitude;
+  final double equationOfTimeDegrees;
+  final double elevationDegrees;
+  final double? sunriseHours;
+  final double? sunsetHours;
+  final double daylightHours;
+  final bool isDaylight;
+  final double? progress;
+
+  String get localTime => formatMarsSolarHours(localMeanHours);
+  String get sunrise =>
+      sunriseHours == null ? '—' : formatMarsSolarHours(sunriseHours!);
+  String get sunset =>
+      sunsetHours == null ? '—' : formatMarsSolarHours(sunsetHours!);
+  String get daylight {
+    final minutes = (daylightHours * 60).round();
+    return '${minutes ~/ 60} h ${(minutes % 60).toString().padLeft(2, '0')} min';
+  }
+
+  String get skyState => sunriseHours == null
+      ? (isDaylight ? 'Polar day' : 'Polar night')
+      : (isDaylight ? 'Daylight' : 'Night');
+}
+
+const _radiansPerDegree = math.pi / 180;
+double _sinDegrees(double degrees) => math.sin(degrees * _radiansPerDegree);
+double _cosDegrees(double degrees) => math.cos(degrees * _radiansPerDegree);
+
+// NASA GISS Mars24 algorithm, sections B, C-1 and D-1.
+({double solarLongitude, double equationOfTime, double declination}) _marsOrbit(
+  double days,
+) {
+  final meanAnomaly = (19.3871 + 0.52402073 * days) % 360;
+  final fictitiousMeanSun = (270.3871 + 0.524038496 * days) % 360;
+  var perturbation = 0.0;
+  for (final (amplitude, period, phase) in _orbitalPerturbers) {
+    perturbation += amplitude * _cosDegrees(0.985626 * days / period + phase);
+  }
+  final equationOfCenter =
+      (10.691 + 3e-7 * days) * _sinDegrees(meanAnomaly) +
+      .623 * _sinDegrees(2 * meanAnomaly) +
+      .050 * _sinDegrees(3 * meanAnomaly) +
+      .005 * _sinDegrees(4 * meanAnomaly) +
+      .0005 * _sinDegrees(5 * meanAnomaly) +
+      perturbation;
+  final ls = (fictitiousMeanSun + equationOfCenter) % 360;
+  return (
+    solarLongitude: ls,
+    equationOfTime:
+        2.861 * _sinDegrees(2 * ls) -
+        .071 * _sinDegrees(4 * ls) +
+        .002 * _sinDegrees(6 * ls) -
+        equationOfCenter,
+    declination:
+        math.asin(.42565 * _sinDegrees(ls)) +
+        .25 * _radiansPerDegree * _sinDegrees(ls),
+  );
+}
+
+const _orbitalPerturbers = [
+  (.0071, 2.2353, 49.409),
+  (.0057, 2.7543, 168.173),
+  (.0039, 1.1177, 191.837),
+  (.0037, 15.7866, 21.736),
+  (.0021, 2.1354, 15.704),
+  (.0020, 2.4694, 95.528),
+  (.0018, 32.8493, 49.095),
+];
 
 // TAI−UTC from the US Naval Observatory, including the 1972 starting offset.
 // IERS Bulletin C 72 confirmed that the last row remains valid through 2026.

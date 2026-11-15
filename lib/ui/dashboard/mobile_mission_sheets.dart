@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
 import '../../maps/mars_projection.dart';
+import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../../missions/mola_elevations.dart';
 import '../../tracking/astronaut_tracking.dart';
@@ -14,6 +16,7 @@ import '../../tracking/tracking_geometry.dart';
 import '../mission_theme.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
+import 'solar_cycle_card.dart';
 import 'walking_calibration.dart';
 
 /// Displays the mission briefing and device-local progress.
@@ -193,6 +196,7 @@ class MobileAstronautContent extends StatelessWidget {
     required this.mission,
     required this.navigation,
     required this.tracking,
+    required this.solarCycle,
     required this.onSensorTest,
     required this.onMovementLog,
   });
@@ -201,6 +205,7 @@ class MobileAstronautContent extends StatelessWidget {
   final MarsMission mission;
   final DemoNavigation navigation;
   final AstronautTracking tracking;
+  final ValueListenable<MarsSolarCycle> solarCycle;
   final VoidCallback onSensorTest;
   final VoidCallback onMovementLog;
 
@@ -267,6 +272,7 @@ class MobileAstronautContent extends StatelessWidget {
               ),
           ],
         ),
+        SolarCycleCard(cycle: solarCycle),
         const TegucigalpaClock(),
         DashboardPanel(
           title: 'DEVICE SENSORS',

@@ -25,8 +25,6 @@ final class MissionMapConfig {
     required Offset teammate,
     required double layoutRadius,
     required List<DemoLandmark> landmarks,
-    required this.marsTime,
-    required this.marsTemperature,
   }) : radiusMeters = mission.radiusMeters,
        coordinates = MissionCoordinates(mission),
        demoMetersPerSecond = .13 * mission.radiusMeters / layoutRadius {
@@ -73,8 +71,6 @@ final class MissionMapConfig {
   final double demoMetersPerSecond;
   late final List<Offset> boundary;
   late final Rect boundaryBounds;
-  final String marsTime;
-  final String marsTemperature;
 
   /// Checks the spherical distance to the established Habitat Base.
   bool contains(Offset point) =>
@@ -96,8 +92,6 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
       DemoLandmark('Channel edge', Offset(.24, .50)),
       DemoLandmark('Survey station', Offset(.67, .59)),
     ],
-    marsTime: '10:28',
-    marsTemperature: '−62 °C',
   ),
   'gale': MissionMapConfig(
     mission: marsMissionById['gale']!,
@@ -112,8 +106,6 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
       DemoLandmark('Bedding station', Offset(.70, .39)),
       DemoLandmark('Lower overlook', Offset(.48, .73)),
     ],
-    marsTime: '12:10',
-    marsTemperature: '−45 °C',
   ),
   'endeavour': MissionMapConfig(
     mission: marsMissionById['endeavour']!,
@@ -128,8 +120,6 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
       DemoLandmark('Ripple field', Offset(.33, .60)),
       DemoLandmark('Ridge overlook', Offset(.79, .50)),
     ],
-    marsTime: '09:42',
-    marsTemperature: '−68 °C',
   ),
   'columbia-hills': MissionMapConfig(
     mission: marsMissionById['columbia-hills']!,
@@ -144,8 +134,6 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
       DemoLandmark('Debris slope', Offset(.44, .29)),
       DemoLandmark('Hillside outcrop', Offset(.71, .54)),
     ],
-    marsTime: '15:06',
-    marsTemperature: '−38 °C',
   ),
   'valles-marineris': MissionMapConfig(
     mission: marsMissionById['valles-marineris']!,
@@ -160,7 +148,5 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
       DemoLandmark('Wall overlook', Offset(.57, .71)),
       DemoLandmark('Orbital survey point', Offset(.77, .39)),
     ],
-    marsTime: '08:35',
-    marsTemperature: '−76 °C',
   ),
 });

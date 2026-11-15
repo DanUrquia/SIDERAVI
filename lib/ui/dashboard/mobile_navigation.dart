@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,6 +8,7 @@ import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_checklist.dart';
 import '../../dashboard/terrain_view_controller.dart';
+import '../../missions/mars_solar_time.dart';
 import '../../missions/mission.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/crew_signals.dart';
@@ -31,6 +33,7 @@ class MobileNavigation extends StatefulWidget {
   const MobileNavigation({
     super.key,
     required this.mapBuilder,
+    required this.solarCycle,
     required this.view,
     required this.astronaut,
     required this.teammate,
@@ -51,7 +54,13 @@ class MobileNavigation extends StatefulWidget {
     this.revealRescue = 0,
   });
 
-  final Widget Function(bool showMapHud, VoidCallback? onAstronaut) mapBuilder;
+  final Widget Function(
+    bool showMapHud,
+    VoidCallback onAstronaut,
+    Widget Function(Widget? status, Widget? footer) layoutHud,
+  )
+  mapBuilder;
+  final ValueListenable<MarsSolarCycle> solarCycle;
   final TerrainViewController view;
   final Astronaut astronaut;
   final Astronaut teammate;
@@ -279,6 +288,7 @@ class _MobileNavigationState extends State<MobileNavigation>
       mission: widget.mission,
       navigation: widget.navigation,
       tracking: widget.tracking,
+      solarCycle: widget.solarCycle,
       onSensorTest: widget.onSensorTest,
       onMovementLog: widget.onMovementLog,
     ),
@@ -303,6 +313,90 @@ class _MobileNavigationState extends State<MobileNavigation>
     ),
   };
 
+  Widget _mapChrome(
+    EdgeInsets insets,
+    Size viewport,
+    _Sheet? sheet,
+    Widget? status,
+    Widget? footer,
+  ) => Positioned(
+    left: insets.left + 12,
+    right: insets.right + 12,
+    top: insets.top + 9,
+    bottom:
+        insets.bottom +
+        MobileNavigation.barHeight +
+        MobileNavigation.barMargin +
+        11,
+    child: MediaQuery.withClampedTextScaling(
+      maxScaleFactor: viewport.width < 355 ? 1.3 : double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 6,
+        children: [
+          _MissionHeader(
+            key: const ValueKey('mobile-mission-header'),
+            astronaut: widget.astronaut,
+            mission: widget.mission,
+            navigation: widget.navigation,
+            tracking: widget.tracking,
+            presence: widget.presence,
+            onBack: () => sheet == null ? widget.onBack() : _close(),
+          ),
+          MobileMapTelemetry(mission: widget.mission, cycle: widget.solarCycle),
+          if (sheet == null)
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, size) {
+                  final horizontal = MobileMapControls.usesHorizontalRow(size);
+                  return Stack(
+                    children: [
+                      if (status != null)
+                        Align(
+                          alignment: Alignment.bottomLeft,
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              right: horizontal ? 0 : 68,
+                            ),
+                            child: status,
+                          ),
+                        ),
+                      Align(
+                        alignment: Alignment(1, horizontal ? -1 : -.35),
+                        child: MobileMapControls(
+                          navigation: widget.navigation,
+                          onNavigate: widget.onNavigate,
+                          onReturn: _returnToBase,
+                          onPing: widget.onPing,
+                          onSos: () => unawaited(_sos()),
+                          ownsActiveSos:
+                              widget.presence.sos?.state == SosState.active &&
+                              widget.presence.sos?.sender ==
+                                  widget.astronaut.id,
+                          headingUp: widget.view.headingUp,
+                          onRecenter: () {
+                            final world = missionWorld(viewport);
+                            widget.view.recenter(
+                              world.topLeft +
+                                  widget.navigation.position * world.width,
+                              viewport,
+                            );
+                          },
+                          onToggleHeading: () => widget.view.headingUp.value =
+                              !widget.view.headingUp.value,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          if (footer != null) footer,
+        ],
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final insets = MediaQuery.viewPaddingOf(context);
@@ -318,62 +412,15 @@ class _MobileNavigationState extends State<MobileNavigation>
         builder: (context, constraints) => Stack(
           fit: StackFit.expand,
           children: [
-            widget.mapBuilder(sheet == null, () => _open(_Sheet.astronaut)),
-            Positioned(
-              left: insets.left + 12,
-              right: insets.right + 12,
-              top: insets.top + 9,
-              bottom: dockTop + 8,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                spacing: 7,
-                children: [
-                  _MissionHeader(
-                    key: const ValueKey('mobile-mission-header'),
-                    astronaut: widget.astronaut,
-                    mission: widget.mission,
-                    navigation: widget.navigation,
-                    tracking: widget.tracking,
-                    presence: widget.presence,
-                    onBack: () => sheet == null ? widget.onBack() : _close(),
-                  ),
-                  MobileMapTelemetry(
-                    mission: widget.mission,
-                    eastLongitude: widget.navigation.map.coordinates
-                        .toMars(widget.navigation.map.base)
-                        .dx,
-                    clock: widget.tracking.clock,
-                  ),
-                  if (sheet == null)
-                    Expanded(
-                      child: Align(
-                        alignment: const Alignment(1, -.47),
-                        child: MobileMapControls(
-                          navigation: widget.navigation,
-                          onNavigate: widget.onNavigate,
-                          onReturn: _returnToBase,
-                          onPing: widget.onPing,
-                          onSos: () => unawaited(_sos()),
-                          ownsActiveSos:
-                              widget.presence.sos?.state == SosState.active &&
-                              widget.presence.sos?.sender ==
-                                  widget.astronaut.id,
-                          headingUp: widget.view.headingUp,
-                          onRecenter: () {
-                            final viewport = constraints.biggest;
-                            final world = missionWorld(viewport);
-                            widget.view.recenter(
-                              world.topLeft +
-                                  widget.navigation.position * world.width,
-                              viewport,
-                            );
-                          },
-                          onToggleHeading: () => widget.view.headingUp.value =
-                              !widget.view.headingUp.value,
-                        ),
-                      ),
-                    ),
-                ],
+            widget.mapBuilder(
+              sheet == null,
+              () => _open(_Sheet.astronaut),
+              (status, footer) => _mapChrome(
+                insets,
+                constraints.biggest,
+                sheet,
+                status,
+                footer,
               ),
             ),
             if (sheet != null)
