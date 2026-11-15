@@ -3,7 +3,7 @@
 
 *Exploring Mars, one step at a time.*
 
-<img src="assets/branding/sidera_vi_logo.png" alt="Official SIDERA VI wordmark" width="440">
+<a href="assets/branding/sidera_vi_logo.png"><img src="docs/media/sidera-vi-wordmark.png" alt="Official SIDERA VI wordmark" width="440"></a>
 
 SIDERA VI turns a walk on Earth into an estimated exploration of Mars. Choose one of five regions, navigate across published Mars imagery, investigate a scientific waypoint, and coordinate with another astronaut. The Urquía and Flores families built this educational prototype for the **2026 NASA Space Apps Challenge**, in response to **Interplanetary Survival Guide: Martian Map**.
 
