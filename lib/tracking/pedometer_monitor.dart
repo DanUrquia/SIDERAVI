@@ -53,6 +53,7 @@ final class PedometerMonitor extends ChangeNotifier {
   bool hasCapture = false;
   int? captureSteps;
   double? captureDistance;
+  Map<String, Object?>? captureQuery;
 
   /// A fresh increase shows step detections without inferring a direction.
   bool get recentStepIncrease =>
@@ -67,12 +68,41 @@ final class PedometerMonitor extends ChangeNotifier {
     hasCapture = true;
     captureSteps = null;
     captureDistance = null;
+    captureQuery = null;
     notifyListeners();
   }
 
   /// Preserves the measured totals for review.
-  void endCapture() {
+  double? endCapture() {
+    final start = _captureStart;
     _captureStart = null;
+    return start;
+  }
+
+  /// Keeps one historical capture result separate from ongoing stream readings.
+  void applyCaptureQuery(Map result) {
+    captureQuery = <String, Object?>{
+      for (final key in [
+        'outcome',
+        'domain',
+        'code',
+        'steps',
+        'distance',
+        'start',
+        'end',
+      ])
+        if (result[key] is String || finiteReading(result, key) != null)
+          key: result[key],
+    };
+    final steps = result['steps'];
+    if (result['outcome'] == 'measured' &&
+        captureSteps == null &&
+        steps is int &&
+        steps >= 0) {
+      captureSteps = steps;
+      captureDistance = _nonnegative(result, 'distance');
+    }
+    notifyListeners();
   }
 
   /// Reads one drained native window and updates timing, increments and availability.

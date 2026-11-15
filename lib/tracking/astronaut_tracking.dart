@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -44,6 +45,7 @@ final class AstronautTracking extends ChangeNotifier {
   bool _positionChanged = false;
   Timer? _timer;
   Future<void> _pending = Future.value();
+  Future<void>? _finishingCapture;
   bool _reading = false;
   bool _active = false;
   bool _disposed = false;
@@ -110,6 +112,7 @@ final class AstronautTracking extends ChangeNotifier {
 
   /// Opens an opt-in timeline and fresh pedometer window for this capture.
   void startCapture(String mission) {
+    if (_finishingCapture != null) return;
     final at = clock();
     pedometer.beginCapture(at.microsecondsSinceEpoch / 1000000);
     telemetry.start(at, {
@@ -132,9 +135,57 @@ final class AstronautTracking extends ChangeNotifier {
     }
   }
 
-  /// Keeps the pedometer and movement totals available for local review.
-  void stopCapture() {
-    pedometer.endCapture();
+  /// Ends recording and checks the current window once if the stream supplied no totals.
+  Future<void> stopCapture() =>
+      _finishingCapture ??= _finishCapture().whenComplete(() {
+        _finishingCapture = null;
+      });
+
+  Future<void> _finishCapture() async {
+    if (!telemetry.recording) return;
+    final start = pedometer.endCapture();
+    final stopped = clock();
+    if (start != null &&
+        _active &&
+        mode == TrackingMode.live &&
+        pedometer.stepSupported &&
+        pedometer.authorization == 'authorized' &&
+        pedometer.captureSteps == null) {
+      final epoch = _epoch;
+      await _queue(() async {
+        Map result = {'outcome': 'unavailable'};
+        try {
+          if (_current(epoch) && mode == TrackingMode.live) {
+            await sensors
+                .command(
+                  'finishPedometerCapture',
+                  jsonEncode({
+                    'start': start,
+                    'end': stopped.microsecondsSinceEpoch / 1000000,
+                  }),
+                )
+                .timeout(const Duration(seconds: 8));
+            if (!_current(epoch)) return;
+            final locationEpoch = _locationEpoch;
+            final batch = await sensors.snapshot();
+            if (!_current(epoch)) return;
+            final motion = batch['pedometer'];
+            final query = motion is Map ? motion['captureQuery'] : null;
+            if (query is Map) result = query;
+            _ingest(batch, locationEpoch);
+          }
+        } catch (_) {
+          // The live sensor state remains independent of the optional query.
+        }
+        if (_disposed) return;
+        pedometer.applyCaptureQuery(result);
+        telemetry.event(clock(), 'pedometerCaptureQuery', {
+          ...pedometer.captureQuery!,
+          'appliedMarsMeters': 0,
+        });
+      });
+    }
+    if (_disposed) return;
     telemetry.event(clock(), 'pedometerCaptureEnded', {
       'steps': pedometer.captureSteps,
       'estimatedDistanceMeters': pedometer.captureDistance,
@@ -143,9 +194,9 @@ final class AstronautTracking extends ChangeNotifier {
   }
 
   /// Freezes the capture and opens the native local report export.
-  Future<void> exportCapture() {
-    stopCapture();
-    return sensors.command('exportMovement', telemetry.export());
+  Future<void> exportCapture() async {
+    await stopCapture();
+    if (!_disposed) await sensors.command('exportMovement', telemetry.export());
   }
 
   /// Records connectivity transitions without changing either tracking baseline.
@@ -248,31 +299,36 @@ final class AstronautTracking extends ChangeNotifier {
           final locationEpoch = _locationEpoch;
           final batch = await sensors.snapshot();
           if (!_current(epoch)) return;
-          final now = _seconds;
-          telemetry.updateCapabilities(batch);
-          _orientation(batch['orientations'] as List? ?? const [], now);
-          final motion = batch['pedometer'];
-          pedometer.ingest(
-            motion is Map ? motion : null,
-            now,
-            active: mode == TrackingMode.live,
-            onSample: (sample) => telemetry.pedometer(
-              clock(),
-              sample,
-              relativeHeading: heading.value,
-              authorization: pedometer.authorization,
-            ),
-          );
-          if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
-            _location(batch, now);
-          } else {
-            _recordRejected(batch, MovementReason.inactive);
-          }
+          _ingest(batch, locationEpoch);
         } finally {
           _reading = false;
         }
       }),
     );
+  }
+
+  /// Applies one current native snapshot without discarding buffered location fixes.
+  void _ingest(Map batch, int locationEpoch) {
+    final now = _seconds;
+    telemetry.updateCapabilities(batch);
+    _orientation(batch['orientations'] as List? ?? const [], now);
+    final motion = batch['pedometer'];
+    pedometer.ingest(
+      motion is Map ? motion : null,
+      now,
+      active: mode == TrackingMode.live,
+      onSample: (sample) => telemetry.pedometer(
+        clock(),
+        sample,
+        relativeHeading: heading.value,
+        authorization: pedometer.authorization,
+      ),
+    );
+    if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
+      _location(batch, now);
+    } else {
+      _recordRejected(batch, MovementReason.inactive);
+    }
   }
 
   /// Keeps the last reference through angle wraparound and handles interface flips.

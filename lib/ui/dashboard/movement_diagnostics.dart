@@ -26,20 +26,28 @@ class _MovementDiagnostics extends StatefulWidget {
 }
 
 class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
-  bool _exporting = false;
+  bool _working = false;
   String? _error;
 
-  Future<void> _export() async {
+  Future<void> _finish({required bool export}) async {
     setState(() {
-      _exporting = true;
+      _working = true;
       _error = null;
     });
     try {
-      await widget.tracking.exportCapture();
+      if (export) {
+        await widget.tracking.exportCapture();
+      } else {
+        await widget.tracking.stopCapture();
+      }
     } catch (_) {
-      if (mounted) _error = 'Could not open the local share sheet.';
+      if (mounted) {
+        _error = export
+            ? 'Could not open the local share sheet.'
+            : 'Could not finish capture.';
+      }
     } finally {
-      if (mounted) setState(() => _exporting = false);
+      if (mounted) setState(() => _working = false);
     }
   }
 
@@ -101,6 +109,7 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                     icon: Icons.sensors,
                     onPressed: () => tracking.selectMode(TrackingMode.live),
                   ),
+                if (_working) const Text('Finishing capture…'),
                 if (_error case final error?) Text(error),
                 Wrap(
                   spacing: 8,
@@ -111,14 +120,18 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                       icon: log.recording
                           ? Icons.stop
                           : Icons.fiber_manual_record,
-                      onPressed: log.recording
-                          ? tracking.stopCapture
+                      onPressed: _working
+                          ? null
+                          : log.recording
+                          ? () => _finish(export: false)
                           : () => tracking.startCapture(widget.mission),
                     ),
                     DashboardButton(
                       label: 'EXPORT JSON',
                       icon: Icons.ios_share,
-                      onPressed: log.hasEvents && !_exporting ? _export : null,
+                      onPressed: log.hasEvents && !_working
+                          ? () => _finish(export: true)
+                          : null,
                     ),
                     DashboardButton(
                       label: 'REBASELINE',
@@ -196,6 +209,14 @@ class _PedometerReadout extends StatelessWidget {
         Text('Activity · $motion'),
         if (monitor.error case final failure?)
           Text('Pedometer error · ${failure['domain']} (${failure['code']})'),
+        if (monitor.captureQuery case final query?)
+          Text(
+            query['outcome'] == 'measured'
+                ? 'Capture-window query returned a measurement'
+                : query['outcome'] == 'error'
+                ? 'Capture-window query · ${query['domain']} (${query['code']})'
+                : 'Capture-window query · No measurement',
+          ),
         const Text(
           'Pedometer measurements are for validation. Map movement uses the location guard.',
         ),

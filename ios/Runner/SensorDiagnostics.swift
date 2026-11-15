@@ -233,6 +233,7 @@ private final class DiagnosticPedometer {
   private var running = false
   private var samples: [[String: Any]] = []
   private var error: [String: Any]?
+  private var captureQuery: [String: Any]?
   private var started: Date?
 
   /// Stops older callbacks and starts an independent count from the current time.
@@ -276,7 +277,47 @@ private final class DiagnosticPedometer {
     running = false
     started = nil
     error = nil
+    captureQuery = nil
     samples.removeAll(keepingCapacity: true)
+  }
+
+  /// Queries only the current opt-in foreground window when the live feed failed.
+  func finishCapture(_ window: [String: Double], completion: @escaping () -> Void) {
+    guard let from = started, let captureStart = window["start"], let captureEnd = window["end"],
+          captureStart.isFinite, captureEnd.isFinite,
+          from.timeIntervalSince1970 >= captureStart,
+          from.timeIntervalSince1970 < captureEnd,
+          captureEnd <= Date().timeIntervalSince1970,
+          CMPedometer.isStepCountingAvailable(), CMPedometer.authorizationStatus() == .authorized
+    else {
+      captureQuery = ["outcome": "unavailable"]
+      completion()
+      return
+    }
+    let current = generation
+    let end = Date(timeIntervalSince1970: captureEnd)
+    pedometer.queryPedometerData(from: from, to: end) { [weak self] data, failure in
+      DispatchQueue.main.async {
+        defer { completion() }
+        guard let self, self.generation == current else { return }
+        if let failure = failure as NSError? {
+          self.captureQuery = ["outcome": "error", "domain": failure.domain, "code": failure.code]
+          return
+        }
+        guard let data else {
+          self.captureQuery = ["outcome": "noData"]
+          return
+        }
+        var observation: [String: Any] = [
+          "outcome": "measured",
+          "start": data.startDate.timeIntervalSince1970,
+          "end": data.endDate.timeIntervalSince1970,
+          "steps": data.numberOfSteps.intValue
+        ]
+        if let distance = data.distance { observation["distance"] = distance.doubleValue }
+        self.captureQuery = observation
+      }
+    }
   }
 
   /// Delivers new samples once, with hardware flags and authorization.
@@ -301,6 +342,8 @@ private final class DiagnosticPedometer {
     ]
     if let started { data["started"] = started.timeIntervalSince1970 }
     if let error { data["error"] = error }
+    if let captureQuery { data["captureQuery"] = captureQuery }
+    captureQuery = nil
     samples.removeAll(keepingCapacity: true)
     return data
   }
@@ -348,6 +391,16 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
         pedometer.start()
       }
       result(nil)
+    case "finishPedometerCapture":
+      guard UIApplication.shared.applicationState != .background,
+            let argument = call.arguments as? String,
+            let data = argument.data(using: .utf8),
+            let window = try? JSONDecoder().decode([String: Double].self, from: data)
+      else {
+        result(FlutterError(code: "invalid_pedometer_capture", message: "Capture window is unavailable.", details: nil))
+        return
+      }
+      pedometer.finishCapture(window) { result(nil) }
     case "stopLocation":
       location?.stop()
       pedometer.stop()

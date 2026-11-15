@@ -186,6 +186,67 @@ void main() {
       }
     },
   );
+  testWidgets(
+    'A failed live stream queries only the opted-in capture and preserves the pose',
+    (tester) async {
+      final mission = marsMissions.first;
+      final nav = DemoNavigation(missionMaps[mission.id]!, startAtBase: true);
+      final sensors = _Sensors();
+      var now = 100;
+      final tracking = AstronautTracking(
+        navigation: nav,
+        coordinates: MissionCoordinates(mission),
+        sensors: sensors,
+        clock: () => DateTime.fromMillisecondsSinceEpoch(now * 1000),
+      );
+      try {
+        await tracking.resume();
+        await tracking.selectMode(TrackingMode.live);
+        tracking.startCapture(mission.id);
+        now = 150;
+        sensors.payload = {
+          ..._native(2, 101),
+          'error': {'domain': 'CMErrorDomain', 'code': 109},
+        };
+        await tester.pump(const Duration(milliseconds: 110));
+        await tester.pump();
+        expect(tracking.pedometer.state, PedometerState.unavailable);
+        sensors.query = {'outcome': 'measured', 'steps': 29, 'distance': 16.5};
+        now = 160;
+        final stopping = tracking.stopCapture();
+        expect(identical(tracking.stopCapture(), stopping), isTrue);
+        await stopping;
+        expect(
+          sensors.commands.where((name) => name == 'finishPedometerCapture'),
+          hasLength(1),
+        );
+        expect(jsonDecode(sensors.queryArgument!), {
+          'start': 100.0,
+          'end': 160.0,
+        });
+        expect(tracking.pedometer.captureSteps, 29);
+        expect(tracking.pedometer.captureDistance, 16.5);
+        expect(tracking.pedometer.state, PedometerState.unavailable);
+        expect(nav.atBase, isTrue);
+        await tracking.exportCapture();
+        final report = jsonDecode(sensors.report!) as Map;
+        final events = (report['events'] as List).cast<Map>();
+        expect(
+          events
+              .where((event) => event['event'] == 'pedometerCaptureQuery')
+              .single,
+          containsPair('appliedMarsMeters', 0),
+        );
+        expect(
+          events.where((event) => event['event'] == 'positionChanged'),
+          isEmpty,
+        );
+      } finally {
+        tracking.dispose();
+        nav.dispose();
+      }
+    },
+  );
 }
 
 Map<String, Object?> _native(
@@ -220,11 +281,17 @@ final class _Sensors implements SensorService {
   final commands = <String>[];
   Map? payload;
   String? report;
+  Map? query;
+  String? queryArgument;
 
   @override
   Future<void> command(String name, [String? argument]) async {
     commands.add(name);
     if (name == 'exportMovement') report = argument;
+    if (name == 'finishPedometerCapture') {
+      queryArgument = argument;
+      payload = {...?payload, 'captureQuery': query};
+    }
   }
 
   @override
