@@ -207,7 +207,12 @@ class MobileAstronautContent extends StatelessWidget {
           title: astronaut.id,
           children: [
             Text(astronaut.fullName, style: MissionTheme.display(22)),
-            DashboardReadout(label: 'Mission status', value: navigation.status),
+            DashboardReadout(
+              label: 'Mission status',
+              value: navigation.statusFor(
+                positionCertain: tracking.positionCertain,
+              ),
+            ),
             DashboardReadout(
               label: 'Simulated Mars',
               value: formatMarsPosition(tracking.pose.mars),
@@ -219,8 +224,9 @@ class MobileAstronautContent extends StatelessWidget {
             ),
             DashboardReadout(
               label: 'To base',
-              value: formatDemoDistance(
-                navigation.distanceTo(navigation.map.base),
+              value: formatNavigationDistance(
+                navigation.baseDistanceMeters,
+                live: navigation.live,
               ),
             ),
             DashboardReadout(
@@ -251,6 +257,10 @@ class MobileAstronautContent extends StatelessWidget {
           title: 'DEVICE SENSORS',
           icon: Icons.sensors,
           children: [
+            if (navigation.live)
+              const Text(
+                'Live Sensors uses precise location. Hold or carry the phone normally.',
+              ),
             for (final mode in TrackingMode.values)
               Semantics(
                 selected: tracking.mode == mode,

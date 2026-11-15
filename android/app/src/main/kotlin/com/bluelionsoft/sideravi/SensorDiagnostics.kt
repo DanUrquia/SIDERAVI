@@ -45,6 +45,7 @@ internal class SensorDiagnostics(private val activity: Activity) :
     private val stepSamples = mutableListOf<Map<String, Any>>()
     private var wantsMotion = false
     private var wantsLocation = false
+    private var gpsOnly = false
     private var wantsSteps = false
     private var foreground = false
     private var motionActive = false
@@ -72,9 +73,10 @@ internal class SensorDiagnostics(private val activity: Activity) :
                     orientations.clear()
                 }
                 if (call.method != "startMotion") {
+                    stopLocation()
                     wantsLocation = true
+                    gpsOnly = call.method == "startLocation"
                     wantsSteps = call.method == "startLocation"
-                    fixes.clear()
                 }
                 refresh()
                 if (call.method != "startMotion") requestLocationOrSteps()
@@ -198,8 +200,10 @@ internal class SensorDiagnostics(private val activity: Activity) :
             motionActive = sensors.registerListener(this, rotation, 100_000)
             if (motionActive && gyro != null) sensors.registerListener(this, gyro, 100_000)
         }
-        if (wantsLocation && !locationActive && locationGranted) {
-            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        if (wantsLocation && !locationActive && locationGranted &&
+            (!gpsOnly || granted(ACCESS_FINE_LOCATION))) {
+            val providers = if (gpsOnly) listOf(LocationManager.GPS_PROVIDER)
+                else listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             for (provider in providers) {
                 if (!location.allProviders.contains(provider)) continue
                 try {
@@ -292,9 +296,12 @@ internal class SensorDiagnostics(private val activity: Activity) :
 
     override fun onLocationChanged(fix: Location) {
         if (!foreground || !wantsLocation || !fix.hasAccuracy()) return
+        if (gpsOnly && fix.provider != LocationManager.GPS_PROVIDER) return
         val sample = mutableMapOf<String, Any>(
             "latitude" to fix.latitude, "longitude" to fix.longitude,
-            "accuracy" to fix.accuracy.toDouble(), "time" to fix.time / 1000.0,
+            "accuracy" to fix.accuracy.toDouble(),
+            "time" to if (gpsOnly) wallTime(fix.elapsedRealtimeNanos) else fix.time / 1000.0,
+            "provider" to (fix.provider ?: "unknown"),
             "received" to System.currentTimeMillis() / 1000.0, "callbackBatch" to ++batch,
             "simulatedBySoftware" to if (Build.VERSION.SDK_INT >= 31) fix.isMock
                 else @Suppress("DEPRECATION") fix.isFromMockProvider,
@@ -334,7 +341,8 @@ internal class SensorDiagnostics(private val activity: Activity) :
             "model" to Build.MODEL, "os" to "Android ${Build.VERSION.RELEASE}",
             "accelerometer" to (accelerometer != null), "gyro" to (gyro != null),
             "magnetometer" to (magnetometer != null), "motion" to (rotation != null),
-            "compass" to compassPossible, "services" to services,
+            "compass" to compassPossible,
+            "services" to (services && (!gpsOnly || location.isProviderEnabled(LocationManager.GPS_PROVIDER))),
             "authorization" to when {
                 locationGranted -> "Authorized"
                 prefs.getBoolean("askedLocation", false) -> "Denied"

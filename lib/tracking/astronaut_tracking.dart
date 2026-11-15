@@ -38,7 +38,8 @@ final class AstronautTracking extends ChangeNotifier {
   static const _interval = Duration(milliseconds: 100);
   final _movement = LiveMovement();
   late Offset _lastPosition;
-  late ({Offset? target, bool moving, bool paused, bool sos}) _lastRoute;
+  late ({Offset? target, bool moving, NavigationState state, bool sos})
+  _lastRoute;
   ConnectionStatus _connection = ConnectionStatus.offline;
   int _locationEpoch = 0;
   bool _restoreReviewed = false;
@@ -76,7 +77,10 @@ final class AstronautTracking extends ChangeNotifier {
   void restore(AstronautPose previous) {
     final before = pose.mars;
     final atInitialBase =
-        navigation.atBase && !_positionChanged && !navigation.moving;
+        mode == TrackingMode.demo &&
+        navigation.atBase &&
+        !_positionChanged &&
+        !navigation.guiding;
     final outcome = _restoreReviewed
         ? 'alreadyReviewed'
         : !atInitialBase
@@ -103,6 +107,7 @@ final class AstronautTracking extends ChangeNotifier {
   }
 
   bool get requiresRebaseline => _movement.requiresRebaseline;
+  bool get positionCertain => quality == PositionQuality.accepted;
 
   /// Allows the next fresh Earth fix to set a baseline without moving the marker.
   void rebaseline() {
@@ -386,23 +391,42 @@ final class AstronautTracking extends ChangeNotifier {
       _setQuality(PositionQuality.unavailable);
       return;
     }
+    if (authorization != 'Authorized') {
+      if (quality != PositionQuality.waiting &&
+          quality != PositionQuality.unavailable) {
+        _resetEarth('awaitingAuthorization');
+        _setQuality(PositionQuality.unavailable);
+      }
+      _recordRejected(batch, MovementReason.unavailable);
+      return;
+    }
     final samples = (batch['locations'] as List? ?? const []).whereType<Map>();
     final wasHeld = requiresRebaseline;
-    if (samples.isNotEmpty) {
-      _confirmed = false;
-      for (final sample in samples) {
-        final decision = _movement.observe(sample, now);
-        telemetry.observation(clock(), sample, decision);
-        final step = decision.step;
-        if (step == null) continue;
-        final displaced = displaceOnMars(pose.mars, step);
-        _confirmed = true;
-        // Publish the new pose with the matching quality in the same update.
-        _setQuality(PositionQuality.accepted);
-        navigation.setTrackedPosition(
-          coordinates.toGrid(displaced),
-          source: NavigationPositionSource.coreLocation,
+    for (final sample in samples) {
+      final decision = _movement.observe(sample, now);
+      telemetry.observation(clock(), sample, decision);
+      final fix = decision.fix;
+      final step = decision.step;
+      if (fix != null &&
+          (step != null || decision.reason == MovementReason.uncertain)) {
+        final measured = step == null
+            ? null
+            : coordinates.toGrid(displaceOnMars(pose.mars, step));
+        if (measured != null) {
+          // Publish the accepted movement with its matching pose quality.
+          _setQuality(PositionQuality.accepted);
+        }
+        _confirmed = navigation.observeLiveFix(
+          time: fix.time,
+          accuracy: fix.accuracy,
+          callback: finiteReading(sample, 'callbackBatch'),
+          measuredPosition: measured,
+          metersFromAnchor: step == null ? decision.distance! : 0,
         );
+      } else if (decision.reason != MovementReason.repeated &&
+          decision.reason != MovementReason.sameCallback) {
+        _confirmed = false;
+        navigation.clearLiveArrivalEvidence();
       }
     }
     final fresh = _movement.fresh(now);
@@ -430,10 +454,11 @@ final class AstronautTracking extends ChangeNotifier {
     }
   }
 
-  ({Offset? target, bool moving, bool paused, bool sos}) get _routeState => (
+  ({Offset? target, bool moving, NavigationState state, bool sos})
+  get _routeState => (
     target: navigation.target,
     moving: navigation.moving,
-    paused: navigation.paused,
+    state: navigation.state(),
     sos: navigation.sos,
   );
 
@@ -451,6 +476,8 @@ final class AstronautTracking extends ChangeNotifier {
         navigation.positionSource.name,
         coordinates.toMars(_lastPosition),
         coordinates.toMars(position),
+        remainingMeters: navigation.remainingMeters,
+        baseDistanceMeters: navigation.baseDistanceMeters,
       );
       _lastPosition = position;
     }
@@ -459,8 +486,11 @@ final class AstronautTracking extends ChangeNotifier {
       _lastRoute = route;
       telemetry.event(clock(), 'localNavigation', {
         'moving': route.moving,
-        'paused': route.paused,
+        'paused': navigation.paused,
         'sos': route.sos,
+        'state': route.state.name,
+        'remainingMeters': navigation.remainingMeters,
+        'baseDistanceMeters': navigation.baseDistanceMeters,
         'destination': route.target == null
             ? null
             : marsPosition(coordinates.toMars(route.target!)),
@@ -475,6 +505,7 @@ final class AstronautTracking extends ChangeNotifier {
     _locationEpoch++;
     _confirmed = false;
     _movement.reset(_seconds);
+    navigation.clearLiveArrivalEvidence();
     telemetry.event(clock(), 'earthWindowReset', {
       'reason': reason,
       'holdsPosition': requiresRebaseline,
@@ -508,6 +539,7 @@ final class AstronautTracking extends ChangeNotifier {
           await operation();
         } catch (_) {
           if (_active && !_disposed && mode == TrackingMode.live) {
+            _resetEarth('sensorError');
             _setQuality(PositionQuality.unavailable);
           }
         }

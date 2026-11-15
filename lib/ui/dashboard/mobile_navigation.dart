@@ -203,7 +203,7 @@ class _MobileNavigationState extends State<MobileNavigation>
         content: Text(
           widget.tracking.mode == TrackingMode.demo
               ? 'This replaces your current destination and begins the simulated return route.'
-              : 'This selects habitat base as your navigation destination.',
+              : 'Start direct guidance to Habitat Base using accepted location measurements.',
         ),
         actions: [
           TextButton(
@@ -217,10 +217,7 @@ class _MobileNavigationState extends State<MobileNavigation>
         ],
       ),
     );
-    if (!mounted ||
-        confirmed != true ||
-        widget.navigation.sos ||
-        widget.navigation.atBase) {
+    if (!mounted || confirmed != true || !widget.navigation.canReturnToBase) {
       return;
     }
     widget.onReturn();
@@ -440,13 +437,13 @@ class _MissionHeader extends StatelessWidget {
       ConnectionStatus.reconnecting => DashboardStyle.amber,
     };
     final live = tracking.mode == TrackingMode.live;
-    final status = navigation.sos || navigation.paused || !live
-        ? navigation.status
-        : tracking.quality.label;
-    final target = navigation.target;
+    final status = navigation.statusFor(
+      positionCertain: tracking.positionCertain,
+    );
+    final remaining = navigation.remainingMeters;
     final style = Theme.of(context).textTheme;
     final destinationStyle = style.bodySmall ?? const TextStyle(fontSize: 12);
-    final showTarget = target != null && !navigation.sos;
+    final showTarget = remaining != null && !navigation.sos;
     final strut = StrutStyle.fromTextStyle(
       destinationStyle,
       forceStrutHeight: true,
@@ -514,7 +511,8 @@ class _MissionHeader extends StatelessWidget {
                       ),
                       if (showTarget)
                         Text(
-                          ' · ${formatDemoDistance(navigation.distanceTo(target))}',
+                          ' · ${formatNavigationDistance(remaining, live: live)}'
+                          '${live && navigation.guiding ? ' left' : ''}',
                           style: destinationStyle.copyWith(
                             color: DashboardStyle.cyan,
                           ),
@@ -548,6 +546,14 @@ class _MissionHeader extends StatelessWidget {
                       style: style.labelSmall?.copyWith(color: connected),
                     ),
                   ],
+                ),
+                Text(
+                  tracking.mode.label,
+                  key: const ValueKey('mobile-movement-source'),
+                  style: MissionTheme.display(
+                    9,
+                    tracking: .35,
+                  ).copyWith(color: DashboardStyle.muted),
                 ),
               ],
             ),

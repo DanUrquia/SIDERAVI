@@ -4,7 +4,7 @@ import 'dart:ui';
 import '../sensors/earth_fix.dart';
 import 'tracking_geometry.dart';
 
-/// Explains what happened to one Core Location observation.
+/// Explains what happened to one native location observation.
 enum MovementReason {
   invalid('Invalid fix'),
   inactive('Tracking paused or inactive'),
@@ -36,6 +36,7 @@ final class MovementDecision {
     this.reason, {
     this.baseline,
     this.candidate,
+    this.fix,
     this.distance,
     this.uncertainty,
     this.estimatedSpeed,
@@ -45,6 +46,7 @@ final class MovementDecision {
   final MovementReason reason;
   final EarthFix? baseline;
   final EarthFix? candidate;
+  final EarthFix? fix;
   final double? distance;
   final double? uncertainty;
   final double? estimatedSpeed;
@@ -88,7 +90,7 @@ final class LiveMovement {
   bool fresh(double now) =>
       _latest != null && now - _latest!.time <= EarthFix.maximumAge;
 
-  /// Evaluates one fix using spatial continuity and corroborating Core Location data.
+  /// Evaluates one fix using spatial continuity and native course and speed.
   MovementDecision observe(Map sample, double now) {
     final fix = EarthFix.read(sample, now);
     final time = finiteReading(sample, 'time');
@@ -132,6 +134,7 @@ final class LiveMovement {
     MovementDecision decision(MovementReason reason, [Offset? step]) =>
         _decision(
           reason,
+          fix: fix,
           distance: distance,
           uncertainty: uncertainty,
           estimatedSpeed: estimatedSpeed,
@@ -253,6 +256,7 @@ final class LiveMovement {
 
   MovementDecision _decision(
     MovementReason reason, {
+    EarthFix? fix,
     double? distance,
     double? uncertainty,
     double? estimatedSpeed,
@@ -261,6 +265,7 @@ final class LiveMovement {
     reason,
     baseline: _anchor,
     candidate: _candidate,
+    fix: fix,
     distance: distance,
     uncertainty: uncertainty,
     estimatedSpeed: estimatedSpeed,

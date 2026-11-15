@@ -32,13 +32,29 @@ enum NavigationPositionSource {
   localNavigation,
 }
 
-/// Owns one mission's offline position, route, pings, and demonstration SOS.
+enum NavigationState {
+  noDestination,
+  destinationSelected,
+  navigatingToDestination,
+  navigatingToBase,
+  positionUncertain,
+  arrivedAtDestination,
+  arrivedAtBase,
+  paused,
+}
+
+/// Owns route guidance independently of the writer for the mission position.
 final class DemoNavigation extends ChangeNotifier {
   /// Initializes at the mission's configured astronaut position.
   DemoNavigation(this.map, {bool startAtBase = false})
     : _position = startAtBase ? map.base : map.start;
 
   final MissionMapConfig map;
+  static const returnThresholdMeters = 100.0;
+  static const _arrivalRadius = 12.0;
+  static const _arrivalMaxAccuracy = 6.0;
+  static const _arrivalMinimumSeconds = 2.0;
+  static const _arrivalMaximumSeconds = 8.0;
   final List<DemoPing> _pings = [];
   Offset _position;
   NavigationPositionSource _positionSource =
@@ -50,6 +66,9 @@ final class DemoNavigation extends ChangeNotifier {
   bool _paused = false;
   bool _sos = false;
   bool _acceptsDemoMovement = true;
+  bool _liveArrived = false;
+  int _liveArrivalCount = 0;
+  ({double time, double callback})? _arrivalCandidate;
 
   Offset get position => _position;
   NavigationPositionSource get positionSource => _positionSource;
@@ -59,32 +78,68 @@ final class DemoNavigation extends ChangeNotifier {
   bool get sos => _sos;
   double? get heading => _heading;
   List<DemoPing> get pings => List.unmodifiable(_pings);
+  bool get live => !_acceptsDemoMovement;
+  bool get guiding => _started;
   bool get moving => _acceptsDemoMovement && _started && !_paused && !_sos;
-  bool get arrived => _target != null && _position == _target;
+  bool get arrived =>
+      live ? _liveArrived : _target != null && _position == _target;
+  int get liveArrivalCount => _liveArrivalCount;
+  bool get targetsBase => _target == map.base;
+  Offset? get routeTarget => arrived ? null : _target;
+  double? get remainingMeters => _target == null ? null : distanceTo(_target!);
+  double get baseDistanceMeters => distanceTo(map.base);
   bool get canNavigate =>
-      _acceptsDemoMovement &&
-      _target != null &&
-      !arrived &&
-      !moving &&
-      !_paused &&
-      !_sos;
+      _target != null && !arrived && !_started && !_paused && !_sos;
+  bool get canReturnToBase =>
+      !_sos &&
+      !(_started && targetsBase) &&
+      baseDistanceMeters - returnThresholdMeters > .000001;
   bool get atBase => _position == map.base;
 
-  /// Describes the current route independently from the exploration status.
-  String get status {
-    if (_sos) return 'Demo SOS active';
-    if (_paused) return 'Paused';
-    if (moving) return 'Navigating';
-    if (arrived) return 'Arrived';
-    return _target == null ? 'Awaiting destination' : 'Destination selected';
-  }
+  NavigationState state({bool positionCertain = true}) =>
+      switch ((_paused, arrived, _started, _target)) {
+        (true, _, _, _) => NavigationState.paused,
+        (_, true, _, _) =>
+          targetsBase
+              ? NavigationState.arrivedAtBase
+              : NavigationState.arrivedAtDestination,
+        (_, _, _, _) when live && !positionCertain =>
+          NavigationState.positionUncertain,
+        (_, _, true, _) =>
+          targetsBase
+              ? NavigationState.navigatingToBase
+              : NavigationState.navigatingToDestination,
+        (_, _, _, null) => NavigationState.noDestination,
+        _ => NavigationState.destinationSelected,
+      };
+
+  String get status => statusFor();
+
+  String statusFor({bool positionCertain = true}) => _sos
+      ? 'Demo SOS active'
+      : switch (state(positionCertain: positionCertain)) {
+          NavigationState.noDestination => 'Awaiting destination',
+          NavigationState.destinationSelected => 'Destination selected',
+          NavigationState.navigatingToDestination => 'Navigating',
+          NavigationState.navigatingToBase =>
+            live ? 'Navigating to base' : 'Navigating',
+          NavigationState.positionUncertain =>
+            guiding
+                ? 'Position uncertain · Paused'
+                : 'Live Sensors · Position uncertain',
+          NavigationState.arrivedAtDestination =>
+            live ? 'Arrived at destination' : 'Arrived',
+          NavigationState.arrivedAtBase =>
+            live ? 'Arrived at Habitat Base' : 'Arrived',
+          NavigationState.paused => 'Paused',
+        };
 
   /// Calculates the straight-line surface distance on the Mars sphere.
   double distanceTo(Offset point) => map.coordinates.distance(position, point);
 
   /// Selects a valid destination and stops the previous route.
   bool select(Offset point, String label) {
-    if (_sos || !map.contains(point)) return false;
+    if (_sos || !point.isFinite || !map.contains(point)) return false;
     _setTarget(point, label);
     notifyListeners();
     return true;
@@ -93,6 +148,8 @@ final class DemoNavigation extends ChangeNotifier {
   /// Updates the bearing clockwise from demo north whenever a target changes.
   void _setTarget(Offset point, String label) {
     _started = false;
+    _liveArrived = false;
+    clearLiveArrivalEvidence();
     _target = point;
     _targetLabel = label;
     final delta = point - position;
@@ -101,7 +158,7 @@ final class DemoNavigation extends ChangeNotifier {
     }
   }
 
-  /// Starts a selected route, snapping to its destination with reduced motion.
+  /// Starts guidance or the explicitly selected demo animation.
   void start({bool instant = false}) {
     if (!canNavigate) return;
     _startRoute(instant);
@@ -113,6 +170,8 @@ final class DemoNavigation extends ChangeNotifier {
     if (_acceptsDemoMovement == enabled) return;
     _acceptsDemoMovement = enabled;
     _started = false;
+    _liveArrived = false;
+    clearLiveArrivalEvidence();
     notifyListeners();
   }
 
@@ -121,24 +180,73 @@ final class DemoNavigation extends ChangeNotifier {
     Offset point, {
     NavigationPositionSource source = NavigationPositionSource.localNavigation,
   }) {
+    if (live && source == NavigationPositionSource.firebaseRestore) return;
     if (_position == point) return;
     _updatePosition(point, source);
-    _started = false;
+    clearLiveArrivalEvidence();
+    if (!live) _started = false;
     notifyListeners();
   }
 
+  /// Consumes one validated foreground fix from the physical movement guard.
+  /// A close follow-up fix can confirm arrival without changing position.
+  bool observeLiveFix({
+    required double time,
+    required double accuracy,
+    required double? callback,
+    Offset? measuredPosition,
+    double metersFromAnchor = 0,
+  }) {
+    if (!live || paused || sos) return false;
+    if (measuredPosition != null) {
+      _updatePosition(measuredPosition, NavigationPositionSource.coreLocation);
+    }
+    final remaining = remainingMeters;
+    final withinTolerance =
+        _started &&
+        remaining != null &&
+        callback != null &&
+        accuracy <= _arrivalMaxAccuracy &&
+        remaining + accuracy + metersFromAnchor <= _arrivalRadius;
+    final candidate = _arrivalCandidate;
+    bool reliableNearTarget = false;
+    if (!withinTolerance) {
+      clearLiveArrivalEvidence();
+    } else if (candidate == null ||
+        time - candidate.time > _arrivalMaximumSeconds) {
+      clearLiveArrivalEvidence();
+      if (measuredPosition != null) {
+        _arrivalCandidate = (time: time, callback: callback);
+      }
+    } else {
+      reliableNearTarget = true;
+      if (time - candidate.time >= _arrivalMinimumSeconds &&
+          callback != candidate.callback) {
+        _liveArrived = true;
+        _liveArrivalCount++;
+        _started = false;
+        clearLiveArrivalEvidence();
+        if (measuredPosition == null) notifyListeners();
+      }
+    }
+    if (measuredPosition != null) notifyListeners();
+    return reliableNearTarget || measuredPosition != null;
+  }
+
+  void clearLiveArrivalEvidence() => _arrivalCandidate = null;
+
   /// Selects base and starts a fresh return route.
   void returnToBase({bool instant = false}) {
-    if (_sos) return;
+    if (_sos || (live && !canReturnToBase)) return;
     if (_acceptsDemoMovement) _paused = false;
     _setTarget(map.base, 'Habitat base');
-    if (_acceptsDemoMovement) _startRoute(instant);
+    _startRoute(instant);
     notifyListeners();
   }
 
   /// Applies the motion preference when starting a leg.
   void _startRoute(bool instant) {
-    if (instant) {
+    if (!live && instant) {
       _updatePosition(_target!, NavigationPositionSource.demoMovement);
     }
     _started = !arrived;
@@ -148,6 +256,7 @@ final class DemoNavigation extends ChangeNotifier {
   void togglePause() {
     if (_sos) return;
     _paused = !_paused;
+    clearLiveArrivalEvidence();
     notifyListeners();
   }
 
@@ -193,6 +302,7 @@ final class DemoNavigation extends ChangeNotifier {
     if (_sos) return;
     _paused = true;
     _sos = true;
+    clearLiveArrivalEvidence();
     notifyListeners();
   }
 
@@ -210,3 +320,6 @@ String formatDemoDistance(double meters) {
   if (rounded >= 1000) return '${(rounded / 1000).toStringAsFixed(2)} km';
   return '$rounded m';
 }
+
+String formatNavigationDistance(double meters, {required bool live}) =>
+    live && meters < 1000 ? '${meters.round()} m' : formatDemoDistance(meters);

@@ -858,6 +858,99 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Live route paint stays anchored and arrival is announced once', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      sensorDiagnosticsChannel,
+      (call) async => call.method == 'snapshot' ? <String, Object?>{} : null,
+    );
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    const size = Size(390, 844);
+    final map = await _launch(tester, size: size);
+    final nav = map.navigation;
+    final header = find.byKey(const ValueKey('mobile-mission-header'));
+    final headerRect = tester.getRect(header);
+    final routeOverlay = find.byKey(const ValueKey('mission-route-overlay'));
+    final world = missionWorld(size);
+    final start = find.byTooltip('Start Navigation');
+    final coordinates = nav.map.coordinates;
+    Offset east(double meters) => coordinates.toGrid(
+      displaceOnMars(coordinates.toMars(nav.map.base), Offset(meters, 0)),
+    );
+    await map.tracking.selectMode(TrackingMode.live);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('mobile-movement-source')))
+          .data,
+      'LIVE SENSORS',
+    );
+    final destination = east(25);
+    nav.select(destination, 'Map waypoint');
+    await tester.pumpAndSettle();
+    expect(find.text('Direct guidance · Terrain unverified'), findsOneWidget);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    expect(nav.position, nav.map.base);
+    expect(tester.getRect(header), headerRect);
+    expect(find.text('Position uncertain · Paused'), findsOneWidget);
+    final from = world.topLeft + nav.map.base * world.width;
+    final to = world.topLeft + destination * world.width;
+    List<List<dynamic>> segments() {
+      final canvas = TestRecordingCanvas();
+      tester.widget<CustomPaint>(routeOverlay).painter!.paint(canvas, size);
+      return [
+        for (final call in canvas.invocations.map(
+          (record) => record.invocation,
+        ))
+          if (call.memberName == #drawLine &&
+              (call.positionalArguments.last as Paint).color.toARGB32() ==
+                  DashboardStyle.warm.toARGB32())
+            call.positionalArguments,
+      ];
+    }
+
+    expect(segments().first.first, from);
+    expect(segments().last[1], to);
+    await tester.tap(find.text('Fit area · 500 m radius'));
+    await tester.pumpAndSettle();
+    await tester.dragFrom(const Offset(155, 375), const Offset(-30, 55));
+    await tester.pumpAndSettle();
+    final afterPan = Matrix4.copy(map.view.value);
+    expect(segments().first.first, from);
+    expect(segments().last[1], to);
+    final arrivalPosition = east(20);
+    nav.observeLiveFix(
+      time: 1,
+      accuracy: 2,
+      callback: 1,
+      measuredPosition: arrivalPosition,
+    );
+    await tester.pumpAndSettle();
+    final current = world.topLeft + arrivalPosition * world.width;
+    expect(segments().first.first, current);
+    expect(segments().last[1], to);
+    nav.observeLiveFix(time: 3, accuracy: 2, callback: 3);
+    await tester.pumpAndSettle();
+    expect(find.text('You have arrived at your destination.'), findsOneWidget);
+    expect(nav.position, arrivalPosition);
+    expect(nav.target, destination);
+    expect(segments(), isEmpty);
+    expect(map.view.value, afterPan);
+    expect(tester.getRect(header), headerRect);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    nav.observeLiveFix(time: 6, accuracy: 2, callback: 6);
+    await tester.pumpAndSettle();
+    expect(find.text('You have arrived at your destination.'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Gale phone keeps the shared marker clear of the base label', (
     tester,
   ) async {

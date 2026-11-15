@@ -195,6 +195,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                       fit: StackFit.expand,
                       children: [
                         CustomPaint(
+                          key: const ValueKey('mission-route-overlay'),
                           painter: _DemoGrid(
                             world: world,
                             navigation: navigation,
@@ -426,6 +427,11 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
               },
             ),
             _MarsScaleBar(scene: scene, view: view),
+            if (compact && navigation.routeTarget != null)
+              const Text(
+                'Direct guidance · Terrain unverified',
+                style: TextStyle(fontSize: 11, color: DashboardStyle.warm),
+              ),
             Text(
               attribution,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -647,7 +653,7 @@ class _DemoGrid extends CustomPainter {
     required this.view,
   }) : boundary = navigation.map.boundary,
        position = navigation.position,
-       target = navigation.target,
+       target = navigation.routeTarget,
        emergency = navigation.sos,
        super(repaint: view);
 
@@ -693,12 +699,15 @@ class _DemoGrid extends CustomPainter {
         ..strokeWidth = 3 / scale;
       if (length > 0) {
         final unit = vector / length;
-        final stride = math.max(16 / scale, length / 300);
-        for (double segment = 0; segment < length; segment += stride) {
+        const duty = 9 / 16;
+        final count = (length * scale / 16).ceil().clamp(1, 300);
+        final stride = length / ((count - 1) + duty);
+        for (var index = 0; index < count; index++) {
           canvas.drawLine(
-            from + unit * segment,
-            from +
-                unit * (segment + stride * 9 / 16).clamp(0, length).toDouble(),
+            from + unit * (stride * index),
+            index == count - 1
+                ? _project(world, destination)
+                : from + unit * (stride * (index + duty)),
             line,
           );
         }

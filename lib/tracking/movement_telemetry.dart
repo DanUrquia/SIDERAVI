@@ -100,6 +100,7 @@ final class MovementTelemetry extends ChangeNotifier {
         ])
           if (sample[key] is bool || finiteReading(sample, key) != null)
             key: sample[key],
+        if (sample['provider'] is String) 'provider': sample['provider'],
       },
       'baseline': _earthFix(decision.baseline),
       'candidate': _earthFix(decision.candidate),
@@ -134,13 +135,22 @@ final class MovementTelemetry extends ChangeNotifier {
   });
 
   /// Records each local pose change with its specific writer.
-  void position(DateTime time, String source, Offset before, Offset after) {
+  void position(
+    DateTime time,
+    String source,
+    Offset before,
+    Offset after, {
+    required double? remainingMeters,
+    required double baseDistanceMeters,
+  }) {
     if (!recording) return;
     lastPositionSource = source;
     event(time, 'positionChanged', {
       'source': source,
       'before': marsPosition(before),
       'after': marsPosition(after),
+      'remainingMeters': remainingMeters,
+      'baseDistanceMeters': baseDistanceMeters,
     });
   }
 

@@ -79,7 +79,7 @@ class NavigationPanel extends StatelessWidget {
     final target = navigation.target;
     final live = tracking.mode == TrackingMode.live;
     String distance(Offset point) =>
-        formatDemoDistance(navigation.distanceTo(point));
+        formatNavigationDistance(navigation.distanceTo(point), live: live);
     final start = DashboardButton(
       label: 'START NAVIGATION',
       icon: Icons.navigation_outlined,
@@ -89,7 +89,12 @@ class NavigationPanel extends StatelessWidget {
     final base = DashboardButton(
       label: 'RETURN TO BASE',
       icon: Icons.home_outlined,
-      onPressed: navigation.sos || navigation.atBase ? null : onReturn,
+      onPressed:
+          (live
+              ? navigation.canReturnToBase
+              : !navigation.sos && !navigation.atBase)
+          ? onReturn
+          : null,
     );
     return DashboardPanel(
       title: 'NAVIGATION',
@@ -108,14 +113,14 @@ class NavigationPanel extends StatelessWidget {
           value: distance(navigation.map.base),
         ),
         Text(
-          live && !navigation.paused
-              ? tracking.quality.label
-              : navigation.status,
+          navigation.statusFor(positionCertain: tracking.positionCertain),
           style: const TextStyle(
             color: DashboardStyle.warm,
             fontWeight: FontWeight.w700,
           ),
         ),
+        if (live && navigation.routeTarget != null)
+          const Text('Direct guidance · Terrain unverified'),
         const SizedBox(height: 2),
         LayoutBuilder(
           builder: (context, constraints) {

@@ -255,6 +255,12 @@ void main() {
         await tracking.selectMode(TrackingMode.live);
         expect(sensors.commands.last, 'startLocation');
         expect(nav.moving, isFalse);
+        expect(nav.guiding, isFalse);
+        expect(nav.canNavigate, isTrue);
+        nav.start(instant: true);
+        expect(nav.guiding, isTrue);
+        expect(nav.moving, isFalse);
+        expect(nav.position, nav.map.base);
         expect(nav.canNavigate, isFalse);
         now = now.add(const Duration(seconds: 10));
         sensors.locations.addAll([_meters(0, 101), _meters(4, 103)]);
@@ -281,6 +287,7 @@ void main() {
         );
         expect(nav.positionSource, NavigationPositionSource.coreLocation);
         expect(publishedQuality, PositionQuality.accepted);
+        expect(nav.guiding, isTrue);
         final position = nav.position;
         sensors.locations.add(_meters(34, 119, walking: true));
         await _tick(tester);
@@ -297,6 +304,245 @@ void main() {
           'startMotion',
         ]);
         expect(nav.position, position);
+      } finally {
+        tracking.dispose();
+        nav.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'Live navigation uses current measured distance in both directions and returns only beyond 100 m',
+    (tester) async {
+      final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true)
+        ..enableDemoMovement(false);
+      addTearDown(nav.dispose);
+      Offset east(double meters) => nav.map.coordinates.toGrid(
+        displaceOnMars(
+          nav.map.coordinates.toMars(nav.map.base),
+          Offset(meters, 0),
+        ),
+      );
+      void fix(double meters, double time) => nav.observeLiveFix(
+        time: time,
+        accuracy: 3,
+        callback: time,
+        measuredPosition: east(meters),
+      );
+
+      final arbitrary = east(175.3);
+      expect(nav.select(arbitrary, 'Map waypoint'), isTrue);
+      expect(nav.target, arbitrary);
+      expect(nav.select(east(501), 'Outside mission'), isFalse);
+      expect(nav.target, arbitrary);
+      expect(nav.remainingMeters, closeTo(175.3, .001));
+      expect(nav.canReturnToBase, isFalse);
+      nav.returnToBase(instant: true);
+      expect(nav.target, arbitrary);
+      nav.start(instant: true);
+      expect(
+        nav.state(positionCertain: false),
+        NavigationState.positionUncertain,
+      );
+      nav.advance(const Duration(minutes: 1));
+      expect(nav.position, nav.map.base);
+      expect(nav.canNavigate, isFalse);
+
+      fix(100, 2);
+      expect(nav.remainingMeters, closeTo(75.3, .001));
+      expect(nav.canReturnToBase, isFalse);
+      fix(101, 3);
+      expect(nav.canReturnToBase, isTrue);
+      fix(105, 4);
+      final nearer = nav.remainingMeters!;
+      fix(102, 5);
+      expect(nav.remainingMeters, greaterThan(nearer));
+      final beforeReturn = nav.position;
+      nav.returnToBase(instant: true);
+      nav.advance(const Duration(minutes: 1));
+      expect(nav.position, beforeReturn);
+      expect(nav.state(), NavigationState.navigatingToBase);
+      expect(nav.remainingMeters, closeTo(102, .001));
+      expect(nav.canReturnToBase, isFalse);
+
+      fix(113, 6);
+      expect(nav.remainingMeters, closeTo(113, .001));
+      fix(7, 9);
+      final withinBase = nav.position;
+      expect(nav.arrived, isFalse);
+      nav.observeLiveFix(time: 12, accuracy: 3, callback: 9);
+      expect(nav.arrived, isFalse);
+      nav.observeLiveFix(time: 13, accuracy: 3, callback: 13);
+      expect(nav.state(), NavigationState.arrivedAtBase);
+      expect(nav.position, withinBase);
+      expect(nav.routeTarget, isNull);
+      expect(nav.liveArrivalCount, 1);
+      nav.observeLiveFix(time: 14, accuracy: 3, callback: 14);
+      expect(nav.liveArrivalCount, 1);
+    },
+  );
+
+  testWidgets(
+    'Location guard confirms destination from distinct fixes and publishes only the measured Mars pose',
+    (tester) async {
+      final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
+      final sensors = _Sensors();
+      var now = DateTime.fromMillisecondsSinceEpoch(100000);
+      final coordinates = nav.map.coordinates;
+      final tracking = AstronautTracking(
+        navigation: nav,
+        coordinates: coordinates,
+        sensors: sensors,
+        clock: () => now,
+      );
+      final connection = _Connection();
+      final presence = MissionPresence(
+        key: (
+          mission: 'jezero',
+          session: 'field-test-01',
+          astronaut: 'ARES-01',
+        ),
+        pose: () => tracking.pose,
+        restore: tracking.restore,
+        clock: () => now,
+      );
+      nav.addListener(presence.pulse);
+      Future<void> fix(
+        double meters,
+        double time, {
+        bool walking = false,
+        int? batch,
+      }) async {
+        now = DateTime.fromMillisecondsSinceEpoch((time * 1000).round());
+        sensors.locations.add(
+          _meters(meters, time, accuracy: 2, walking: walking, batch: batch),
+        );
+        await _tick(tester);
+      }
+
+      try {
+        await tracking.resume();
+        await tracking.selectMode(TrackingMode.live);
+        presence.open((_) async => connection);
+        await tester.pump();
+        connection.data.add({
+          'ARES-01': (pose: _pose(), updated: now, online: true),
+        });
+        await tester.pump();
+        expect(nav.position, nav.map.base);
+        final target = coordinates.toGrid(
+          displaceOnMars(coordinates.toMars(nav.map.base), const Offset(25, 0)),
+        );
+        nav.select(target, 'Map waypoint');
+        nav.start(instant: true);
+        await fix(0, 101);
+        await fix(1, 106);
+        expect(nav.remainingMeters, closeTo(25, .001));
+        expect(
+          nav.state(positionCertain: tracking.positionCertain),
+          NavigationState.positionUncertain,
+        );
+        expect(nav.liveArrivalCount, 0);
+        await fix(10, 111, walking: true);
+        await fix(17, 117, walking: true);
+        await fix(24, 123, walking: true);
+        expect(nav.remainingMeters, closeTo(5, .01));
+        expect(nav.arrived, isFalse);
+        final measuredPosition = nav.position;
+        expect(connection.writes.last.pose.mars, tracking.pose.mars);
+        expect(connection.writes.last.pose.quality, PositionQuality.accepted);
+        expect(
+          connection.writes.last.pose.mars,
+          isNot(coordinates.toMars(target)),
+        );
+        await fix(24, 124);
+        await fix(24, 125, batch: 123);
+        expect(nav.arrived, isFalse);
+        await fix(24, 126);
+        expect(nav.state(), NavigationState.arrivedAtDestination);
+        expect(nav.position, measuredPosition);
+        expect(nav.target, target);
+        expect(nav.routeTarget, isNull);
+        expect(nav.guiding, isFalse);
+        expect(nav.liveArrivalCount, 1);
+        await fix(24, 127);
+        expect(nav.position, measuredPosition);
+        expect(nav.liveArrivalCount, 1);
+      } finally {
+        nav.removeListener(presence.pulse);
+        presence.dispose();
+        tracking.dispose();
+        nav.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'Pause, foreground restart and GPS discontinuity invalidate arrival evidence',
+    (tester) async {
+      final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
+      final sensors = _Sensors();
+      var now = DateTime.fromMillisecondsSinceEpoch(100000);
+      final tracking = AstronautTracking(
+        navigation: nav,
+        coordinates: nav.map.coordinates,
+        sensors: sensors,
+        clock: () => now,
+      );
+      Future<void> fixes(double time, List<Sample> locations) async {
+        now = DateTime.fromMillisecondsSinceEpoch((time * 1000).round());
+        sensors.locations.addAll(locations);
+        await _tick(tester);
+      }
+
+      try {
+        await tracking.resume();
+        await tracking.selectMode(TrackingMode.live);
+        final coordinates = nav.map.coordinates;
+        nav.select(
+          coordinates.toGrid(
+            displaceOnMars(
+              coordinates.toMars(nav.position),
+              const Offset(25, 0),
+            ),
+          ),
+          'Waypoint',
+        );
+        nav.start();
+        await fixes(101, [_meters(0, 101, accuracy: 2)]);
+        for (final (meters, time) in [
+          (10.0, 111.0),
+          (17.0, 117.0),
+          (24.0, 123.0),
+        ]) {
+          await fixes(time, [
+            _meters(meters, time, accuracy: 2, walking: true),
+          ]);
+        }
+        expect(nav.remainingMeters, closeTo(5, .01));
+        final measured = nav.position;
+        nav.togglePause();
+        await fixes(126, [_meters(24, 126, accuracy: 2)]);
+        expect(nav.state(), NavigationState.paused);
+        expect(nav.position, measured);
+        nav.togglePause();
+        await tracking.suspend();
+        await tracking.resume();
+        await fixes(129, [
+          _meters(24, 125, accuracy: 2),
+          _meters(24, 129, accuracy: 2),
+        ]);
+        expect(nav.guiding, isTrue);
+        expect(nav.arrived, isFalse);
+        expect(nav.position, measured);
+        await fixes(135, [_meters(100, 135, accuracy: 2, walking: true)]);
+        expect(tracking.requiresRebaseline, isTrue);
+        expect(
+          nav.state(positionCertain: tracking.positionCertain),
+          NavigationState.positionUncertain,
+        );
+        expect(nav.liveArrivalCount, 0);
+        expect(nav.position, measured);
       } finally {
         tracking.dispose();
         nav.dispose();

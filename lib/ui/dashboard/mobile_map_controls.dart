@@ -56,7 +56,7 @@ class MobileMapControls extends StatelessWidget {
                 'Return to Base',
                 Icons.home_rounded,
                 diameter,
-                navigation.sos || navigation.atBase ? null : onReturn,
+                navigation.canReturnToBase ? onReturn : null,
               ),
               _button(
                 'ping',

@@ -60,6 +60,7 @@ class _MissionDashboardState extends State<MissionDashboard>
   bool _showingDiagnostics = false;
   bool _foreground = true;
   Duration _lastFrame = Duration.zero;
+  int _announcedArrivals = 0;
 
   @override
   void initState() {
@@ -86,6 +87,7 @@ class _MissionDashboardState extends State<MissionDashboard>
       restore: _tracking.restore,
     );
     _navigation.addListener(_presence.pulse);
+    _navigation.addListener(_announceArrival);
     _presence.addListener(_noteConnection);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_tracking.resume());
@@ -93,6 +95,17 @@ class _MissionDashboardState extends State<MissionDashboard>
 
   /// Records connection transitions alongside local movement diagnostics.
   void _noteConnection() => _tracking.noteConnection(_presence.status);
+
+  void _announceArrival() {
+    final count = _navigation.liveArrivalCount;
+    if (count == _announcedArrivals) return;
+    _announcedArrivals = count;
+    _notify(
+      _navigation.targetsBase
+          ? 'You have arrived at Habitat Base.'
+          : 'You have arrived at your destination.',
+    );
+  }
 
   /// Runs the ticker only while a route is actively moving.
   void _syncMovement() {
@@ -227,6 +240,7 @@ class _MissionDashboardState extends State<MissionDashboard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _navigation.removeListener(_presence.pulse);
+    _navigation.removeListener(_announceArrival);
     _presence.removeListener(_noteConnection);
     _presence.dispose();
     _tracking.dispose();
