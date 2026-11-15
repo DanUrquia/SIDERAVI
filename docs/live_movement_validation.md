@@ -40,6 +40,8 @@ The native bridge reports Core Motion and accelerometer availability, compass ca
 
 The signed Phase 5D release containing the existing Jezero Firebase configuration installed and launched on both target iPads. The 202 m replay, mode switch, restoration, reconnection, and diagnostic export have automated coverage.
 
+In the stationary spot check, both astronaut markers stayed at Habitat Base and displayed **Position Uncertain** in screenshots taken about 85 seconds apart. Each Movement Log showed an Earth baseline with no further fix or position-change event observable during the check. This verifies that the markers held across the observed interval. It does not measure rejection of ongoing physical location drift. Both devices reported Core Motion, accelerometer, compass, step counting, and pedometer distance as available. Pedometer collection and measured walking were outside this check.
+
 Use the same route and conditions on both iPads. Record tape-measured or independently surveyed distance separately from the greatest reported Earth displacement and the sum of applied Mars steps. Mark the test start and stop times separately. For each trial record accuracy, speed/course availability, uncertainty, the number of accepted steps, and any hold.
 
 | Trial | Procedure | What to check |
