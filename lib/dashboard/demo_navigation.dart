@@ -29,6 +29,7 @@ enum NavigationPositionSource {
   pedestrianDeadReckoning,
   demoMovement,
   firebaseRestore,
+  localPositionRestore,
   localNavigation,
 }
 
@@ -173,8 +174,13 @@ final class DemoNavigation extends ChangeNotifier {
   void setTrackedPosition(
     Offset point, {
     NavigationPositionSource source = NavigationPositionSource.localNavigation,
+    bool allowLiveRestore = false,
   }) {
-    if (live && source == NavigationPositionSource.firebaseRestore) return;
+    if (live &&
+        source == NavigationPositionSource.firebaseRestore &&
+        !allowLiveRestore) {
+      return;
+    }
     if (_position == point) return;
     _updatePosition(point, source);
     if (!live) _started = false;

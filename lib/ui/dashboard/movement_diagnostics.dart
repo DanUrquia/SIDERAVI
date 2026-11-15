@@ -80,7 +80,8 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   'A capture can contain precise Earth coordinates. It stays on '
                   'this device until you export it.',
                 ),
-                Text('${tracking.mode.label} · ${tracking.quality.label}'),
+                if (!tracking.automaticPhysical)
+                  Text('${tracking.mode.label} · ${tracking.quality.label}'),
                 Text(
                   log.recording
                       ? 'Recording · ${log.count} events'
@@ -103,7 +104,7 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   Text('Detected steps · ${tracking.measuredSteps ?? 0}'),
                   Text('Steps applied to position · ${tracking.appliedSteps}'),
                   Text(
-                    'Walking direction · ${tracking.hasWalkingCalibration ? 'Calibrated during this visit' : 'Awaiting confirmation'}',
+                    'Walking direction · ${tracking.hasWalkingCalibration ? 'Calibrated during this visit' : 'Waiting for a reference'}',
                   ),
                   if (tracking.lastUnappliedSteps case final reason?)
                     Text('Last unapplied steps · $reason'),
@@ -117,7 +118,8 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   ),
                 ],
                 _PedometerReadout(pedometer),
-                if (tracking.mode == TrackingMode.demo)
+                if (!tracking.automaticPhysical &&
+                    tracking.mode == TrackingMode.demo)
                   DashboardButton(
                     label: 'ENABLE LIVE SENSORS',
                     icon: Icons.sensors,

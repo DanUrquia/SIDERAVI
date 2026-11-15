@@ -1,5 +1,7 @@
 # Phase 6A smartphone navigation
 
+This record describes the Phase 6A UI and device checks. For current automatic iPhone tracking and the walking procedure, see [Phase 6B.3](real_navigation_validation.md).
+
 Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The wider landscape iPad layout still uses the map, sidebar and action row.
 
 ## Map controls and telemetry

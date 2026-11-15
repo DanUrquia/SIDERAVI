@@ -3,36 +3,63 @@ import 'package:flutter/material.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/step_navigation.dart';
 
+enum _WalkingReference { mapNorth, destination }
+
 Future<void> confirmWalkingDirection(
   BuildContext context,
   AstronautTracking tracking,
 ) async {
   final destination = tracking.navigation.target;
-  if (destination == null) return;
-  final label = tracking.navigation.targetLabel;
-  final confirmed = await showDialog<bool>(
+  final canAlignToTarget =
+      destination != null && destination != tracking.navigation.position;
+  final canAlignToNorth = tracking.automaticPhysical;
+  if (!canAlignToNorth && !canAlignToTarget) return;
+  final label = tracking.navigation.targetLabel ?? 'your destination';
+  final alignment = switch ((canAlignToNorth, canAlignToTarget)) {
+    (true, true) =>
+      'Choose whether to align that direction with local map north or $label.',
+    (true, false) => 'Use that direction as local map north.',
+    _ => 'Confirm to align that direction with $label.',
+  };
+  final confirmLabel = switch ((canAlignToNorth, canAlignToTarget)) {
+    (true, true) => 'Align to destination',
+    (true, false) => 'Use map north',
+    _ => 'Calibrate',
+  };
+  final reference = await showDialog<_WalkingReference>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('Calibrate walking direction'),
       content: Text(
         'Tilt the screen up and point the phone’s top edge in the direction you intend to walk. '
-        'Confirm to align that direction with ${label ?? 'your destination'}. '
-        'Keep the phone aligned as you walk. Calibrate again if you change how you hold it.',
+        '$alignment Keep the phone aligned as you walk.',
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
+        if (canAlignToNorth && canAlignToTarget)
+          TextButton(
+            onPressed: () => Navigator.pop(context, _WalkingReference.mapNorth),
+            child: const Text('Use map north'),
+          ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Calibrate'),
+          onPressed: () => Navigator.pop(
+            context,
+            canAlignToTarget
+                ? _WalkingReference.destination
+                : _WalkingReference.mapNorth,
+          ),
+          child: Text(confirmLabel),
         ),
       ],
     ),
   );
-  if (!context.mounted || confirmed != true) return;
-  final calibrated = await tracking.calibrateWalkingDirection(destination);
+  if (!context.mounted || reference == null) return;
+  final calibrated = await tracking.calibrateWalkingDirection(
+    reference == _WalkingReference.destination ? destination : null,
+  );
   if (context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

@@ -138,7 +138,6 @@ private final class DiagnosticMotion {
   private let manager = CMMotionManager()
   private var samples: [[String: Any]] = []
   private var presentation: UIInterfaceOrientation = .unknown
-  private var bootEpoch = 0.0
   private var wantsHeading = false
   private var lastHeadingTime: Double?
   private var generation = 0
@@ -211,7 +210,6 @@ private final class DiagnosticMotion {
     guard !manager.isDeviceMotionActive else { return }
     generation += 1
     let current = generation
-    bootEpoch = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
     manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] sample, error in
       guard let self, self.generation == current else { return }
       if let sample { self.record(sample) }
@@ -257,10 +255,14 @@ private final class DiagnosticMotion {
     ) else { return }
     let degrees = 180 / Double.pi
     let rate = motion.rotationRate
-    let sampleTime = bootEpoch + motion.timestamp
+    let received = Date().timeIntervalSince1970
+    let uptime = ProcessInfo.processInfo.systemUptime
+    guard let sampleTime = MotionSampleClock.epochTime(
+      sampleUptime: motion.timestamp, receivedUptime: uptime, receivedEpoch: received
+    ) else { return }
     var sample: [String: Any] = [
       "time": sampleTime,
-      "received": Date().timeIntervalSince1970,
+      "received": received,
       "frame": screen.frame,
       "pitch": motion.attitude.pitch * degrees,
       "roll": motion.attitude.roll * degrees,
@@ -376,6 +378,50 @@ enum ScreenTopAttitude {
   }
 }
 
+/// Maps monotonic Core Motion timestamps to the same clock as pedometer intervals.
+enum MotionSampleClock {
+  static func epochTime(
+    sampleUptime: TimeInterval, receivedUptime: TimeInterval, receivedEpoch: TimeInterval
+  ) -> TimeInterval? {
+    let age = receivedUptime - sampleUptime
+    guard sampleUptime >= 0, age.isFinite, receivedEpoch.isFinite,
+          age >= -0.1 else { return nil }
+    return receivedEpoch - max(0, age)
+  }
+}
+
+/// A single requested Core Motion interval shared by live and fallback query results.
+struct ForegroundPedometerWindow {
+  let start: Date
+  private(set) var steps = 0
+  private var end: Date?
+
+  init(start: Date) {
+    self.start = start
+  }
+
+  /// Keeps the actual calibration time even when Flutter's command reaches iOS later.
+  static func restartDate(_ argument: Any?, now: Date) -> Date? {
+    guard let argument else { return now }
+    guard let text = argument as? String, let seconds = Double(text), seconds.isFinite else {
+      return nil
+    }
+    let date = Date(timeIntervalSince1970: seconds)
+    return (0...10).contains(now.timeIntervalSince(date)) ? date : nil
+  }
+
+  mutating func accept(reportedStart: Date, end: Date, steps: Int, received: Date) -> Bool {
+    // Core Motion can round the returned start. The request still uses the exact window boundary.
+    guard reportedStart.timeIntervalSince(start) >= -1,
+          end >= reportedStart, end >= start, end.timeIntervalSince(received) <= 1,
+          steps >= self.steps else { return false }
+    if let previous = self.end, end < previous || steps == self.steps { return false }
+    self.end = end
+    self.steps = steps
+    return true
+  }
+}
+
 /// Captures cumulative CMPedometer data for one foreground measurement window.
 private final class DiagnosticPedometer {
   private let pedometer = CMPedometer()
@@ -384,23 +430,22 @@ private final class DiagnosticPedometer {
   private var samples: [[String: Any]] = []
   private var error: [String: Any]?
   private var captureQuery: [String: Any]?
-  private var started: Date?
-  private var lastCount = 0
-  private var lastEnd: Date?
+  private(set) var requested = false
+  private var window: ForegroundPedometerWindow?
   private var lastProgress: Date?
   private var lastQuery: Date?
   private var querying = false
   private var source = "coreMotionPedometer"
 
   /// Stops older callbacks and starts an independent count from the current time.
-  func start() {
+  func start(from: Date = Date()) {
     stop()
+    requested = true
     guard CMPedometer.isStepCountingAvailable() else { return }
     let authorization = CMPedometer.authorizationStatus()
     guard authorization != .denied && authorization != .restricted else { return }
-    let from = Date()
     let current = generation
-    started = from
+    window = ForegroundPedometerWindow(start: from)
     running = true
     pedometer.startUpdates(from: from) { [weak self] data, failure in
       DispatchQueue.main.async {
@@ -419,7 +464,7 @@ private final class DiagnosticPedometer {
   /// Reads the same foreground window if live callbacks are lagging.
   private func refreshDelayedSteps() {
     let now = Date()
-    guard let start = started, !querying,
+    guard let start = window?.start, !querying,
           UIApplication.shared.applicationState == .active,
           CMPedometer.authorizationStatus() == .authorized,
           now.timeIntervalSince(lastProgress ?? start) >= 3,
@@ -432,8 +477,11 @@ private final class DiagnosticPedometer {
       DispatchQueue.main.async {
         guard let self, self.generation == current else { return }
         self.querying = false
-        if let data, data.numberOfSteps.intValue > self.lastCount {
-          self.accept(data, source: "coreMotionPedometerQuery")
+        if let data {
+          self.error = nil
+          if data.numberOfSteps.intValue > (self.window?.steps ?? 0) {
+            self.accept(data, source: "coreMotionPedometerQuery")
+          }
         }
       }
     }
@@ -442,19 +490,17 @@ private final class DiagnosticPedometer {
   /// Both feeds report the same cumulative window. Publish only increasing evidence.
   private func accept(_ data: CMPedometerData, source: String) {
     let steps = data.numberOfSteps.intValue
-    guard let start = started, data.startDate.timeIntervalSince(start) >= -1,
-          data.endDate >= start, steps >= lastCount,
-          lastEnd.map({ data.endDate > $0 && steps > lastCount }) ?? true
-    else { return }
-    if steps > lastCount { lastProgress = Date() }
-    lastEnd = data.endDate
-    lastCount = steps
+    let received = Date()
+    guard let previous = window?.steps,
+          window?.accept(reportedStart: data.startDate, end: data.endDate,
+                         steps: steps, received: received) == true else { return }
+    if steps > previous { lastProgress = received }
     self.source = source
     error = nil
     var sample: [String: Any] = [
       "start": data.startDate.timeIntervalSince1970,
       "end": data.endDate.timeIntervalSince1970,
-      "received": Date().timeIntervalSince1970,
+      "received": received.timeIntervalSince1970,
       "steps": steps,
       "source": source
     ]
@@ -469,11 +515,10 @@ private final class DiagnosticPedometer {
     generation += 1
     if running { pedometer.stopUpdates() }
     running = false
-    started = nil
+    requested = false
+    window = nil
     error = nil
     captureQuery = nil
-    lastCount = 0
-    lastEnd = nil
     lastProgress = nil
     lastQuery = nil
     querying = false
@@ -483,7 +528,7 @@ private final class DiagnosticPedometer {
 
   /// Queries only the current opt-in foreground window when the live feed failed.
   func finishCapture(_ window: [String: Double], completion: @escaping () -> Void) {
-    guard let from = started, let captureStart = window["start"], let captureEnd = window["end"],
+    guard let from = self.window?.start, let captureStart = window["start"], let captureEnd = window["end"],
           captureStart.isFinite, captureEnd.isFinite,
           from.timeIntervalSince1970 >= captureStart,
           from.timeIntervalSince1970 < captureEnd,
@@ -543,7 +588,7 @@ private final class DiagnosticPedometer {
       "authorization": state,
       "samples": samples
     ]
-    if let started { data["started"] = started.timeIntervalSince1970 }
+    if let start = window?.start { data["started"] = start.timeIntervalSince1970 }
     if let error { data["error"] = error }
     if let captureQuery { data["captureQuery"] = captureQuery }
     captureQuery = nil
@@ -560,6 +605,7 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
   private var servicesEnabled: Bool?
   private var checkingServices = false
   private var exporting = false
+  private var stepsOnly = false
 
   static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "sidera_vi/sensor_diagnostics", binaryMessenger: registrar.messenger())
@@ -587,7 +633,12 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       location?.orient(orientation)
       if call.method != "startMotion" {
         let diagnostic = call.method == "start"
-        location?.start(includesHeading: diagnostic, requestsPermission: diagnostic)
+        stepsOnly = !diagnostic && (call.arguments as? String) == "stepsOnly"
+        if stepsOnly {
+          location?.stop()
+        } else {
+          location?.start(includesHeading: diagnostic, requestsPermission: diagnostic)
+        }
       }
       if call.method == "startLocation" { pedometer.start() }
       if call.method != "startLocation" {
@@ -595,9 +646,15 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       }
       result(nil)
     case "restartPedometer":
-      if location?.running == true && UIApplication.shared.applicationState != .background {
-        pedometer.start()
+      guard pedometer.requested, UIApplication.shared.applicationState != .background else {
+        result(nil)
+        return
       }
+      guard let from = ForegroundPedometerWindow.restartDate(call.arguments, now: Date()) else {
+        result(FlutterError(code: "invalid_pedometer_window", message: "The step window could not restart.", details: nil))
+        return
+      }
+      pedometer.start(from: from)
       result(nil)
     case "finishPedometerCapture":
       guard UIApplication.shared.applicationState != .background,
@@ -612,6 +669,7 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     case "stopLocation":
       location?.stop()
       pedometer.stop()
+      stepsOnly = false
       result(nil)
     case "stop":
       stop()
@@ -624,9 +682,9 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       motion.clear()
       result(nil)
     case "snapshot":
-      readServicesAvailability()
+      if !stepsOnly { readServicesAvailability() }
       location?.orient(orientation)
-      let locationData = location?.snapshot(servicesEnabled: servicesEnabled) ?? [:]
+      let locationData = stepsOnly ? [:] : location?.snapshot(servicesEnabled: servicesEnabled) ?? [:]
       let motionData = motion.snapshot(orientation: orientation)
       result(locationData.merging(motionData) { _, latest in latest }.merging([
         "model": modelIdentifier,
@@ -669,6 +727,25 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       } else {
         result(FlutterError(code: "invalid_stride", message: "Stride calibration is unavailable.", details: nil))
       }
+    case "readMissionPosition", "writeMissionPosition":
+      let reading = call.method == "readMissionPosition"
+      let arguments = call.arguments as? [String: Any]
+      let scope = reading ? call.arguments as? String : arguments?["scope"] as? String
+      guard let scope,
+            scope.range(of: "^[A-Za-z0-9-]{1,64}/ARES-[0-9]{2}$", options: .regularExpression) != nil
+      else {
+        result(FlutterError(code: "invalid_mission_position", message: "Mission position is unavailable.", details: nil))
+        return
+      }
+      let key = "position/\(scope)"
+      if reading {
+        result(missionPosition(UserDefaults.standard.array(forKey: key)))
+      } else if let coordinates = missionPosition(arguments?["mars"]) {
+        UserDefaults.standard.set(coordinates, forKey: key)
+        result(nil)
+      } else {
+        result(FlutterError(code: "invalid_mission_position", message: "Mission position is unavailable.", details: nil))
+      }
     case "readMissionChecklist":
       guard let key = checklistKey(call.arguments as? String) else {
         result(FlutterError(code: "invalid_checklist", message: "Mission checklist is unavailable.", details: nil))
@@ -701,6 +778,13 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     }
   }
 
+  private func missionPosition(_ value: Any?) -> [Double]? {
+    guard let coordinates = value as? [Double], coordinates.count == 2,
+          (-180...180).contains(coordinates[0]), (-90...90).contains(coordinates[1])
+    else { return nil }
+    return coordinates
+  }
+
   private func checklistKey(_ scope: String?) -> String? {
     guard let scope, scope.range(
       of: "^[A-Za-z0-9:/-]{1,90}$", options: .regularExpression
@@ -728,6 +812,7 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     location?.stop()
     motion.stop()
     pedometer.stop()
+    stepsOnly = false
   }
 
   /// Reads the system-wide Location Services switch off the main thread.

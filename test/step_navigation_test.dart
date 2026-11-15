@@ -39,11 +39,12 @@ void main() {
       _steps(start: 101, end: 102, count: 5),
     )!;
     expect(turned.dx, greaterThan(3.49));
-    expect(navigation.bearingAt(105), isNull);
+    expect(navigation.bearingAt(105), closeTo(91, .0001));
+    expect(navigation.bearingAt(113), isNull);
   });
 
   test(
-    'A batch crossing calibration or missing a valid heading cannot move',
+    'A pre-calibration batch is rejected while short attitude gaps hold bearing',
     () {
       final navigation = StepNavigation();
       final oldBatch = _steps(start: 98, end: 101, count: 5);
@@ -53,8 +54,10 @@ void main() {
         ..observe(101, null);
       expect(navigation.displacement(oldBatch), isNull);
       expect(
-        navigation.displacement(_steps(start: 100, end: 101, count: 3)),
-        isNull,
+        navigation
+            .displacement(_steps(start: 100, end: 101, count: 3))
+            ?.distance,
+        closeTo(2.1, .0001),
       );
       navigation.observe(102, 0);
       expect(
@@ -62,7 +65,7 @@ void main() {
         isNull,
       );
       expect(
-        navigation.displacement(_steps(start: 101, end: 106, count: 3)),
+        navigation.displacement(_steps(start: 101, end: 109, count: 3)),
         isNull,
       );
       navigation.invalidate();

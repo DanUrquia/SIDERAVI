@@ -102,6 +102,33 @@ void main() {
     },
   );
 
+  test(
+    'Equal-end Core Motion corrections apply only their incremental evidence',
+    () {
+      final monitor = PedometerMonitor();
+      addTearDown(monitor.dispose);
+      final readings = <PedometerObservation>[];
+      monitor.ingest(
+        _native(
+          2,
+          101,
+          readings: [
+            _sample(101, 105, 14, distance: 9),
+            _sample(101, 105, 24, distance: 16),
+            _sample(101, 105, 24, distance: 16),
+            _sample(101, 104, 30, distance: 20),
+          ],
+        ),
+        108,
+        active: true,
+        onSample: readings.add,
+      );
+      expect(readings.map((sample) => sample.incrementalSteps), [14, 10, 0, 0]);
+      expect(readings[1].incrementalDistance, 7);
+      expect(monitor.latest?.steps, 24);
+    },
+  );
+
   testWidgets(
     'Capture, resume and rebaseline collect steps without changing the pose',
     (tester) async {

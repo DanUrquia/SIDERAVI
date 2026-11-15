@@ -73,6 +73,54 @@ final class RunnerTests: XCTestCase {
     XCTAssertEqual((batch["samples"] as? [[Double]])?.count, 0)
   }
 
+  func testPedometerRestartHonorsTheRequestedCalibrationBoundary() throws {
+    let now = Date(timeIntervalSince1970: 101.0)
+    let requested = try XCTUnwrap(ForegroundPedometerWindow.restartDate("100.25", now: now))
+    XCTAssertEqual(requested.timeIntervalSince1970, 100.25, accuracy: 0.000001)
+    XCTAssertEqual(ForegroundPedometerWindow.restartDate(nil, now: now), now)
+    XCTAssertNil(ForegroundPedometerWindow.restartDate("nan", now: now))
+    XCTAssertNil(ForegroundPedometerWindow.restartDate("102", now: now))
+    XCTAssertNil(ForegroundPedometerWindow.restartDate("90", now: now))
+  }
+
+  func testPedometerWindowReconcilesLateCumulativeResultsAtTheSameEndpoint() {
+    let from = Date(timeIntervalSince1970: 100.25)
+    let roundedStart = Date(timeIntervalSince1970: 100)
+    let end = Date(timeIntervalSince1970: 108)
+    let received = Date(timeIntervalSince1970: 113)
+    var window = ForegroundPedometerWindow(start: from)
+
+    XCTAssertTrue(window.accept(reportedStart: roundedStart, end: end, steps: 6, received: received))
+    XCTAssertTrue(window.accept(reportedStart: from, end: end, steps: 24, received: received))
+    XCTAssertFalse(window.accept(reportedStart: from, end: end, steps: 24, received: received))
+    XCTAssertFalse(window.accept(reportedStart: from, end: end, steps: 23, received: received))
+    XCTAssertFalse(window.accept(
+      reportedStart: from, end: end.addingTimeInterval(-1), steps: 25, received: received
+    ))
+    XCTAssertEqual(window.steps, 24)
+
+    let newStart = Date(timeIntervalSince1970: 112)
+    window = ForegroundPedometerWindow(start: newStart)
+    XCTAssertFalse(window.accept(reportedStart: from, end: received, steps: 25, received: received))
+    XCTAssertTrue(window.accept(reportedStart: newStart, end: received, steps: 3, received: received))
+    XCTAssertEqual(window.steps, 3)
+  }
+
+  func testMotionTimestampUsesWallClockAtReceiptAndKeepsSensorDelay() throws {
+    let recorded = try XCTUnwrap(MotionSampleClock.epochTime(
+      sampleUptime: 25, receivedUptime: 25.25, receivedEpoch: 125
+    ))
+    XCTAssertEqual(recorded, 124.75, accuracy: 0.000001)
+
+    let rounding = MotionSampleClock.epochTime(
+      sampleUptime: 30.01, receivedUptime: 30, receivedEpoch: 130
+    )
+    XCTAssertEqual(rounding, 130)
+    XCTAssertNil(MotionSampleClock.epochTime(
+      sampleUptime: 31, receivedUptime: 30, receivedEpoch: 130
+    ))
+  }
+
   /// A vertical forward edge has no horizontal bearing.
   func testVerticalTopHasNoYaw() {
     let vertical = CMRotationMatrix(

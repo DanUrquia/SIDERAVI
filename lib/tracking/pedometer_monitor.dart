@@ -48,6 +48,7 @@ final class PedometerMonitor extends ChangeNotifier {
 
   int? _stream;
   double? _streamStart;
+  double? get streamStart => _streamStart;
   int _previousSteps = 0;
   double? _previousDistance = 0;
   double? _lastStepAt;
@@ -202,7 +203,7 @@ final class PedometerMonitor extends ChangeNotifier {
     }
   }
 
-  /// Converts cumulative readings to increments once per increasing end timestamp.
+  /// Converts cumulative readings to increments without replaying a prior total.
   PedometerObservation? _read(Map raw, double now) {
     final start = finiteReading(raw, 'start');
     final end = finiteReading(raw, 'end');
@@ -215,7 +216,9 @@ final class PedometerMonitor extends ChangeNotifier {
         end >= start &&
         end >= _streamStart! &&
         end <= now + 1;
-    final duplicate = previousEnd != null && end <= previousEnd;
+    final duplicate =
+        previousEnd != null &&
+        (end < previousEnd || (end == previousEnd && steps <= _previousSteps));
     final cumulativeReset = steps < _previousSteps;
     final counted = validWindow && !duplicate && !cumulativeReset;
     final previousDistance = _previousDistance;
@@ -251,7 +254,9 @@ final class PedometerMonitor extends ChangeNotifier {
     if (result.incrementalSteps > 0) _lastStepAt = end;
     final captureStart = _captureStart;
     // The native API counts from stream-start; its reported start may be rounded.
-    if (counted && captureStart != null && _streamStart! >= captureStart) {
+    if (counted &&
+        captureStart != null &&
+        result.intervalStart >= captureStart) {
       captureSteps = (captureSteps ?? 0) + result.incrementalSteps;
       if (result.incrementalDistance case final meters?) {
         captureDistance = (captureDistance ?? 0) + meters;

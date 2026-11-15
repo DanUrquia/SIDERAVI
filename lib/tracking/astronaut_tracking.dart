@@ -24,11 +24,22 @@ final class AstronautTracking extends ChangeNotifier {
     required this.sensors,
     this.clock = DateTime.now,
     this.astronautId,
+    this.automaticPhysical = false,
+    this.missionId,
   }) {
+    if (automaticPhysical) {
+      mode = TrackingMode.live;
+      quality = PositionQuality.waiting;
+      measuredSteps = 0;
+      navigation.enableDemoMovement(false);
+    }
     _lastPosition = navigation.position;
     _lastRoute = _routeState;
     navigation.addListener(_navigationChanged);
-    if (astronautId != null) unawaited(_loadStride());
+    _localState = Future.wait<void>([
+      if (astronautId != null) _loadStride(),
+      if (_positionScope != null) _loadPosition(),
+    ]);
   }
 
   final DemoNavigation navigation;
@@ -36,6 +47,9 @@ final class AstronautTracking extends ChangeNotifier {
   final SensorService sensors;
   final DateTime Function() clock;
   final String? astronautId;
+  final bool automaticPhysical;
+  final String? missionId;
+  late final Future<List<void>> _localState;
   final heading = ValueNotifier<double?>(null);
   final telemetry = MovementTelemetry();
   final pedometer = PedometerMonitor();
@@ -75,6 +89,7 @@ final class AstronautTracking extends ChangeNotifier {
   String? _frame;
   double? _lastYaw;
   double? _lastValidYawTime;
+  double? _requiredStepStart;
 
   TrackingMode mode = TrackingMode.demo;
   PositionQuality quality = PositionQuality.simulated;
@@ -92,7 +107,7 @@ final class AstronautTracking extends ChangeNotifier {
   void restore(AstronautPose previous) {
     final before = pose.mars;
     final atInitialBase =
-        mode == TrackingMode.demo &&
+        (mode == TrackingMode.demo || automaticPhysical) &&
         navigation.atBase &&
         !_positionChanged &&
         !navigation.guiding;
@@ -118,7 +133,56 @@ final class AstronautTracking extends ChangeNotifier {
     navigation.setTrackedPosition(
       coordinates.toGrid(previous.mars),
       source: NavigationPositionSource.firebaseRestore,
+      allowLiveRestore: automaticPhysical,
     );
+    unawaited(_savePosition());
+  }
+
+  String? get _positionScope =>
+      automaticPhysical && missionId != null && astronautId != null
+      ? '$missionId/$astronautId'
+      : null;
+
+  Future<void> _loadPosition() async {
+    try {
+      final saved = await sensorDiagnosticsChannel.invokeListMethod<double>(
+        'readMissionPosition',
+        _positionScope,
+      );
+      if (_disposed || _positionChanged || saved == null || saved.length != 2) {
+        return;
+      }
+      final mars = Offset(saved[0], saved[1]);
+      if (!mars.isFinite || mars.dx.abs() > 180 || mars.dy.abs() > 90) return;
+      _restoreReviewed = true;
+      navigation.setTrackedPosition(
+        coordinates.toGrid(mars),
+        source: NavigationPositionSource.localPositionRestore,
+      );
+    } on PlatformException {
+      // Mission tracking can proceed with the position already in memory.
+    } on MissingPluginException {
+      // Local pose storage is optional on bridges that do not provide it.
+    }
+  }
+
+  Future<void> _savePosition() async {
+    final scope = _positionScope;
+    if (scope == null) return;
+    final mars = pose.mars;
+    try {
+      await sensorDiagnosticsChannel.invokeMethod<void>(
+        'writeMissionPosition',
+        {
+          'scope': scope,
+          'mars': [mars.dx, mars.dy],
+        },
+      );
+    } on PlatformException {
+      // Keep the latest estimate in memory.
+    } on MissingPluginException {
+      // Local pose storage is optional on bridges that do not provide it.
+    }
   }
 
   bool get positionCertain => quality == PositionQuality.accepted;
@@ -135,13 +199,28 @@ final class AstronautTracking extends ChangeNotifier {
     'coreMotionPedometerQuery' => 'Core Motion pedometer · foreground query',
     _ => 'Awaiting a step reading',
   };
-  double? get walkingBearing => _steps.bearingAt(_seconds);
+  double get _headingMaxAge => automaticPhysical
+      ? StepNavigation.headingHoldoverSeconds
+      : StepNavigation.maxHeadingAge;
+
+  double? get walkingBearing =>
+      _steps.bearingAt(_seconds, maxAge: _headingMaxAge);
+
+  bool get _stepWindowReady {
+    final start = pedometer.streamStart;
+    final required = _requiredStepStart;
+    return start != null &&
+        required != null &&
+        start + StepNavigation.timestampTolerance >= required;
+  }
+
   bool get canCalibrateWalking =>
       _active &&
       !_paused &&
       mode == TrackingMode.live &&
-      navigation.target != null &&
-      navigation.target != navigation.position;
+      (automaticPhysical ||
+          (navigation.target != null &&
+              navigation.target != navigation.position));
 
   String get stepStatus {
     if (_paused) return 'Mission paused';
@@ -153,6 +232,18 @@ final class AstronautTracking extends ChangeNotifier {
         return pedometer.state.label;
       default:
         break;
+    }
+    if (automaticPhysical) {
+      if (!_steps.calibrated || walkingBearing == null) {
+        return 'Walking direction unavailable';
+      }
+      if (!_stepWindowReady || pedometer.authorization == 'notDetermined') {
+        return 'Starting step tracking';
+      }
+      if (_lastAppliedStep case final last? when _seconds - last <= 3) {
+        return 'Steps detected';
+      }
+      return 'Exploration active';
     }
     if (!_steps.calibrated) return 'Direction calibration needed';
     if (walkingBearing == null) return 'Waiting for device attitude';
@@ -205,36 +296,80 @@ final class AstronautTracking extends ChangeNotifier {
     return true;
   }
 
-  /// Aligns the screen top to the confirmed current route bearing.
-  Future<bool> calibrateWalkingDirection(Offset destination) async {
+  /// Aligns the screen top to map north or to an explicitly confirmed target.
+  Future<bool> calibrateWalkingDirection(Offset? destination) async {
     final now = _seconds;
     final yaw = _lastYaw;
     if (!canCalibrateWalking ||
-        navigation.target != destination ||
+        (destination == null
+            ? !automaticPhysical
+            : navigation.target != destination ||
+                  destination == navigation.position) ||
         yaw == null ||
-        now - (_lastMotionTime ?? 0) > StepNavigation.maxHeadingAge) {
+        now - (_lastValidYawTime ?? 0) > StepNavigation.maxHeadingAge) {
       return false;
     }
-    final bearing = initialBearing(pose.mars, coordinates.toMars(destination));
-    _steps.calibrate(now, yaw, bearing);
-    hasWalkingCalibration = true;
+    final bearing = destination == null
+        ? 0.0
+        : initialBearing(pose.mars, coordinates.toMars(destination));
+    await _alignWalkingDirection(
+      now,
+      yaw,
+      bearing,
+      reference: destination == null
+          ? 'manualLocalNorth'
+          : 'confirmedDestination',
+    );
+    return _steps.calibrated && _active;
+  }
+
+  Future<void> _alignWalkingDirection(
+    double at,
+    double yaw,
+    double bearing, {
+    required String reference,
+  }) {
+    _steps.calibrate(at, yaw, bearing);
+    final restart = _restartStepWindow(at);
     heading.value = signedTurn(bearing);
+    hasWalkingCalibration = true;
     _lastAppliedStep = null;
     telemetry.event(clock(), 'walkingDirectionCalibrated', {
       'bearing': bearing,
+      'reference': reference,
     });
     notifyListeners();
+    return restart;
+  }
+
+  Future<void> _restartStepWindow(double at) {
+    if (automaticPhysical) _requiredStepStart = at;
     final epoch = _epoch;
-    await _queue(() async {
-      if (_current(epoch) && mode == TrackingMode.live) {
-        await sensors.command('restartPedometer');
+    return _queue(() async {
+      if (_current(epoch) &&
+          mode == TrackingMode.live &&
+          (!automaticPhysical || at == _requiredStepStart)) {
+        try {
+          await sensors.command(
+            'restartPedometer',
+            automaticPhysical ? at.toString() : null,
+          );
+        } catch (_) {
+          if (automaticPhysical &&
+              _current(epoch) &&
+              at == _requiredStepStart) {
+            _invalidateWalkingDirection();
+            heading.value = null;
+          }
+          rethrow;
+        }
       }
     });
-    return _steps.calibrated;
   }
 
   void _invalidateWalkingDirection() {
     _steps.invalidate();
+    _requiredStepStart = null;
     _lastAppliedStep = null;
   }
 
@@ -260,7 +395,7 @@ final class AstronautTracking extends ChangeNotifier {
       'connection': _connection.name,
       'position': marsPosition(pose.mars),
     });
-    if (mode == TrackingMode.live) {
+    if (mode == TrackingMode.live && !automaticPhysical) {
       final epoch = _epoch;
       unawaited(
         _queue(() async {
@@ -365,7 +500,10 @@ final class AstronautTracking extends ChangeNotifier {
       if (!_current(epoch)) return;
       await sensors.command('startMotion');
       if (_current(epoch) && mode == TrackingMode.live) {
-        await sensors.command('startLocation');
+        await sensors.command(
+          'startLocation',
+          automaticPhysical ? 'stepsOnly' : null,
+        );
       }
     });
   }
@@ -383,7 +521,7 @@ final class AstronautTracking extends ChangeNotifier {
 
   /// Changes the movement source without changing the position on the map.
   Future<void> selectMode(TrackingMode next) {
-    if (_disposed || mode == next) return _pending;
+    if (_disposed || automaticPhysical || mode == next) return _pending;
     final previous = mode;
     mode = next;
     _invalidateWalkingDirection();
@@ -439,6 +577,8 @@ final class AstronautTracking extends ChangeNotifier {
       _queue(() async {
         try {
           if (!_current(epoch)) return;
+          await _localState;
+          if (!_current(epoch)) return;
           final locationEpoch = _locationEpoch;
           final batch = await sensors.snapshot();
           if (!_current(epoch)) return;
@@ -456,13 +596,19 @@ final class AstronautTracking extends ChangeNotifier {
     telemetry.updateCapabilities(batch);
     _orientation(batch['orientations'] as List? ?? const [], now);
     final motion = batch['pedometer'];
+    final appliedBefore = appliedSteps;
     pedometer.ingest(
       _androidWalking.read(motion is Map ? motion : null, now),
       now,
       active: mode == TrackingMode.live,
       onSample: (sample) {
+        // The old stream may still drain during the asynchronous restart.
+        // Its cumulative total can overlap the fresh calibrated window.
+        if (automaticPhysical && !_stepWindowReady) return;
         measuredSteps = (measuredSteps ?? 0) + sample.incrementalSteps;
-        final displacement = _paused ? null : _steps.displacement(sample);
+        final displacement = _paused || (!automaticPhysical && _lastYaw == null)
+            ? null
+            : _steps.displacement(sample, headingMaxAge: _headingMaxAge);
         if (displacement != null) {
           appliedSteps += sample.incrementalSteps;
           _lastAppliedStep = now;
@@ -475,7 +621,7 @@ final class AstronautTracking extends ChangeNotifier {
               ? 'Mission paused'
               : !_steps.calibrated
               ? 'Direction calibration needed'
-              : _steps.bearingAt(sample.end) == null
+              : _steps.bearingAt(sample.end, maxAge: _headingMaxAge) == null
               ? 'No matching attitude'
               : 'Batch overlapped calibration';
         }
@@ -488,6 +634,7 @@ final class AstronautTracking extends ChangeNotifier {
         );
       },
     );
+    if (appliedSteps != appliedBefore) unawaited(_savePosition());
     if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
       _recordLocation(batch, now);
     } else {
@@ -512,7 +659,7 @@ final class AstronautTracking extends ChangeNotifier {
     }
   }
 
-  /// Keeps the last reference through angle wraparound and handles interface flips.
+  /// Keeps the calibrated reference through short attitude interruptions.
   void _orientation(List samples, double now) {
     for (final sample in samples.whereType<Map>()) {
       final time = finiteReading(sample, 'time');
@@ -523,36 +670,60 @@ final class AstronautTracking extends ChangeNotifier {
           (_lastMotionTime != null && time <= _lastMotionTime!)) {
         continue;
       }
+
       final frame = sample['frame'];
-      if (frame != _frame) {
+      if (frame is String && frame != _frame) {
         if (_frame != null) {
           _reference = null;
           _resumeHeading = null;
           _invalidateWalkingDirection();
+          _lastYaw = null;
+          _lastValidYawTime = null;
         }
-        _frame = frame as String?;
+        _frame = frame;
       }
-      if (_lastValidYawTime case final last?
-          when time - last > StepNavigation.maxHeadingAge) {
+      if (!automaticPhysical &&
+          _lastValidYawTime != null &&
+          time - _lastValidYawTime! > StepNavigation.maxHeadingAge) {
         _invalidateWalkingDirection();
       }
       _lastMotionTime = time;
-      _lastYaw = yaw;
-      _steps.observe(time, yaw);
       if (yaw == null) {
-        heading.value = null;
+        if (!automaticPhysical) {
+          _lastYaw = null;
+          heading.value = null;
+        }
         continue;
       }
+      _lastYaw = yaw;
       _lastValidYawTime = time;
       _reference ??= yaw - (_resumeHeading ?? 0);
       _resumeHeading = null;
-      final bearing = _steps.bearingAt(time);
-      heading.value = bearing == null
-          ? signedTurn(yaw - _reference!)
-          : signedTurn(bearing);
+      if (automaticPhysical &&
+          !_paused &&
+          !_steps.calibrated &&
+          (finiteReading(sample, 'rotationRate') ?? 0).abs() <= 45) {
+        // The current phone-top direction is the local map-north assumption.
+        // Use the attitude's timestamp as the exact native counting boundary.
+        unawaited(
+          _alignWalkingDirection(
+            time.clamp(_motionStarted, now),
+            yaw,
+            0,
+            reference: 'initialLocalNorth',
+          ),
+        );
+      }
+      _steps.observe(time, yaw);
+      final bearing = _steps.bearingAt(time, maxAge: _headingMaxAge);
+      heading.value = automaticPhysical
+          ? (bearing == null ? null : signedTurn(bearing))
+          : (bearing == null
+                ? signedTurn(yaw - _reference!)
+                : signedTurn(bearing));
     }
-    final recent = _lastMotionTime ?? _motionStarted;
-    if (now - recent > 2) heading.value = null;
+    final recent = _lastValidYawTime ?? _motionStarted;
+    if (now - recent > _headingMaxAge) heading.value = null;
   }
 
   /// Preserves Earth location evidence for the opt-in movement log.
@@ -619,7 +790,14 @@ final class AstronautTracking extends ChangeNotifier {
     }
     if (_paused == navigation.paused) return;
     _paused = navigation.paused;
-    _invalidateWalkingDirection();
+    if (automaticPhysical) {
+      _lastAppliedStep = null;
+      if (!_paused && _steps.calibrated) {
+        unawaited(_restartStepWindow(_seconds));
+      }
+    } else {
+      _invalidateWalkingDirection();
+    }
     _resetEarth(_paused ? 'explorationPaused' : 'explorationResumed');
   }
 
@@ -656,7 +834,7 @@ final class AstronautTracking extends ChangeNotifier {
           await operation();
         } catch (_) {
           if (_active && !_disposed && mode == TrackingMode.live) {
-            _invalidateWalkingDirection();
+            if (!automaticPhysical) _invalidateWalkingDirection();
             _resetEarth('sensorError');
             _setQuality(PositionQuality.unavailable);
           }

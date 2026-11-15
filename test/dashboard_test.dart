@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,11 +17,12 @@ import 'package:sidera_vi/sensors/sensor_service.dart';
 import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/dashboard_style.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
+import 'package:sidera_vi/ui/dashboard/mobile_navigation.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
 
 import 'fake_trek_tiles.dart';
 
-/// Exercises native dashboard interactions in a landscape iPad viewport.
+/// Exercises the mission dashboard and its landscape tablet and phone layouts.
 void main() {
   test('All five missions have a unique, internally consistent demo map', () {
     expect(
@@ -601,6 +604,237 @@ void main() {
     await tester.pumpAndSettle();
     expect(map.navigation.targetLabel, 'Adrian Flores');
   });
+  testWidgets(
+    'Phone applies native-format step batches without a destination',
+    (tester) async {
+      final motion = _PhoneMotion();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        sensorDiagnosticsChannel,
+        motion.handle,
+      );
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+      );
+      final map = await _launch(
+        tester,
+        size: const Size(390, 844),
+        clock: () => motion.now,
+      );
+      final tracking = map.tracking;
+      final nav = map.navigation;
+      final base = nav.map.base;
+      final home = tracking.coordinates.toMars(base);
+      expect(nav.target, isNull);
+      expect(nav.guiding, isFalse);
+      expect(nav.position, base);
+      expect(tracking.mode, TrackingMode.live);
+      expect(tracking.telemetry.recording, isFalse);
+      expect(
+        motion.calls.map((call) => call.method),
+        containsAllInOrder([
+          'readMissionPosition',
+          'startMotion',
+          'startLocation',
+        ]),
+      );
+      expect(
+        motion.calls
+            .singleWhere((call) => call.method == 'startLocation')
+            .arguments,
+        'stepsOnly',
+      );
+      expect(find.text('DEMO MOVEMENT'), findsNothing);
+      expect(find.text('LIVE SENSORS'), findsNothing);
+
+      final oldStart = motion.started;
+      await motion.poll(tester, 1.2, steps: 5);
+      expect(nav.position, base);
+      expect(tracking.appliedSteps, 0);
+
+      // The snapshot contains a cumulative batch that crosses the first
+      // direction reference. It is consumed without replay from the new window.
+      await motion.poll(tester, 2.4, yaw: 42, steps: 8);
+      expect(motion.starts, hasLength(2));
+      expect(motion.started, greaterThan(oldStart));
+      expect(nav.position, base);
+      expect(tracking.appliedSteps, 0);
+      expect(tracking.walkingBearing, closeTo(0, .001));
+      await motion.poll(tester, 2.5, yaw: 42);
+      expect(find.text('Exploration active'), findsOneWidget);
+
+      for (var offset = 3; offset <= 12; offset++) {
+        await motion.poll(tester, offset.toDouble(), yaw: 42);
+      }
+      // An unavailable attitude at the end of the batch cannot erase a recent
+      // direction. The pedometer delivers the batch several seconds afterward.
+      await motion.poll(tester, 12.6);
+      await motion.poll(tester, 13.2, yaw: 42);
+      await motion.poll(tester, 14.0, yaw: 42);
+      await motion.poll(
+        tester,
+        15.2,
+        yaw: 42,
+        steps: 24,
+        measuredThrough: 12.6,
+      );
+      expect(nav.target, isNull);
+      expect(nav.guiding, isFalse);
+      expect(tracking.measuredSteps, 24);
+      expect(tracking.appliedSteps, 24);
+      expect(tracking.distanceTraveled, closeTo(16.8, .01));
+      expect(
+        nav.positionSource,
+        NavigationPositionSource.pedestrianDeadReckoning,
+      );
+      expect(tracking.pose.mars.dx, closeTo(home.dx, .000001));
+      expect(tracking.pose.mars.dy, greaterThan(home.dy));
+      expect(
+        motion.calls
+            .lastWhere((call) => call.method == 'writeMissionPosition')
+            .arguments,
+        {
+          'scope': 'jezero/ARES-01',
+          'mars': [tracking.pose.mars.dx, tracking.pose.mars.dy],
+        },
+      );
+      final walked = nav.position;
+
+      await motion.poll(
+        tester,
+        15.4,
+        yaw: 132,
+        steps: 24,
+        measuredThrough: 12.6,
+      );
+      expect(nav.position, walked);
+      expect(tracking.appliedSteps, 24);
+      expect(tracking.walkingBearing, closeTo(90, .001));
+
+      for (final sheet in ['missions', 'astronaut', 'crew']) {
+        await _mobileTab(tester, sheet);
+        expect(find.text('DEMO MOVEMENT'), findsNothing);
+        expect(find.text('LIVE SENSORS · STEP NAVIGATION'), findsNothing);
+        await _mobileTab(tester, sheet);
+      }
+      expect(motion.starts, hasLength(2));
+      expect(motion.calls.where((call) => call.method == 'stop'), isEmpty);
+      final east = tracking.coordinates.toGrid(
+        displaceOnMars(tracking.pose.mars, const Offset(40, 0)),
+      );
+      expect(nav.select(east, 'Survey waypoint'), isTrue);
+      await tester.pumpAndSettle();
+      await motion.poll(tester, 16, yaw: 132, steps: 29);
+      expect(nav.guiding, isFalse);
+      expect(nav.remainingMeters, closeTo(36.5, .01));
+      final atGuidanceStart = nav.position;
+      await _tapTooltip(tester, 'Start Navigation');
+      expect(nav.position, atGuidanceStart);
+      expect(nav.guiding, isTrue);
+      expect(motion.starts, hasLength(2));
+
+      final session = await _connectPhoneCrew(tester, map);
+      await motion.poll(tester, 17, yaw: 132, steps: 34);
+      expect(nav.remainingMeters, closeTo(33, .01));
+      expect(tracking.appliedSteps, 34);
+      expect(session.writes.last.mars, tracking.pose.mars);
+      expect(session.writes.last.quality, PositionQuality.accepted);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Phone restores its pose and stride across fresh step windows', (
+    tester,
+  ) async {
+    final config = missionMaps['jezero']!;
+    final saved = displaceOnMars(
+      config.coordinates.toMars(config.base),
+      const Offset(30, 0),
+    );
+    final motion = _PhoneMotion(savedPosition: saved, savedStride: .82);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final map = await _launch(
+      tester,
+      size: const Size(390, 844),
+      clock: () => motion.now,
+    );
+    expect(map.tracking.pose.mars.dx, closeTo(saved.dx, .0000001));
+    expect(map.tracking.pose.mars.dy, closeTo(saved.dy, .0000001));
+    expect(map.tracking.stride, .82);
+    expect(
+      motion.calls
+          .singleWhere((call) => call.method == 'readStrideLength')
+          .arguments,
+      'ARES-01',
+    );
+    await motion.poll(tester, 1, yaw: 65);
+    await motion.poll(tester, 2, yaw: 65, steps: 10);
+    expect(map.tracking.appliedSteps, 10);
+    final before = map.navigation.position;
+    final previousWindow = motion.started;
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(motion.calls.last.method, 'stop');
+    await motion.poll(tester, 10, yaw: 42);
+    expect(map.navigation.position, before);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(motion.started, greaterThan(previousWindow));
+    await motion.poll(tester, 11, steps: 40, streamStart: previousWindow);
+    expect(map.navigation.position, before);
+    await motion.poll(tester, 12, yaw: 42);
+    await motion.poll(tester, 13, yaw: 42, steps: 5);
+    expect(map.tracking.appliedSteps, 15);
+    expect(map.tracking.distanceTraveled, closeTo(12.3, .01));
+    expect(
+      motion.calls
+          .lastWhere((call) => call.method == 'writeMissionPosition')
+          .arguments,
+      {
+        'scope': 'jezero/ARES-01',
+        'mars': [map.tracking.pose.mars.dx, map.tracking.pose.mars.dy],
+      },
+    );
+    expect(map.navigation.target, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Landscape tablet retains its separate simulation controls', (
+    tester,
+  ) async {
+    final motion = _PhoneMotion();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final map = await _launch(tester, size: const Size(1024, 768));
+    expect(map.tracking.mode, TrackingMode.demo);
+    expect(find.text('DEMO MOVEMENT'), findsOneWidget);
+    expect(find.text('LIVE SENSORS'), findsOneWidget);
+    expect(motion.starts, isEmpty);
+    await tester.tap(find.text('LIVE SENSORS'));
+    await tester.pumpAndSettle();
+    expect(map.tracking.mode, TrackingMode.live);
+    expect(motion.starts, hasLength(1));
+    expect(
+      motion.calls
+          .singleWhere((call) => call.method == 'startLocation')
+          .arguments,
+      isNull,
+    );
+  });
+
   testWidgets('Phone sheets share one full-bleed map and preserve its camera', (
     tester,
   ) async {
@@ -617,6 +851,7 @@ void main() {
     addTearDown(tester.view.resetViewPadding);
     const size = Size(390, 844);
     final map = await _launch(tester, size: size);
+    await _connectPhoneCrew(tester, map);
     final mapWidget = find.byType(DemoTerrainMap);
     final mapState = tester.state(mapWidget);
     final viewport = find.byKey(const ValueKey('demo-map-viewport'));
@@ -882,14 +1117,8 @@ void main() {
     Offset east(double meters) => coordinates.toGrid(
       displaceOnMars(coordinates.toMars(nav.map.base), Offset(meters, 0)),
     );
-    await map.tracking.selectMode(TrackingMode.live);
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey('mobile-movement-source')))
-          .data,
-      'LIVE SENSORS',
-    );
+    expect(map.tracking.mode, TrackingMode.live);
+    expect(find.text('LIVE SENSORS'), findsNothing);
     final destination = east(25);
     nav.select(destination, 'Map waypoint');
     await tester.pumpAndSettle();
@@ -955,6 +1184,7 @@ void main() {
       size: const Size(390, 844),
       mission: marsMissions[1],
     );
+    await _connectPhoneCrew(tester, map);
     final baseLabel = find.text('Habitat base');
     final peer = find.byTooltip('Select Adrian Flores on map');
     expect(tester.getRect(baseLabel).overlaps(tester.getRect(peer)), isFalse);
@@ -1042,7 +1272,21 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(start);
     await tester.pumpAndSettle();
-    expect(nav.position, nav.map.teammate);
+    expect(nav.guiding, isTrue);
+    expect(nav.position, nav.map.base);
+    expect(nav.canReturnToBase, isFalse);
+    final awayFromTarget = nav.map.teammate.dx >= nav.map.base.dx
+        ? -150.0
+        : 150.0;
+    final walked = nav.map.coordinates.toGrid(
+      displaceOnMars(
+        nav.map.coordinates.toMars(nav.map.base),
+        Offset(awayFromTarget, 0),
+      ),
+    );
+    nav.applyStepPosition(walked);
+    await tester.pumpAndSettle();
+    expect(nav.canReturnToBase, isTrue);
     await _mobileTab(tester, 'astronaut');
     final pause = find.text('PAUSE MISSION');
     await _tapPhoneAction(tester, pause);
@@ -1054,18 +1298,25 @@ void main() {
     await _mobileTab(tester, 'astronaut');
 
     await _tapTooltip(tester, 'Return to Base');
-    expect(nav.position, nav.map.teammate);
+    expect(nav.position, walked);
     expect(find.text('Return to habitat base?'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
-    expect(nav.position, nav.map.teammate);
+    expect(nav.position, walked);
     expect(nav.target, nav.map.teammate);
     await _tapTooltip(tester, 'Return to Base');
     await tester.tap(find.text('Return to base'));
-    expect(nav.position, nav.map.teammate);
+    expect(nav.position, walked);
     expect(nav.target, nav.map.base);
     await tester.pumpAndSettle();
+    expect(nav.position, walked);
+    expect(nav.guiding, isTrue);
+    nav.applyStepPosition(nav.map.base);
+    await tester.pumpAndSettle();
     expect(nav.position, nav.map.base);
+    expect(find.text('You have arrived at Habitat Base.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
 
     nav.select(nav.map.teammate, 'Another destination');
     await tester.pumpAndSettle();
@@ -1257,6 +1508,7 @@ Future<DemoTerrainMap> _launch(
   MarsMission? mission,
   Astronaut astronaut = DemoCrew.dan,
   FakeTrekTiles? tiles,
+  DateTime Function()? clock,
   double textScale = 1,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -1276,6 +1528,7 @@ Future<DemoTerrainMap> _launch(
         astronaut: astronaut,
         tileSource: tiles ?? FakeTrekTiles(),
         mission: mission ?? marsMissions.first,
+        clock: clock,
       ),
     ),
   );
@@ -1355,4 +1608,145 @@ Future<void> _tapPhoneAction(
   }
   expect(action.hitTestable(), findsOneWidget);
   if (tap) await tester.tap(action.hitTestable());
+}
+
+/// Models iOS's bridge contract. The tracking code receives only channel maps.
+final class _PhoneMotion {
+  _PhoneMotion({this.savedPosition, this.savedStride});
+
+  final Offset? savedPosition;
+  final double? savedStride;
+  final origin = DateTime.utc(2026, 11, 15, 14);
+  final calls = <MethodCall>[];
+  final starts = <double>[];
+  final _attitudes = <Map<String, Object?>>[];
+  final _samples = <Map<String, Object?>>[];
+  DateTime? _now;
+
+  DateTime get now => _now ?? origin;
+  double get started => starts.last;
+
+  double _seconds(DateTime value) =>
+      value.microsecondsSinceEpoch / Duration.microsecondsPerSecond;
+
+  double _at(double offset) => _seconds(origin) + offset;
+
+  Future<Object?> handle(MethodCall call) async {
+    calls.add(call);
+    switch (call.method) {
+      case 'startLocation':
+        starts.add(_seconds(now));
+        return null;
+      case 'restartPedometer':
+        starts.add(double.parse(call.arguments as String));
+        return null;
+      case 'stop':
+        _attitudes.clear();
+        _samples.clear();
+        return null;
+      case 'startMotion':
+        _attitudes.clear();
+        return null;
+      case 'readStrideLength':
+        return savedStride;
+      case 'readMissionPosition':
+        return savedPosition == null
+            ? null
+            : [savedPosition!.dx, savedPosition!.dy];
+      case 'readMissionChecklist':
+        return <String>[];
+      case 'snapshot':
+        final readings = <String, Object?>{
+          'services': false,
+          'authorization': 'Denied',
+          'orientations': List.of(_attitudes),
+          if (starts.isNotEmpty)
+            'pedometer': {
+              'source': 'coreMotionPedometer',
+              'authorization': 'authorized',
+              'stepCounting': true,
+              'stream': starts.length,
+              'started': started,
+              'samples': List.of(_samples),
+            },
+        };
+        _attitudes.clear();
+        _samples.clear();
+        return readings;
+      default:
+        return null;
+    }
+  }
+
+  Future<void> poll(
+    WidgetTester tester,
+    double offset, {
+    double? yaw,
+    int? steps,
+    double? measuredThrough,
+    double? streamStart,
+  }) async {
+    _now = origin.add(
+      Duration(microseconds: (offset * Duration.microsecondsPerSecond).round()),
+    );
+    _attitudes.add({
+      'frame': 'Portrait',
+      'time': _seconds(now),
+      if (yaw != null) 'yaw': yaw,
+    });
+    if (steps != null) {
+      _samples.add({
+        'start': streamStart ?? started,
+        'end': _at(measuredThrough ?? offset),
+        'received': _seconds(now),
+        'steps': steps,
+      });
+    }
+    await tester.pump(const Duration(milliseconds: 110));
+    await tester.pumpAndSettle();
+  }
+}
+
+Future<_PhonePresence> _connectPhoneCrew(
+  WidgetTester tester,
+  DemoTerrainMap map,
+) async {
+  final dashboard = tester.widget<MobileNavigation>(
+    find.byType(MobileNavigation),
+  );
+  final session = _PhonePresence();
+  dashboard.presence.open((_) async => session);
+  await tester.pump();
+  session.crew.add({
+    'ARES-02': (
+      pose: (
+        mars: map.tracking.coordinates.toMars(map.navigation.map.teammate),
+        heading: 12,
+        mode: TrackingMode.live,
+        quality: PositionQuality.accepted,
+      ),
+      updated: dashboard.presence.clock(),
+      online: true,
+    ),
+  });
+  await tester.pumpAndSettle();
+  expect(dashboard.presence.status, ConnectionStatus.connected);
+  return session;
+}
+
+/// Keeps the existing presence publisher active without a Firebase connection.
+final class _PhonePresence implements PresenceConnection {
+  final crew = StreamController<PresenceSnapshot>();
+  final writes = <AstronautPose>[];
+
+  @override
+  Stream<PresenceSnapshot> get snapshots => crew.stream;
+
+  @override
+  Future<void> publish(AstronautPose pose, {required bool online}) async {
+    if (online) writes.add(pose);
+  }
+
+  @override
+  void close() => unawaited(crew.close());
 }

@@ -200,10 +200,8 @@ class _MobileNavigationState extends State<MobileNavigation>
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Return to habitat base?'),
-        content: Text(
-          widget.tracking.mode == TrackingMode.demo
-              ? 'This replaces your current destination and begins the simulated return route.'
-              : 'Start direct guidance to Habitat Base. Walk with the phone aligned to your calibrated direction.',
+        content: const Text(
+          'Start direct guidance to Habitat Base. Keep the phone’s top edge pointed in your walking direction.',
         ),
         actions: [
           TextButton(
@@ -436,9 +434,12 @@ class _MissionHeader extends StatelessWidget {
       ConnectionStatus.connected => DashboardStyle.green,
       ConnectionStatus.reconnecting => DashboardStyle.amber,
     };
-    final live = tracking.mode == TrackingMode.live;
-    final status = navigation.status;
+    final status =
+        navigation.target == null && !navigation.paused && !navigation.sos
+        ? tracking.stepStatus
+        : navigation.status;
     final remaining = navigation.remainingMeters;
+    final steps = tracking.measuredSteps;
     final style = Theme.of(context).textTheme;
     final destinationStyle = style.bodySmall ?? const TextStyle(fontSize: 12);
     final showTarget = remaining != null && !navigation.sos;
@@ -493,6 +494,7 @@ class _MissionHeader extends StatelessWidget {
                     key: const ValueKey('mobile-header-destination'),
                     children: [
                       Flexible(
+                        flex: 3,
                         child: Text(
                           showTarget
                               ? navigation.targetLabel!
@@ -508,13 +510,18 @@ class _MissionHeader extends StatelessWidget {
                         ),
                       ),
                       if (showTarget)
-                        Text(
-                          ' · ${formatNavigationDistance(remaining, live: live)}'
-                          '${live && navigation.guiding ? ' left' : ''}',
-                          style: destinationStyle.copyWith(
-                            color: DashboardStyle.cyan,
+                        Flexible(
+                          flex: 2,
+                          child: Text(
+                            ' · ${formatNavigationDistance(remaining, live: true)}'
+                            '${navigation.guiding ? ' left' : ''}',
+                            style: destinationStyle.copyWith(
+                              color: DashboardStyle.cyan,
+                            ),
+                            strutStyle: strut,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
                           ),
-                          strutStyle: strut,
                         ),
                     ],
                   ),
@@ -546,8 +553,8 @@ class _MissionHeader extends StatelessWidget {
                   ],
                 ),
                 Text(
-                  tracking.mode.label,
-                  key: const ValueKey('mobile-movement-source'),
+                  '${steps ?? '—'} ${steps == 1 ? 'step' : 'steps'}',
+                  key: const ValueKey('mobile-detected-steps'),
                   style: MissionTheme.display(
                     9,
                     tracking: .35,

@@ -33,12 +33,14 @@ class MissionDashboard extends StatefulWidget {
     required this.mission,
     required this.tileSource,
     this.sensors = const NativeSensorService(),
+    this.clock,
   });
 
   final Astronaut astronaut;
   final MarsMission mission;
   final TrekTileSource tileSource;
   final SensorService sensors;
+  final DateTime Function()? clock;
 
   @override
   State<MissionDashboard> createState() => _MissionDashboardState();
@@ -57,14 +59,17 @@ class _MissionDashboardState extends State<MissionDashboard>
   late final MissionPresence _presence;
   final _firebase = FirebasePresenceConfig.fromBuild();
   ConnectPresence? _connect;
+  bool _initialized = false;
   bool _showingDiagnostics = false;
   bool _foreground = true;
   Duration _lastFrame = Duration.zero;
   int _announcedArrivals = 0;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
     _map = missionMaps[widget.mission.id]!;
     _teammate = DemoCrew.roster.firstWhere(
       (astronaut) => astronaut.id != widget.astronaut.id,
@@ -77,6 +82,9 @@ class _MissionDashboardState extends State<MissionDashboard>
       coordinates: MissionCoordinates(widget.mission),
       sensors: widget.sensors,
       astronautId: widget.astronaut.id,
+      missionId: widget.mission.id,
+      automaticPhysical: _isCompactMission(),
+      clock: widget.clock ?? DateTime.now,
     );
     _presence = MissionPresence(
       key: (
@@ -93,6 +101,8 @@ class _MissionDashboardState extends State<MissionDashboard>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_tracking.resume());
   }
+
+  bool _isCompactMission() => MediaQuery.sizeOf(context).shortestSide < 600;
 
   /// Records connection transitions alongside local movement diagnostics.
   void _noteConnection() => _tracking.noteConnection(_presence.status);
@@ -256,7 +266,7 @@ class _MissionDashboardState extends State<MissionDashboard>
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
     final astronaut = widget.astronaut;
     final mission = widget.mission;
-    final mobile = MediaQuery.sizeOf(context).shortestSide < 600;
+    final mobile = _isCompactMission();
     final dashboard = ListenableBuilder(
       listenable: Listenable.merge([
         _navigation,

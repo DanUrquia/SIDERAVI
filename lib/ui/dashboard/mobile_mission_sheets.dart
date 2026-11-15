@@ -6,6 +6,7 @@ import '../../dashboard/mission_map_config.dart';
 import '../../missions/mission.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
+import '../../tracking/pedometer_monitor.dart';
 import '../mission_theme.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
@@ -208,41 +209,39 @@ class MobileAstronautContent extends StatelessWidget {
           title: astronaut.id,
           children: [
             Text(astronaut.fullName, style: MissionTheme.display(22)),
-            DashboardReadout(label: 'Mission status', value: navigation.status),
             DashboardReadout(
-              label: 'Simulated Mars',
+              label: 'Position status',
+              value: tracking.stepStatus,
+            ),
+            if (tracking.pedometer.state == PedometerState.denied)
+              Text(
+                Theme.of(context).platform == TargetPlatform.iOS
+                    ? 'Allow Motion & Fitness for SIDERA VI in Settings to count steps.'
+                    : 'Allow motion access for SIDERA VI in Settings to count steps.',
+              ),
+            DashboardReadout(
+              label: 'Estimated Mars position',
               value: formatMarsPosition(tracking.pose.mars),
             ),
             DashboardReadout(
-              label: navigation.live
-                  ? 'Estimated distance traveled'
-                  : 'Distance traveled',
-              value: navigation.live
-                  ? '${tracking.distanceTraveled.toStringAsFixed(1)} m'
-                  : '${formatDemoDistance(tracking.distanceTraveled)} · Simulated Mars',
+              label: 'Estimated distance traveled',
+              value: '${tracking.distanceTraveled.toStringAsFixed(1)} m',
             ),
             DashboardReadout(
               label: 'To base',
               value: formatNavigationDistance(
                 navigation.baseDistanceMeters,
-                live: navigation.live,
+                live: true,
               ),
             ),
             DashboardReadout(
               label: 'Total steps',
-              value: tracking.measuredSteps == null
-                  ? 'Unavailable'
-                  : '${tracking.measuredSteps} · Measured this visit',
+              value: tracking.measuredSteps?.toString() ?? '—',
             ),
             DashboardReadout(
-              label: 'Movement source',
-              value: tracking.mode.label,
+              label: 'Applied steps',
+              value: tracking.appliedSteps.toString(),
             ),
-            if (navigation.live)
-              DashboardReadout(
-                label: 'Step navigation',
-                value: tracking.stepStatus,
-              ),
             const SizedBox(height: 2),
             DashboardButton(
               label: navigation.paused ? 'RESUME MISSION' : 'PAUSE MISSION',
@@ -257,69 +256,41 @@ class MobileAstronautContent extends StatelessWidget {
           title: 'DEVICE SENSORS',
           icon: Icons.sensors,
           children: [
-            if (navigation.live) ...[
-              DashboardReadout(
-                label: 'Sensor source',
-                value: tracking.stepSource,
-              ),
-              ValueListenableBuilder<double?>(
-                valueListenable: tracking.heading,
-                builder: (_, _, _) {
-                  final bearing = tracking.walkingBearing;
-                  return DashboardReadout(
-                    label: 'Walking direction',
-                    value: bearing == null
-                        ? 'Uncalibrated'
-                        : '${bearing.round() % 360}° Mars',
-                  );
-                },
-              ),
-              DashboardReadout(
-                label: 'Stride length',
-                value: '${tracking.stride.toStringAsFixed(2)} m per step',
-              ),
-            ],
-            for (final mode in TrackingMode.values)
-              Semantics(
-                selected: tracking.mode == mode,
-                child: DashboardButton(
-                  label: mode == TrackingMode.live
-                      ? 'LIVE SENSORS · STEP NAVIGATION'
-                      : mode.label,
-                  height: 48,
-                  primary: tracking.mode == mode,
-                  icon: mode == TrackingMode.live
-                      ? Icons.sensors
-                      : Icons.route_outlined,
-                  onPressed: () => tracking.selectMode(mode),
-                ),
-              ),
-            if (navigation.live) ...[
-              if (navigation.target == null)
-                const Text(
-                  'Select a destination to calibrate your walking direction.',
-                ),
-              DashboardButton(
-                label: 'CALIBRATE WALKING DIRECTION',
-                height: 48,
-                icon: Icons.navigation_outlined,
-                onPressed: tracking.canCalibrateWalking
-                    ? () => confirmWalkingDirection(context, tracking)
-                    : null,
-              ),
-              DashboardButton(
-                label: 'SET STRIDE LENGTH',
-                height: 48,
-                icon: Icons.straighten,
-                onPressed: () => configureStride(context, tracking),
-              ),
-            ] else
-              DashboardButton(
-                label: 'CALIBRATE ARROW',
-                height: 48,
-                icon: Icons.navigation_outlined,
-                onPressed: tracking.calibrate,
-              ),
+            DashboardReadout(label: 'Step sensor', value: tracking.stepSource),
+            ValueListenableBuilder<double?>(
+              valueListenable: tracking.heading,
+              builder: (_, _, _) {
+                final bearing = tracking.walkingBearing;
+                return DashboardReadout(
+                  label: 'Walking direction',
+                  value: bearing == null
+                      ? 'Unavailable'
+                      : '${bearing.round() % 360}° relative to map north',
+                );
+              },
+            ),
+            const Text(
+              'The direction the phone first points sets local map north.',
+              style: TextStyle(color: DashboardStyle.muted, fontSize: 12),
+            ),
+            DashboardReadout(
+              label: 'Stride length',
+              value: '${tracking.stride.toStringAsFixed(2)} m per step',
+            ),
+            DashboardButton(
+              label: 'CALIBRATE WALKING DIRECTION',
+              height: 48,
+              icon: Icons.navigation_outlined,
+              onPressed: tracking.canCalibrateWalking
+                  ? () => confirmWalkingDirection(context, tracking)
+                  : null,
+            ),
+            DashboardButton(
+              label: 'SET STRIDE LENGTH',
+              height: 48,
+              icon: Icons.straighten,
+              onPressed: () => configureStride(context, tracking),
+            ),
             DashboardButton(
               label: 'SENSOR TEST',
               height: 48,
@@ -406,7 +377,7 @@ class MobileCrewContent extends StatelessWidget {
           children: [
             Text(astronaut.fullName, style: MissionTheme.display(18)),
             DashboardReadout(
-              label: 'Simulated Mars',
+              label: 'Estimated Mars position',
               value: formatMarsPosition(tracking.pose.mars),
             ),
             DashboardReadout(
@@ -437,7 +408,7 @@ class MobileCrewContent extends StatelessWidget {
               DashboardReadout(
                 label: current != null && !fresh
                     ? 'To last known position'
-                    : 'Simulated separation',
+                    : 'Estimated separation',
                 value: formatDemoDistance(
                   tracking.coordinates.distance(navigation.position, point),
                 ),
