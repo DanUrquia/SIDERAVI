@@ -203,7 +203,7 @@ class _MobileNavigationState extends State<MobileNavigation>
         content: Text(
           widget.tracking.mode == TrackingMode.demo
               ? 'This replaces your current destination and begins the simulated return route.'
-              : 'Start direct guidance to Habitat Base using accepted location measurements.',
+              : 'Start direct guidance to Habitat Base. Walk with the phone aligned to your calibrated direction.',
         ),
         actions: [
           TextButton(

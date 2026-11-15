@@ -12,6 +12,9 @@ final class AndroidWalkingFallback {
   bool _usingAcceleration = false;
   int _total = 0;
 
+  bool get evaluating => _stream != null && !_hardwareActive;
+  Map<String, Object?> get summary => _detector.summary();
+
   Map? read(Map? native, double now) {
     if (native == null ||
         native['accelerationFallback'] != true ||

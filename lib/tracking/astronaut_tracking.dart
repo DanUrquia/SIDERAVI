@@ -58,6 +58,8 @@ final class AstronautTracking extends ChangeNotifier {
   int _strideRevision = 0;
   int? measuredSteps;
   int appliedSteps = 0;
+  String? lastUnappliedSteps;
+  bool hasWalkingCalibration = false;
   Timer? _timer;
   Future<void> _pending = Future.value();
   Future<void>? _finishingCapture;
@@ -123,6 +125,8 @@ final class AstronautTracking extends ChangeNotifier {
   double get distanceTraveled =>
       mode == TrackingMode.live ? _stepDistance : _demoDistance;
   double get stride => _steps.stride;
+  Map<String, Object?>? get androidWalkingEvidence =>
+      _androidWalking.evaluating ? _androidWalking.summary : null;
   String get stepSource => switch (pedometer.source) {
     'coreMotionPedometer' => 'Core Motion pedometer',
     'androidStepCounter' => 'Android step counter',
@@ -213,6 +217,7 @@ final class AstronautTracking extends ChangeNotifier {
     }
     final bearing = initialBearing(pose.mars, coordinates.toMars(destination));
     _steps.calibrate(now, yaw, bearing);
+    hasWalkingCalibration = true;
     heading.value = signedTurn(bearing);
     _lastAppliedStep = null;
     telemetry.event(clock(), 'walkingDirectionCalibrated', {
@@ -465,6 +470,14 @@ final class AstronautTracking extends ChangeNotifier {
           navigation.applyStepPosition(
             coordinates.toGrid(displaceOnMars(pose.mars, displacement)),
           );
+        } else if (sample.incrementalSteps > 0) {
+          lastUnappliedSteps = _paused
+              ? 'Mission paused'
+              : !_steps.calibrated
+              ? 'Direction calibration needed'
+              : _steps.bearingAt(sample.end) == null
+              ? 'No matching attitude'
+              : 'Batch overlapped calibration';
         }
         telemetry.pedometer(
           clock(),

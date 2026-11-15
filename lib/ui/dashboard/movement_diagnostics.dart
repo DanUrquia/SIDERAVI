@@ -103,6 +103,16 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   Text('Detected steps · ${tracking.measuredSteps ?? 0}'),
                   Text('Steps applied to position · ${tracking.appliedSteps}'),
                   Text(
+                    'Walking direction · ${tracking.hasWalkingCalibration ? 'Calibrated during this visit' : 'Awaiting confirmation'}',
+                  ),
+                  if (tracking.lastUnappliedSteps case final reason?)
+                    Text('Last unapplied steps · $reason'),
+                  if (tracking.androidWalkingEvidence case final evidence?)
+                    Text(
+                      'Acceleration samples · ${evidence['samples']}  •  '
+                      'Rhythmic steps · ${evidence['confirmed']}',
+                    ),
+                  Text(
                     'Estimated Mars travel · ${tracking.distanceTraveled.toStringAsFixed(1)} m',
                   ),
                 ],

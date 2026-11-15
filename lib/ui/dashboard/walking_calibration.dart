@@ -15,7 +15,7 @@ Future<void> confirmWalkingDirection(
     builder: (context) => AlertDialog(
       title: const Text('Calibrate walking direction'),
       content: Text(
-        'Point the top edge of the phone in the direction you intend to walk. '
+        'Tilt the screen up and point the phone’s top edge in the direction you intend to walk. '
         'Confirm to align that direction with ${label ?? 'your destination'}. '
         'Keep the phone aligned as you walk. Calibrate again if you change how you hold it.',
       ),

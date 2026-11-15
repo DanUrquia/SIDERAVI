@@ -38,7 +38,9 @@ internal class SensorDiagnostics(private val activity: Activity) :
     private val rotation = sensors.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
         ?: sensors.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     private val stepCounter = sensors.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-    private val stepDetector = sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+    // Some MediaTek devices expose separate wake-up and non-wake-up detectors.
+    private val stepDetector = sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR, true)
+        ?: sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
     private val gravitySensor = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY)
     private val linearSensor = sensors.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
     private val stepSupported = stepCounter != null || stepDetector != null ||
