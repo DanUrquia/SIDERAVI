@@ -10,6 +10,7 @@ private final class DiagnosticLocation: NSObject, CLLocationManagerDelegate {
   private var locations: [[String: Any]] = []
   private var heading: CLHeading?
   private var includesHeading = false
+  private var callbackBatch = 0
 
   override init() {
     super.init()
@@ -104,14 +105,20 @@ private final class DiagnosticLocation: NSObject, CLLocationManagerDelegate {
 
   func locationManager(_ manager: CLLocationManager, didUpdateLocations updates: [CLLocation]) {
     guard running else { return }
+    callbackBatch += 1
     for sample in updates {
       var entry: [String: Any] = [
         "latitude": sample.coordinate.latitude,
         "longitude": sample.coordinate.longitude,
         "accuracy": sample.horizontalAccuracy,
         "time": sample.timestamp.timeIntervalSince1970,
-        "received": Date().timeIntervalSince1970
+        "received": Date().timeIntervalSince1970,
+        "callbackBatch": callbackBatch
       ]
+      if let source = sample.sourceInformation {
+        entry["simulatedBySoftware"] = source.isSimulatedBySoftware
+        entry["producedByAccessory"] = source.isProducedByAccessory
+      }
       if sample.speed >= 0 { entry["speed"] = sample.speed }
       if sample.speedAccuracy >= 0 { entry["speedAccuracy"] = sample.speedAccuracy }
       if sample.course >= 0 { entry["course"] = sample.course }
@@ -274,14 +281,18 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       let motionData = motion.snapshot(orientation: orientation)
       result(locationData.merging(motionData) { _, latest in latest }.merging([
         "model": modelIdentifier,
-        "os": UIDevice.current.systemVersion
+        "os": UIDevice.current.systemVersion,
+        "stepCounting": CMPedometer.isStepCountingAvailable(),
+        "pedometerDistance": CMPedometer.isDistanceAvailable(),
+        "pedometerAuthorization": CMPedometer.authorizationStatus().rawValue
       ]) { _, latest in latest })
-    case "export":
+    case "export", "exportMovement":
       guard let content = call.arguments as? String else {
         result(FlutterError(code: "invalid_report", message: "Report is unavailable.", details: nil))
         return
       }
-      shareReport(content, result: result)
+      let kind = call.method == "exportMovement" ? "movement" : "sensor"
+      shareReport(content, kind: kind, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -322,14 +333,14 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
   }
 
   /// Writes the report only for an explicit share and removes the temporary copy afterward.
-  private func shareReport(_ report: String, result: @escaping FlutterResult) {
+  private func shareReport(_ report: String, kind: String, result: @escaping FlutterResult) {
     guard !exporting, let window, var presenter = window.rootViewController else {
       result(FlutterError(code: "share_unavailable", message: "Report sharing is unavailable.", details: nil))
       return
     }
     while let presented = presenter.presentedViewController { presenter = presented }
     let file = FileManager.default.temporaryDirectory
-      .appendingPathComponent("sidera-sensor-report-\(UUID().uuidString).json")
+      .appendingPathComponent("sidera-\(kind)-report-\(UUID().uuidString).json")
     do {
       try report.write(to: file, atomically: true, encoding: .utf8)
     } catch {

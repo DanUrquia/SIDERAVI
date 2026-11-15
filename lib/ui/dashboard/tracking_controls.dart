@@ -12,11 +12,13 @@ class TrackingControls extends StatelessWidget {
     required this.tracking,
     required this.presence,
     required this.onJoin,
+    required this.onMovementLog,
   });
 
   final AstronautTracking tracking;
   final MissionPresence presence;
   final VoidCallback? onJoin;
+  final VoidCallback onMovementLog;
 
   @override
   Widget build(BuildContext context) => Wrap(
@@ -68,6 +70,14 @@ class TrackingControls extends StatelessWidget {
               : DashboardStyle.muted,
           fontWeight: FontWeight.w700,
         ),
+      ),
+      DashboardButton(
+        label: tracking.requiresRebaseline && tracking.mode == TrackingMode.live
+            ? 'REVIEW POSITION HOLD'
+            : 'MOVEMENT LOG',
+        height: 46,
+        icon: Icons.receipt_long_outlined,
+        onPressed: onMovementLog,
       ),
       if (presence.accessDenied)
         const Text('Account does not have access to this mission slot.'),

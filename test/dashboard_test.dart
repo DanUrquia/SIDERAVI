@@ -133,6 +133,49 @@ void main() {
     expect(current.navigation.target, target);
   });
 
+  testWidgets('Movement Log captures a dashboard session and exports locally', (
+    tester,
+  ) async {
+    const channel = MethodChannel('sidera_vi/sensor_diagnostics');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    String? report;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'exportMovement') report = call.arguments as String;
+      if (call.method == 'snapshot') {
+        return <String, Object?>{'stepCounting': false};
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final map = await _launch(tester);
+    expect(map.tracking.telemetry.recording, isFalse);
+    await tester.tap(find.text('MOVEMENT LOG'));
+    await tester.pumpAndSettle();
+    expect(find.text('Live Movement Diagnostics'), findsOneWidget);
+    expect(find.text('Step counting · Unavailable'), findsOneWidget);
+    await tester.tap(find.text('START CAPTURE'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    expect(map.tracking.telemetry.recording, isTrue);
+    await tester.tap(find.text('LIVE SENSORS'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MOVEMENT LOG'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('REBASELINE'));
+    await tester.pumpAndSettle();
+    expect(map.navigation.position, map.navigation.map.base);
+    await tester.tap(find.text('EXPORT JSON'));
+    await tester.pumpAndSettle();
+    expect(report, contains('"event": "modeChanged"'));
+    expect(report, contains('"reason": "operatorRebaseline"'));
+    expect(map.tracking.telemetry.recording, isFalse);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets(
     'Follow recenters the marker, preserves zoom and releases on pan',
     (tester) async {

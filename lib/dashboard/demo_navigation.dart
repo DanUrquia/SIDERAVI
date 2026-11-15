@@ -24,6 +24,14 @@ final class DemoPing {
   final Offset position;
 }
 
+/// Identifies the writer responsible for an actual simulated position change.
+enum NavigationPositionSource {
+  coreLocation,
+  demoMovement,
+  firebaseRestore,
+  localNavigation,
+}
+
 /// Owns one mission's offline position, route, pings, and demonstration SOS.
 final class DemoNavigation extends ChangeNotifier {
   /// Initializes at the mission's configured astronaut position.
@@ -33,6 +41,8 @@ final class DemoNavigation extends ChangeNotifier {
   final MissionMapConfig map;
   final List<DemoPing> _pings = [];
   Offset _position;
+  NavigationPositionSource _positionSource =
+      NavigationPositionSource.localNavigation;
   Offset? _target;
   String? _targetLabel;
   double? _heading;
@@ -42,6 +52,7 @@ final class DemoNavigation extends ChangeNotifier {
   bool _acceptsDemoMovement = true;
 
   Offset get position => _position;
+  NavigationPositionSource get positionSource => _positionSource;
   Offset? get target => _target;
   String? get targetLabel => _targetLabel;
   bool get paused => _paused;
@@ -119,9 +130,12 @@ final class DemoNavigation extends ChangeNotifier {
   }
 
   /// Updates the shared simulated coordinate without restarting a demo leg.
-  void setTrackedPosition(Offset point) {
+  void setTrackedPosition(
+    Offset point, {
+    NavigationPositionSource source = NavigationPositionSource.localNavigation,
+  }) {
     if (_position == point) return;
-    _position = point;
+    _updatePosition(point, source);
     _started = false;
     notifyListeners();
   }
@@ -137,7 +151,9 @@ final class DemoNavigation extends ChangeNotifier {
 
   /// Applies the motion preference when starting a leg.
   void _startRoute(bool instant) {
-    if (instant) _position = _target!;
+    if (instant) {
+      _updatePosition(_target!, NavigationPositionSource.demoMovement);
+    }
     _started = !arrived;
   }
 
@@ -155,12 +171,20 @@ final class DemoNavigation extends ChangeNotifier {
     final delta = target - position;
     final step = elapsed.inMicroseconds / Duration.microsecondsPerSecond * .13;
     if (delta.distance <= step) {
-      _position = target;
+      _updatePosition(target, NavigationPositionSource.demoMovement);
       _started = false;
     } else {
-      _position += delta * (step / delta.distance);
+      _updatePosition(
+        position + delta * (step / delta.distance),
+        NavigationPositionSource.demoMovement,
+      );
     }
     notifyListeners();
+  }
+
+  void _updatePosition(Offset point, NavigationPositionSource source) {
+    _position = point;
+    _positionSource = source;
   }
 
   /// Places a local marker at the destination or the current position.

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 
@@ -8,6 +9,7 @@ import '../sensors/sensor_measurements.dart';
 import '../sensors/sensor_service.dart';
 import 'live_movement.dart';
 import 'mission_presence.dart';
+import 'movement_telemetry.dart';
 import 'tracking_geometry.dart';
 
 /// Owns local sensor state for one dashboard, independently of the network.
@@ -18,6 +20,8 @@ final class AstronautTracking extends ChangeNotifier {
     required this.sensors,
     this.clock = DateTime.now,
   }) {
+    _lastPosition = navigation.position;
+    _lastRoute = _routeState;
     navigation.addListener(_navigationChanged);
   }
 
@@ -26,9 +30,16 @@ final class AstronautTracking extends ChangeNotifier {
   final SensorService sensors;
   final DateTime Function() clock;
   final heading = ValueNotifier<double?>(null);
+  final telemetry = MovementTelemetry();
 
   static const _interval = Duration(milliseconds: 100);
   final _movement = LiveMovement();
+  late Offset _lastPosition;
+  late ({Offset? target, bool moving, bool paused, bool sos}) _lastRoute;
+  ConnectionStatus _connection = ConnectionStatus.offline;
+  int _locationEpoch = 0;
+  bool _restoreReviewed = false;
+  bool _positionChanged = false;
   Timer? _timer;
   Future<void> _pending = Future.value();
   bool _reading = false;
@@ -55,10 +66,71 @@ final class AstronautTracking extends ChangeNotifier {
     quality: quality,
   );
 
-  /// Restores a previously shared position if this dashboard is still at base.
+  /// Restores a previously shared pose once, before the astronaut moves locally.
   void restore(AstronautPose previous) {
-    if (!navigation.atBase || navigation.moving) return;
-    navigation.setTrackedPosition(coordinates.toGrid(previous.mars));
+    final before = pose.mars;
+    final atInitialBase =
+        navigation.atBase && !_positionChanged && !navigation.moving;
+    final outcome = _restoreReviewed
+        ? 'alreadyReviewed'
+        : !atInitialBase
+        ? 'localPositionInUse'
+        : coordinates.distance(
+                navigation.position,
+                coordinates.toGrid(previous.mars),
+              ) <
+              .00001
+        ? 'alreadyAtSavedPosition'
+        : 'applied';
+    _restoreReviewed = true;
+    telemetry.event(clock(), 'firebaseRestore', {
+      'outcome': outcome,
+      'before': marsPosition(before),
+      'saved': marsPosition(previous.mars),
+    });
+    if (outcome != 'applied') return;
+    _resetEarth('firebaseRestore');
+    navigation.setTrackedPosition(
+      coordinates.toGrid(previous.mars),
+      source: NavigationPositionSource.firebaseRestore,
+    );
+  }
+
+  bool get requiresRebaseline => _movement.requiresRebaseline;
+
+  /// Allows the next fresh Earth fix to set a baseline without moving the marker.
+  void rebaseline() {
+    if (mode != TrackingMode.live || _disposed) return;
+    _movement.rebaseline(_seconds);
+    _resetEarth('operatorRebaseline');
+    notifyListeners();
+  }
+
+  /// Opens an opt-in timeline for the current mission dashboard.
+  void startCapture(String mission) => telemetry.start(clock(), {
+    'mission': mission,
+    'mode': mode.name,
+    'quality': quality.name,
+    'connection': _connection.name,
+    'position': marsPosition(pose.mars),
+    'requiresRebaseline': requiresRebaseline,
+  });
+
+  /// Freezes the capture and opens the native local report export.
+  Future<void> exportCapture() {
+    telemetry.stop(clock());
+    return sensors.command('exportMovement', telemetry.export());
+  }
+
+  /// Records connectivity transitions without changing either tracking baseline.
+  void noteConnection(ConnectionStatus status) {
+    if (status == _connection) return;
+    telemetry.event(clock(), 'connectionChanged', {
+      'from': _connection.name,
+      'to': status.name,
+      'position': marsPosition(pose.mars),
+    });
+    _connection = status;
   }
 
   /// Starts Core Motion now and location only if live mode was selected.
@@ -69,7 +141,7 @@ final class AstronautTracking extends ChangeNotifier {
     _reference = null;
     _lastMotionTime = null;
     _motionStarted = _seconds;
-    _resetEarth();
+    _resetEarth('foregroundResume');
     final epoch = ++_epoch;
     _timer = Timer.periodic(_interval, (_) => _poll());
     return _queue(() async {
@@ -87,16 +159,22 @@ final class AstronautTracking extends ChangeNotifier {
     _active = false;
     _epoch++;
     _timer?.cancel();
-    _resetEarth();
+    _resetEarth('foregroundSuspend');
     return _queue(() => sensors.command('stop'));
   }
 
   /// Changes the movement source without changing the position on the map.
   Future<void> selectMode(TrackingMode next) {
     if (_disposed || mode == next) return _pending;
+    final previous = mode;
     mode = next;
+    telemetry.event(clock(), 'modeChanged', {
+      'from': previous.name,
+      'to': next.name,
+      'position': marsPosition(pose.mars),
+    });
     navigation.enableDemoMovement(next == TrackingMode.demo);
-    _resetEarth();
+    _resetEarth('modeChanged');
     notifyListeners();
     final epoch = _epoch;
     return _queue(() async {
@@ -136,11 +214,17 @@ final class AstronautTracking extends ChangeNotifier {
       _queue(() async {
         try {
           if (!_current(epoch)) return;
+          final locationEpoch = _locationEpoch;
           final batch = await sensors.snapshot();
           if (!_current(epoch)) return;
           final now = _seconds;
+          telemetry.updateCapabilities(batch);
           _orientation(batch['orientations'] as List? ?? const [], now);
-          if (mode == TrackingMode.live) _location(batch, now);
+          if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
+            _location(batch, now);
+          } else {
+            _recordRejected(batch, MovementReason.inactive);
+          }
         } finally {
           _reading = false;
         }
@@ -181,6 +265,7 @@ final class AstronautTracking extends ChangeNotifier {
   void _location(Map batch, double now) {
     final authorization = batch['authorization'];
     if (_paused) {
+      _recordRejected(batch, MovementReason.inactive);
       _setQuality(PositionQuality.paused);
       return;
     }
@@ -188,25 +273,37 @@ final class AstronautTracking extends ChangeNotifier {
         authorization == 'Denied' ||
         authorization == 'Restricted' ||
         (authorization == 'Authorized' && batch['precise'] != true)) {
-      _confirmed = false;
-      _movement.reset(now);
+      if (quality != PositionQuality.unavailable) {
+        _resetEarth('locationUnavailable');
+      }
+      _recordRejected(batch, MovementReason.unavailable);
       _setQuality(PositionQuality.unavailable);
       return;
     }
     final samples = (batch['locations'] as List? ?? const []).whereType<Map>();
+    final wasHeld = requiresRebaseline;
     if (samples.isNotEmpty) {
       _confirmed = false;
       for (final sample in samples) {
-        final step = _movement.observe(sample, now);
+        final decision = _movement.observe(sample, now);
+        telemetry.observation(clock(), sample, decision);
+        final step = decision.step;
         if (step == null) continue;
         final displaced = displaceOnMars(pose.mars, step);
         _confirmed = true;
-        navigation.setTrackedPosition(coordinates.toGrid(displaced));
+        // Publish the new pose with the matching quality in the same update.
+        _setQuality(PositionQuality.accepted);
+        navigation.setTrackedPosition(
+          coordinates.toGrid(displaced),
+          source: NavigationPositionSource.coreLocation,
+        );
       }
     }
     final fresh = _movement.fresh(now);
     _setQuality(
-      _confirmed && fresh
+      requiresRebaseline
+          ? PositionQuality.uncertain
+          : _confirmed && fresh
           ? PositionQuality.accepted
           : fresh ||
                 samples.isNotEmpty ||
@@ -215,22 +312,70 @@ final class AstronautTracking extends ChangeNotifier {
           ? PositionQuality.uncertain
           : PositionQuality.waiting,
     );
+    if (wasHeld != requiresRebaseline && !_disposed) notifyListeners();
   }
+
+  /// Includes rejected buffered observations in an active local capture.
+  void _recordRejected(Map batch, MovementReason reason) {
+    if (!telemetry.recording) return;
+    for (final sample
+        in (batch['locations'] as List? ?? const []).whereType<Map>()) {
+      telemetry.observation(clock(), sample, MovementDecision(reason));
+    }
+  }
+
+  ({Offset? target, bool moving, bool paused, bool sos}) get _routeState => (
+    target: navigation.target,
+    moving: navigation.moving,
+    paused: navigation.paused,
+    sos: navigation.sos,
+  );
 
   void _navigationChanged() {
+    final position = navigation.position;
+    if (_lastPosition != position) {
+      _positionChanged = true;
+      telemetry.position(
+        clock(),
+        navigation.positionSource.name,
+        coordinates.toMars(_lastPosition),
+        coordinates.toMars(position),
+      );
+      _lastPosition = position;
+    }
+    final route = _routeState;
+    if (_lastRoute != route) {
+      _lastRoute = route;
+      telemetry.event(clock(), 'localNavigation', {
+        'moving': route.moving,
+        'paused': route.paused,
+        'sos': route.sos,
+        'destination': route.target == null
+            ? null
+            : marsPosition(coordinates.toMars(route.target!)),
+      });
+    }
     if (_paused == navigation.paused) return;
     _paused = navigation.paused;
-    _resetEarth();
+    _resetEarth(_paused ? 'explorationPaused' : 'explorationResumed');
   }
 
-  void _resetEarth() {
+  void _resetEarth(String reason) {
+    _locationEpoch++;
     _confirmed = false;
     _movement.reset(_seconds);
+    telemetry.event(clock(), 'earthWindowReset', {
+      'reason': reason,
+      'holdsPosition': requiresRebaseline,
+      'position': marsPosition(pose.mars),
+    });
     _setQuality(
       mode == TrackingMode.demo
           ? PositionQuality.simulated
           : _paused
           ? PositionQuality.paused
+          : requiresRebaseline
+          ? PositionQuality.uncertain
           : PositionQuality.waiting,
     );
   }
@@ -263,6 +408,7 @@ final class AstronautTracking extends ChangeNotifier {
     navigation.removeListener(_navigationChanged);
     unawaited(suspend());
     heading.dispose();
+    telemetry.dispose();
     super.dispose();
   }
 }

@@ -20,6 +20,7 @@ import 'dashboard_actions.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
 import 'demo_terrain_map.dart';
+import 'movement_diagnostics.dart';
 import 'tracking_controls.dart';
 
 /// Hosts one astronaut's interactive offline mission scenario.
@@ -84,9 +85,13 @@ class _MissionDashboardState extends State<MissionDashboard>
       restore: _tracking.restore,
     );
     _navigation.addListener(_presence.pulse);
+    _presence.addListener(_noteConnection);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_tracking.resume());
   }
+
+  /// Records connection transitions alongside local movement diagnostics.
+  void _noteConnection() => _tracking.noteConnection(_presence.status);
 
   /// Runs the ticker only while a route is actively moving.
   void _syncMovement() {
@@ -213,6 +218,7 @@ class _MissionDashboardState extends State<MissionDashboard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _navigation.removeListener(_presence.pulse);
+    _presence.removeListener(_noteConnection);
     _presence.dispose();
     _tracking.dispose();
     _navigation.dispose();
@@ -307,6 +313,8 @@ class _MissionDashboardState extends State<MissionDashboard>
                     tracking: _tracking,
                     presence: _presence,
                     onJoin: _firebase == null ? null : _joinCrew,
+                    onMovementLog: () =>
+                        showMovementDiagnostics(context, _tracking, mission.id),
                   ),
                   Expanded(
                     child: LayoutBuilder(

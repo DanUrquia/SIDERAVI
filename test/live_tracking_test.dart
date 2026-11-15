@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,33 +77,156 @@ void main() {
     },
   );
 
+  test('Stationary drift and short walks inside uncertainty hold position', () {
+    final sensor = LiveMovement()..reset(100);
+    expect(
+      sensor.observe(_meters(0, 99), 100).reason,
+      MovementReason.oldWindow,
+    );
+    expect(sensor.observe(_meters(0, 101), 120).reason, MovementReason.stale);
+    expect(
+      sensor.observe(_meters(0, 101, accuracy: 51), 102).reason,
+      MovementReason.coarse,
+    );
+    expect(
+      sensor.observe(_meters(0, 102), 102).reason,
+      MovementReason.baseline,
+    );
+    for (final (time, drift) in [
+      (107.0, 5.0),
+      (111.0, -3.0),
+      (117.0, 6.0),
+      (126.0, 10.0),
+    ]) {
+      final decision = sensor.observe(
+        _meters(drift, time, walking: true),
+        time,
+      );
+      expect(decision.reason, MovementReason.uncertain);
+      expect(decision.step, isNull);
+    }
+    expect(sensor.fresh(126), isTrue);
+    expect(sensor.fresh(142), isFalse);
+    expect(
+      sensor.observe(_meters(250, 160), 160).reason,
+      MovementReason.gapBaseline,
+    );
+    expect(sensor.requiresRebaseline, isFalse);
+  });
+
+  test('Replayed 202 m cluster holds until the operator rebaselines', () {
+    final sensor = LiveMovement()..reset(100);
+    for (final time in [100.0, 110.0, 120.0, 130.0, 140.0]) {
+      expect(sensor.observe(_meters(0, time, accuracy: 30), time).step, isNull);
+    }
+    final first = sensor.observe(_meters(202, 150, accuracy: 30), 150);
+    expect(first.reason, MovementReason.jump);
+    expect(first.distance, closeTo(202, .01));
+    expect(first.uncertainty, 60);
+    expect(first.step, isNull);
+    expect(
+      sensor.observe(_meters(202, 152, accuracy: 30), 152).reason,
+      MovementReason.held,
+    );
+    expect(sensor.requiresRebaseline, isTrue);
+    sensor.reset(170); // Mode toggle or app foreground restart.
+    expect(sensor.observe(_meters(202, 171), 171).reason, MovementReason.held);
+    sensor.rebaseline(172);
+    expect(
+      sensor.observe(_meters(202, 171), 172).reason,
+      MovementReason.oldWindow,
+    );
+    expect(
+      sensor.observe(_meters(203, 173), 173).reason,
+      MovementReason.baseline,
+    );
+    expect(sensor.requiresRebaseline, isFalse);
+  });
+
   test(
-    'Uncertainty, outliers, stale and coarse fixes do not move the astronaut',
+    'A large, optimistic jump cannot pass on speed, course, or another fix',
     () {
       final sensor = LiveMovement()..reset(100);
-      expect(sensor.observe(_fix(0, 99), 100), isNull);
-      expect(sensor.observe(_fix(0, 101), 120), isNull);
-      expect(sensor.observe(_fix(0, 101, accuracy: 51), 102), isNull);
-      expect(sensor.observe(_fix(0, 102), 102), isNull); // Baseline.
-      expect(sensor.fresh(102), isTrue);
+      sensor.observe(_meters(0, 100, accuracy: 1), 100);
+      final decision = sensor.observe(
+        _meters(65, 120, accuracy: 1, walking: true),
+        120,
+      );
+      expect(decision.reason, MovementReason.jump);
+      expect(decision.step, isNull);
       expect(
-        sensor.observe(_fix(.00005, 104), 104),
-        isNull,
-      ); // 5.6 m, accuracy sum 20 m.
-      expect(sensor.observe(_fix(.1, 106), 106), isNull); // Implausible jump.
+        sensor
+            .observe(_meters(68, 123, accuracy: 1, walking: true), 123)
+            .reason,
+        MovementReason.held,
+      );
+    },
+  );
+
+  test('An optimistic correlated cluster lacks progressive evidence', () {
+    final sensor = LiveMovement()..reset(100);
+    sensor.observe(_meters(0, 100, accuracy: 3), 100);
+    expect(
+      sensor.observe(_meters(26, 110, accuracy: 3), 110).reason,
+      MovementReason.uncorroborated,
+    );
+    expect(
+      sensor
+          .observe(_meters(26, 111, accuracy: 3, walking: true, batch: 9), 111)
+          .reason,
+      MovementReason.pending,
+    );
+    expect(
+      sensor
+          .observe(_meters(29, 112, accuracy: 3, walking: true, batch: 9), 112)
+          .reason,
+      MovementReason.sameCallback,
+    );
+    for (final time in [114.0, 116.0, 118.0]) {
+      final decision = sensor.observe(
+        _meters(26, time, accuracy: 3, walking: true),
+        time,
+      );
+      expect(decision.reason, MovementReason.noProgress);
+      expect(decision.step, isNull);
+    }
+    expect(
+      sensor.observe({
+        ..._meters(35, 119, accuracy: 3, walking: true),
+        'simulatedBySoftware': true,
+      }, 119).reason,
+      MovementReason.simulated,
+    );
+  });
+
+  test(
+    'Consistent fixes beyond uncertainty apply only the supported portion once',
+    () {
+      final sensor = LiveMovement()..reset(100);
+      sensor.observe(_meters(0, 100, accuracy: 4), 100);
+      for (final (time, distance) in [(110.0, 12.0), (114.0, 19.0)]) {
+        expect(
+          sensor
+              .observe(
+                _meters(distance, time, walking: true, accuracy: 4),
+                time,
+              )
+              .reason,
+          MovementReason.pending,
+        );
+      }
+      final last = _meters(26, 118, walking: true, accuracy: 4);
+      final result = sensor.observe(last, 118);
+      expect(result.reason, MovementReason.accepted);
+      expect(result.step?.dx, closeTo(18, .01));
+      expect(result.step?.dy, closeTo(0, .001));
+      expect(result.distance, closeTo(26, .01));
+      expect(result.uncertainty, 8);
+      expect(sensor.observe(last, 119).reason, MovementReason.repeated);
       expect(
-        sensor.observe(_fix(.0003, 112), 112),
+        sensor.observe(_meters(26, 120, walking: true, accuracy: 4), 120).step,
         isNull,
-      ); // Await confirmation.
-      expect(sensor.observe(_fix(.0003, 112), 113), isNull); // Duplicate.
-      final step = sensor.observe(_fix(.00031, 114), 114);
-      expect(step?.dx, closeTo(34.47, .02));
-      expect(step?.dy, closeTo(0, .001));
-      expect(sensor.fresh(135), isFalse);
-      expect(
-        sensor.observe(_fix(.02, 155), 155),
-        isNull,
-      ); // Rebaseline after interruption.
+      );
     },
   );
 
@@ -133,18 +257,34 @@ void main() {
         expect(nav.moving, isFalse);
         expect(nav.canNavigate, isFalse);
         now = now.add(const Duration(seconds: 10));
-        sensors.locations.addAll([_fix(0, 101), _fix(.00004, 103)]);
+        sensors.locations.addAll([_meters(0, 101), _meters(4, 103)]);
         await _tick(tester);
         expect(tracking.quality, PositionQuality.uncertain);
         expect(nav.position, nav.map.base);
-        sensors.locations.addAll([_fix(.00030, 108), _fix(.00031, 110)]);
+        PositionQuality? publishedQuality;
+        nav.addListener(() {
+          if (nav.positionSource == NavigationPositionSource.coreLocation) {
+            publishedQuality = tracking.quality;
+          }
+        });
+        now = now.add(const Duration(seconds: 10));
+        sensors.locations.addAll([
+          _meters(23, 111, walking: true),
+          _meters(28, 115, walking: true),
+          _meters(34, 119, walking: true),
+        ]);
         await _tick(tester);
         expect(tracking.quality, PositionQuality.accepted);
         expect(
           tracking.coordinates.distance(nav.map.base, nav.position),
-          closeTo(34.47, .03),
+          closeTo(14, .03),
         );
+        expect(nav.positionSource, NavigationPositionSource.coreLocation);
+        expect(publishedQuality, PositionQuality.accepted);
         final position = nav.position;
+        sensors.locations.add(_meters(34, 119, walking: true));
+        await _tick(tester);
+        expect(nav.position, position);
 
         await tracking.selectMode(TrackingMode.demo);
         expect(sensors.commands.last, 'stopLocation');
@@ -157,6 +297,91 @@ void main() {
           'startMotion',
         ]);
         expect(nav.position, position);
+      } finally {
+        tracking.dispose();
+        nav.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'Restoration, a position hold, and reconnect preserve provenance',
+    (tester) async {
+      final nav = DemoNavigation(missionMaps['jezero']!, startAtBase: true);
+      final sensors = _Sensors();
+      var now = DateTime.fromMillisecondsSinceEpoch(100000);
+      final coordinates = MissionCoordinates(marsMissions.first);
+      final tracking = AstronautTracking(
+        navigation: nav,
+        coordinates: coordinates,
+        sensors: sensors,
+        clock: () => now,
+      );
+      try {
+        await tracking.resume();
+        tracking.startCapture('jezero');
+        final restored = coordinates.toMars(nav.map.landmarks.first.position);
+        tracking.noteConnection(ConnectionStatus.connected);
+        tracking.restore((
+          mars: restored,
+          heading: null,
+          mode: TrackingMode.demo,
+          quality: PositionQuality.simulated,
+        ));
+        final trusted = nav.position;
+        expect(
+          (coordinates.toMars(trusted) - restored).distance,
+          lessThan(.000001),
+        );
+        expect(nav.positionSource, NavigationPositionSource.firebaseRestore);
+
+        await tracking.selectMode(TrackingMode.live);
+        now = DateTime.fromMillisecondsSinceEpoch(107000);
+        sensors.locations.addAll([_meters(0, 101), _meters(202, 106)]);
+        await _tick(tester);
+        expect(tracking.requiresRebaseline, isTrue);
+        expect(tracking.quality, PositionQuality.uncertain);
+        expect(nav.position, trusted);
+
+        tracking.noteConnection(ConnectionStatus.reconnecting);
+        tracking.noteConnection(ConnectionStatus.connected);
+        tracking.restore(_pose());
+        expect(nav.position, trusted);
+        await tracking.suspend();
+        await tracking.resume();
+        expect(tracking.requiresRebaseline, isTrue);
+        expect(nav.position, trusted);
+        tracking.rebaseline();
+        now = DateTime.fromMillisecondsSinceEpoch(110000);
+        sensors.locations.add(_meters(205, 109));
+        await _tick(tester);
+        expect(tracking.requiresRebaseline, isFalse);
+        expect(nav.position, trusted);
+
+        await tracking.exportCapture();
+        final report = jsonDecode(sensors.exported!) as Map;
+        final events = (report['events'] as List).cast<Map>();
+        expect(report['schema'], 'sidera-movement-v1');
+        expect(tracking.telemetry.recording, isFalse);
+        expect(
+          events
+              .where((item) => item['event'] == 'positionChanged')
+              .single['source'],
+          'firebaseRestore',
+        );
+        final fix = events.where((item) => item['decision'] == 'jump').single;
+        expect(fix['observedMeters'], closeTo(202, .01));
+        expect(fix['appliedMarsMeters'], 0);
+        expect(fix['earthFix'], containsPair('callbackBatch', 106));
+        expect(fix['baseline'], containsPair('time', 101));
+        expect(
+          events.where((item) => item['outcome'] == 'alreadyReviewed'),
+          hasLength(1),
+        );
+        expect(
+          events.where((item) => item['reason'] == 'operatorRebaseline'),
+          hasLength(1),
+        );
       } finally {
         tracking.dispose();
         nav.dispose();
@@ -341,11 +566,24 @@ void main() {
 }
 
 /// A synthetic Earth fix near the equator for predictable eastward movement.
-Sample _fix(double longitude, double time, {double accuracy = 10}) => {
-  'latitude': 0,
-  'longitude': longitude,
+Sample _meters(
+  double meters,
+  double time, {
+  double accuracy = 10,
+  bool walking = false,
+  int? batch,
+}) => {
+  'latitude': 0.0,
+  'longitude': meters / 111195,
   'time': time,
   'accuracy': accuracy,
+  'callbackBatch': batch ?? time.round(),
+  if (walking) ...{
+    'speed': 1.4,
+    'speedAccuracy': .3,
+    'course': 90,
+    'courseAccuracy': 10,
+  },
 };
 
 /// Simulated session data only.
@@ -365,10 +603,13 @@ final class _Sensors implements SensorService {
   final commands = <String>[];
   final locations = <Sample>[];
   final motion = <Sample>[];
+  String? exported;
 
   @override
-  Future<void> command(String name, [String? argument]) async =>
-      commands.add(name);
+  Future<void> command(String name, [String? argument]) async {
+    commands.add(name);
+    if (name == 'exportMovement') exported = argument;
+  }
 
   @override
   Future<Sample> snapshot() async {

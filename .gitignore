@@ -63,3 +63,4 @@ app.*.map.json
 
 # Private diagnostic exports
 sidera-sensor-report-*.json
+sidera-movement-report-*.json
