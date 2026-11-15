@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 
 import '../sensors/sensor_measurements.dart';
+import 'crew_signals.dart';
 
 /// The position source retained with each simulated pose.
 enum TrackingMode {
@@ -68,6 +69,14 @@ abstract interface class PresenceConnection {
   void close();
 }
 
+/// Signal operations share the same connection, credentials and mission scope.
+abstract interface class CrewSignalConnection implements PresenceConnection {
+  Stream<CrewSignals> get signalSnapshots;
+  Future<void> sendPin(AstronautPose pose);
+  Future<bool> startSos(Offset mars);
+  Future<bool> finishSos(String eventId, SosState state);
+}
+
 /// Indicates that the authenticated user has no access to this mission slot.
 final class PresenceAccessDenied implements Exception {
   const PresenceAccessDenied();
@@ -100,6 +109,12 @@ final class MissionPresence extends ChangeNotifier {
   static const _orientationInterval = Duration(milliseconds: 250);
 
   PresenceSnapshot crew = const {};
+  CrewSos? sos;
+  Map<String, CrewPin> _pins = const {};
+  Map<String, CrewPin> pins = const {};
+  bool _signalsReady = false;
+  Future<CrewActionResult>? _command;
+  StreamSubscription<CrewSignals>? _signalSubscription;
   ConnectionStatus status = ConnectionStatus.offline;
   ConnectPresence? _connect;
   PresenceConnection? _connection;
@@ -142,15 +157,26 @@ final class MissionPresence extends ChangeNotifier {
   /// Responds promptly to accepted movement and refreshes stale UI state.
   void pulse() {
     if (!_active || _disposed) return;
+    final now = clock();
+    final currentPins = {
+      for (final entry in _pins.entries)
+        if (!now.isBefore(
+              entry.value.updated.subtract(const Duration(seconds: 5)),
+            ) &&
+            now.difference(entry.value.updated) < crewPinLifetime)
+          entry.key: entry.value,
+    };
     final stale = !crew.values.any(isFresh);
-    if (stale != _stale) {
+    if (stale != _stale || !mapEquals(currentPins, pins)) {
       _stale = stale;
+      pins = Map.unmodifiable(currentPins);
       notifyListeners();
     }
     final connection = _connection;
     if (status != ConnectionStatus.connected ||
         connection == null ||
-        _writing != null) {
+        _writing != null ||
+        _command != null) {
       return;
     }
     final current = pose();
@@ -196,6 +222,71 @@ final class MissionPresence extends ChangeNotifier {
     }
   }
 
+  bool get canSendSignals =>
+      _signalsReady && status == ConnectionStatus.connected;
+
+  Future<CrewActionResult> sendPin() {
+    final captured = pose();
+    return _send((connection) async {
+      await connection.sendPin(captured);
+      return true;
+    });
+  }
+
+  Future<CrewActionResult> startSos() {
+    final captured = pose();
+    return _send((connection) async {
+      await connection.publish(captured, online: true);
+      return connection.startSos(captured.mars);
+    });
+  }
+
+  Future<CrewActionResult> finishSos(
+    String eventId,
+    SosState state, {
+    AstronautPose? arrival,
+  }) => _send((connection) async {
+    if (arrival != null) await connection.publish(arrival, online: true);
+    return connection.finishSos(eventId, state);
+  });
+
+  Future<CrewActionResult> _send(
+    Future<bool> Function(CrewSignalConnection) operation,
+  ) async {
+    final connection = _connection;
+    if (!canSendSignals || connection is! CrewSignalConnection) {
+      return CrewActionResult.offline;
+    }
+    if (_command != null) return CrewActionResult.busy;
+    final epoch = _epoch;
+    final command = _runCommand(connection, epoch, operation);
+    _command = command;
+    final result = await command;
+    if (identical(_command, command)) _command = null;
+    if (_current(epoch)) {
+      // A fresh heartbeat corrects any pose change since the captured command.
+      _lastPose = null;
+      pulse();
+    }
+    return result;
+  }
+
+  Future<CrewActionResult> _runCommand(
+    CrewSignalConnection connection,
+    int epoch,
+    Future<bool> Function(CrewSignalConnection) operation,
+  ) async {
+    await _writing;
+    if (!_current(epoch)) return CrewActionResult.offline;
+    try {
+      return await operation(connection)
+          ? CrewActionResult.sent
+          : CrewActionResult.changed;
+    } catch (_) {
+      return CrewActionResult.failed;
+    }
+  }
+
   /// Opens a stream and restores a stored pose once after an app restart.
   Future<void> _begin() async {
     final epoch = ++_epoch;
@@ -209,6 +300,24 @@ final class MissionPresence extends ChangeNotifier {
         return;
       }
       _connection = connection;
+      if (connection is CrewSignalConnection) {
+        _signalSubscription = connection.signalSnapshots.listen(
+          (signals) {
+            if (!_current(epoch)) return;
+            _signalsReady = true;
+            _pins = signals.pins;
+            sos = signals.sos;
+            pulse();
+            notifyListeners();
+          },
+          onError: (Object error) {
+            if (_current(epoch)) _failed(error);
+          },
+          onDone: () {
+            if (_current(epoch)) _reconnect();
+          },
+        );
+      }
       _subscription = connection.snapshots.listen(
         (snapshot) {
           if (!_current(epoch)) return;
@@ -271,8 +380,13 @@ final class MissionPresence extends ChangeNotifier {
   void suspend() {
     _active = false;
     _tick?.cancel();
+    _pins = const {};
+    pins = const {};
     final oldConnection = _connection;
-    final oldWrite = _writing;
+    final oldWrite = Future.wait<void>([
+      if (_writing case final pending?) pending,
+      if (_command case final pending?) pending.then<void>((_) {}),
+    ]);
     final finalPose = pose();
     _detach(close: false);
     if (oldConnection != null &&
@@ -305,7 +419,11 @@ final class MissionPresence extends ChangeNotifier {
     _epoch++;
     _retry?.cancel();
     unawaited(_subscription?.cancel());
+    unawaited(_signalSubscription?.cancel());
     _subscription = null;
+    _signalSubscription = null;
+    _signalsReady = false;
+    _command = null;
     if (close) _connection?.close();
     _connection = null;
     _lastPose = _sentAt = _writing = null;

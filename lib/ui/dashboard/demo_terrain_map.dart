@@ -35,6 +35,8 @@ class DemoTerrainMap extends StatefulWidget {
     required this.teammateName,
     required this.onSelect,
     this.onAstronaut,
+    this.sharedPins = const {},
+    this.sharedSos,
     this.fullScreen = false,
     this.showMapHud = true,
     this.overlayInsets = EdgeInsets.zero,
@@ -53,6 +55,8 @@ class DemoTerrainMap extends StatefulWidget {
   final String teammateName;
   final void Function(Offset point, String label) onSelect;
   final VoidCallback? onAstronaut;
+  final Map<String, Offset> sharedPins;
+  final ({String sender, Offset point})? sharedSos;
   final bool fullScreen;
   final bool showMapHud;
   final EdgeInsets overlayInsets;
@@ -471,6 +475,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                               world: world,
                               navigation: navigation,
                               view: view,
+                              sharedEmergency: widget.sharedSos != null,
                             ),
                           ),
                           _marker(
@@ -535,9 +540,51 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             ),
                           for (final ping in navigation.pings)
                             _pingMarker(world, ping),
+                          for (final pin in widget.sharedPins.entries)
+                            _marker(
+                              world,
+                              pin.value,
+                              'PIN · ${pin.key}',
+                              Icons.location_on_rounded,
+                              DashboardStyle.cyan,
+                              key: ValueKey('crew-pin-${pin.key}'),
+                              small: true,
+                              showCompactLabel: true,
+                              above: true,
+                              signalNeighbors: [
+                                localAnchor,
+                                if (peerAnchor != null) peerAnchor,
+                                baseAnchor,
+                                if (widget.sharedSos case final sos?)
+                                  _project(world, sos.point),
+                                for (final other in widget.sharedPins.entries)
+                                  if (other.key != pin.key)
+                                    _project(world, other.value),
+                              ],
+                              signalOffset: Offset(
+                                pin.key == 'ARES-01' ? -44 : 44,
+                                -72,
+                              ),
+                            ),
+                          if (widget.sharedSos case final sos?)
+                            _marker(
+                              world,
+                              sos.point,
+                              'SOS · ${sos.sender}',
+                              Icons.warning_amber_rounded,
+                              DashboardStyle.danger,
+                              key: const ValueKey('crew-sos-marker'),
+                              signalNeighbors: [
+                                localAnchor,
+                                if (peerAnchor != null) peerAnchor,
+                                baseAnchor,
+                              ],
+                              signalOffset: const Offset(0, 68),
+                            ),
                           // The header still identifies a selected destination at the shared anchor.
                           if (navigation.target case final target?
-                              when target != sharedAnchor)
+                              when target != sharedAnchor &&
+                                  !navigation.rescuing)
                             _marker(
                               world,
                               target,
@@ -767,6 +814,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     String? description,
     VoidCallback? onTap,
     bool small = false,
+    bool showCompactLabel = false,
+    List<Offset> signalNeighbors = const [],
+    Offset signalOffset = Offset.zero,
     bool above = false,
     bool emergency = false,
     bool localAstronaut = false,
@@ -846,7 +896,18 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                   peer.dy > 0 &&
                   peer.dy < 68) ||
               (base != null && base.dy >= 0 && base.distance < 72);
-          final at = center + shift + separation + Offset(clusterShift, 0);
+          final signalShift =
+              signalNeighbors.any(
+                (neighbor) => screenDelta(neighbor).distance < 42,
+              )
+              ? signalOffset
+              : Offset.zero;
+          final at =
+              center +
+              shift +
+              separation +
+              signalShift +
+              Offset(clusterShift, 0);
           return Transform(
             alignment: Alignment.center,
             transform: Matrix4.rotationZ(-rotation)
@@ -906,7 +967,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     rotation: localAstronaut ? 0 : rotation,
                   ),
                 ),
-                if (!small)
+                if (!small || showCompactLabel)
                   Positioned(
                     width: labelWidth,
                     left: clustered
@@ -1005,10 +1066,11 @@ class _DemoGrid extends CustomPainter {
     required this.world,
     required DemoNavigation navigation,
     required this.view,
+    required this.sharedEmergency,
   }) : boundary = navigation.map.boundary,
        position = navigation.position,
        target = navigation.routeTarget,
-       emergency = navigation.sos,
+       emergency = navigation.sos || navigation.rescuing,
        super(repaint: view);
 
   final Rect world;
@@ -1017,6 +1079,7 @@ class _DemoGrid extends CustomPainter {
   final Offset position;
   final Offset? target;
   final bool emergency;
+  final bool sharedEmergency;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1034,13 +1097,21 @@ class _DemoGrid extends CustomPainter {
         boundary.map((point) => _project(world, point)).toList(),
         true,
       );
-    canvas.drawPath(rim, Paint()..color = const Color(0x22FF632E));
+    canvas.drawPath(
+      rim,
+      Paint()
+        ..color = sharedEmergency
+            ? const Color(0x33FF4242)
+            : const Color(0x22FF632E),
+    );
     canvas.drawPath(
       rim,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6 / scale
-        ..color = const Color(0xA5FFB179),
+        ..color = sharedEmergency
+            ? DashboardStyle.danger
+            : const Color(0xA5FFB179),
     );
 
     final from = _project(world, position);
@@ -1075,7 +1146,8 @@ class _DemoGrid extends CustomPainter {
       boundary != oldDelegate.boundary ||
       position != oldDelegate.position ||
       target != oldDelegate.target ||
-      emergency != oldDelegate.emergency;
+      emergency != oldDelegate.emergency ||
+      sharedEmergency != oldDelegate.sharedEmergency;
 }
 
 /// A screen-space label with a high-contrast background over orbital imagery.

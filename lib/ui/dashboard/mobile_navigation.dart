@@ -9,6 +9,7 @@ import '../../dashboard/mission_checklist.dart';
 import '../../dashboard/terrain_view_controller.dart';
 import '../../missions/mission.dart';
 import '../../tracking/astronaut_tracking.dart';
+import '../../tracking/crew_signals.dart';
 import '../../tracking/mission_presence.dart';
 import '../mission_theme.dart';
 import 'dashboard_style.dart';
@@ -47,6 +48,7 @@ class MobileNavigation extends StatefulWidget {
     required this.onMovementLog,
     required this.onPing,
     required this.onSos,
+    this.revealRescue = 0,
   });
 
   final Widget Function(bool showMapHud, VoidCallback? onAstronaut) mapBuilder;
@@ -67,6 +69,7 @@ class MobileNavigation extends StatefulWidget {
   final VoidCallback onMovementLog;
   final VoidCallback onPing;
   final VoidCallback onSos;
+  final int revealRescue;
 
   static const barHeight = 64.0;
   static const barMargin = 10.0;
@@ -101,6 +104,12 @@ class _MobileNavigationState extends State<MobileNavigation>
       duration: const Duration(milliseconds: 220),
     );
     unawaited(_loadChecklist());
+  }
+
+  @override
+  void didUpdateWidget(MobileNavigation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.revealRescue != oldWidget.revealRescue) unawaited(_close());
   }
 
   Future<void> _loadChecklist() async {
@@ -217,49 +226,42 @@ class _MobileNavigationState extends State<MobileNavigation>
     widget.onReturn();
   }
 
-  Future<void> _confirmAction({
-    required String title,
-    required String message,
-    required String detail,
-    required VoidCallback onConfirmed,
-  }) async {
+  Future<void> _sos() async {
     if (_confirming) return;
-    _confirming = true;
-    try {
-      final yes = await confirmMobileAction(
-        context,
-        title: title,
-        message: message,
-        detail: detail,
-      );
-      if (mounted && yes == true) onConfirmed();
-    } finally {
-      _confirming = false;
-    }
-  }
-
-  void _ping() => unawaited(
-    _confirmAction(
-      title: 'Send Location Ping?',
-      message: 'Mark your estimated Mars position?',
-      detail: 'The location marker appears on this device.',
-      onConfirmed: widget.onPing,
-    ),
-  );
-
-  void _sos() {
-    if (widget.navigation.sos) {
+    if (widget.presence.sos?.state == SosState.active) {
       widget.onSos();
       return;
     }
-    unawaited(
-      _confirmAction(
-        title: 'Activate SOS?',
-        message: 'Pause exploration and mark your position on this device?',
-        detail: 'This mission alert stays on this device.',
-        onConfirmed: widget.onSos,
-      ),
-    );
+    _confirming = true;
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Send SOS to your crew?'),
+          content: const Text(
+            'Share your estimated Mars position with Crew in this mission. '
+            'This alert is for in-app assistance.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('CANCEL'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: DashboardStyle.danger,
+                foregroundColor: DashboardStyle.background,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('SEND SOS'),
+            ),
+          ],
+        ),
+      );
+      if (mounted && confirmed == true) widget.onSos();
+    } finally {
+      _confirming = false;
+    }
   }
 
   Widget _content(_Sheet sheet) => switch (sheet) {
@@ -287,7 +289,15 @@ class _MobileNavigationState extends State<MobileNavigation>
       tracking: widget.tracking,
       presence: widget.presence,
       member: widget.member,
-      onTeammate: widget.navigation.sos || widget.peerPoint == null
+      onCancelSos:
+          widget.presence.sos?.state == SosState.active &&
+              widget.presence.sos?.sender == widget.astronaut.id
+          ? widget.onSos
+          : null,
+      onTeammate:
+          widget.navigation.sos ||
+              widget.navigation.rescuing ||
+              widget.peerPoint == null
           ? null
           : () => _select(widget.peerPoint!, widget.teammate.fullName),
     ),
@@ -342,8 +352,12 @@ class _MobileNavigationState extends State<MobileNavigation>
                           navigation: widget.navigation,
                           onNavigate: widget.onNavigate,
                           onReturn: _returnToBase,
-                          onPing: _ping,
-                          onSos: _sos,
+                          onPing: widget.onPing,
+                          onSos: () => unawaited(_sos()),
+                          ownsActiveSos:
+                              widget.presence.sos?.state == SosState.active &&
+                              widget.presence.sos?.sender ==
+                                  widget.astronaut.id,
                           headingUp: widget.view.headingUp,
                           onRecenter: () {
                             final viewport = constraints.biggest;
@@ -429,8 +443,12 @@ class _MissionHeader extends StatelessWidget {
       ConnectionStatus.connected => DashboardStyle.green,
       ConnectionStatus.reconnecting => DashboardStyle.amber,
     };
-    final status = navigation.sos
-        ? 'SOS active'
+    final sos = presence.sos;
+    final emergency = sos?.state == SosState.active;
+    final status = emergency
+        ? (sos!.sender == astronaut.id
+              ? 'SOS ACTIVE'
+              : 'RESCUE · ${sos.sender}')
         : navigation.target == null && !navigation.paused
         ? tracking.stepStatus
         : navigation.status;
@@ -479,7 +497,7 @@ class _MissionHeader extends StatelessWidget {
                   Text(
                     status,
                     style: style.bodySmall?.copyWith(
-                      color: navigation.sos
+                      color: emergency
                           ? DashboardStyle.danger
                           : DashboardStyle.muted,
                     ),

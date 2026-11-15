@@ -18,6 +18,7 @@ class MobileMapControls extends StatelessWidget {
     required this.onReturn,
     required this.onPing,
     required this.onSos,
+    required this.ownsActiveSos,
     required this.headingUp,
     required this.onRecenter,
     required this.onToggleHeading,
@@ -28,6 +29,7 @@ class MobileMapControls extends StatelessWidget {
   final VoidCallback onReturn;
   final VoidCallback onPing;
   final VoidCallback onSos;
+  final bool ownsActiveSos;
   final ValueListenable<bool> headingUp;
   final VoidCallback onRecenter;
   final VoidCallback onToggleHeading;
@@ -64,14 +66,14 @@ class MobileMapControls extends StatelessWidget {
               ),
               _button(
                 'ping',
-                'Send Ping',
-                Icons.radar,
+                'Send PIN',
+                Icons.location_on_outlined,
                 diameter,
-                navigation.sos ? null : onPing,
+                onPing,
               ),
               _button(
                 'sos',
-                navigation.sos ? 'Cancel SOS' : 'SOS',
+                ownsActiveSos ? 'Cancel SOS' : 'SOS',
                 Icons.warning_amber_rounded,
                 diameter,
                 onSos,

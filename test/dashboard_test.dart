@@ -14,6 +14,7 @@ import 'package:sidera_vi/maps/mars_projection.dart';
 import 'package:sidera_vi/maps/mars_trek_layers.dart';
 
 import 'package:sidera_vi/tracking/mission_presence.dart';
+import 'package:sidera_vi/tracking/crew_signals.dart';
 import 'package:sidera_vi/tracking/astronaut_tracking.dart';
 import 'package:sidera_vi/tracking/tracking_geometry.dart';
 import 'package:sidera_vi/sensors/sensor_service.dart';
@@ -2000,124 +2001,315 @@ void main() {
     },
   );
 
-  testWidgets('Phone actions validate routes and confirm local ping and SOS', (
+  testWidgets(
+    'Phone route actions work and offline Crew alerts stay unconfirmed',
+    (tester) async {
+      final map = await _launch(tester, size: const Size(320, 568));
+      final nav = map.navigation;
+      final start = find.byKey(const ValueKey('mobile-action-start'));
+      expect(tester.widget<IconButton>(start).onPressed, isNull);
+      expect(nav.moving, isFalse);
+      expect(nav.select(const Offset(0, 0), 'Outside the area'), isFalse);
+      expect(nav.select(nav.map.teammate, 'Survey route'), isTrue);
+      await tester.pumpAndSettle();
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      expect(nav.guiding, isTrue);
+      expect(nav.position, nav.map.base);
+      expect(nav.canReturnToBase, isFalse);
+      final awayFromTarget = nav.map.teammate.dx >= nav.map.base.dx
+          ? -150.0
+          : 150.0;
+      final walked = nav.map.coordinates.toGrid(
+        displaceOnMars(
+          nav.map.coordinates.toMars(nav.map.base),
+          Offset(awayFromTarget, 0),
+        ),
+      );
+      nav.applyStepPosition(walked);
+      await tester.pumpAndSettle();
+      expect(nav.canReturnToBase, isTrue);
+      await _mobileTab(tester, 'astronaut');
+      final pause = find.text('PAUSE MISSION');
+      await _tapPhoneAction(tester, pause);
+      await tester.pumpAndSettle();
+      expect(nav.paused, isTrue);
+      await tester.tap(find.text('RESUME MISSION'));
+      await tester.pumpAndSettle();
+      expect(nav.paused, isFalse);
+      await _mobileTab(tester, 'astronaut');
+
+      await _tapTooltip(tester, 'Return to Base');
+      expect(nav.position, walked);
+      expect(find.text('Return to habitat base?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(nav.position, walked);
+      expect(nav.target, nav.map.teammate);
+      await _tapTooltip(tester, 'Return to Base');
+      await tester.tap(find.text('Return to base'));
+      expect(nav.position, walked);
+      expect(nav.target, nav.map.base);
+      await tester.pumpAndSettle();
+      expect(nav.position, walked);
+      expect(nav.guiding, isTrue);
+      nav.applyStepPosition(nav.map.base);
+      await tester.pumpAndSettle();
+      expect(nav.position, nav.map.base);
+      expect(find.text('You have arrived at Habitat Base.'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      nav.select(nav.map.teammate, 'Another destination');
+      await tester.pumpAndSettle();
+      await _tapTooltip(tester, 'Send PIN');
+      expect(find.text('Connect to Crew to share a PIN.'), findsOneWidget);
+      expect(find.text('PIN shared with Crew.'), findsNothing);
+      expect(nav.pings, isEmpty);
+      expect(nav.position, nav.map.base);
+
+      await _tapTooltip(tester, 'SOS');
+      expect(find.text('Send SOS to your crew?'), findsOneWidget);
+      await tester.tap(find.text('CANCEL'));
+      await tester.pumpAndSettle();
+      expect(nav.paused, isFalse);
+      expect(find.byKey(const ValueKey('crew-sos-marker')), findsNothing);
+      await _tapTooltip(tester, 'SOS');
+      await tester.tap(find.text('SEND SOS'));
+      await tester.pumpAndSettle();
+      expect(find.text('Connect to Crew to update SOS.'), findsOneWidget);
+      expect(find.text('SOS ACTIVE'), findsNothing);
+      expect(nav.paused, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Connected phone publishes PIN only after acknowledgment', (
     tester,
   ) async {
-    final map = await _launch(tester, size: const Size(320, 568));
-    final nav = map.navigation;
-    final start = find.byKey(const ValueKey('mobile-action-start'));
-    expect(tester.widget<IconButton>(start).onPressed, isNull);
-    expect(nav.moving, isFalse);
-    expect(nav.select(const Offset(0, 0), 'Outside the area'), isFalse);
-    expect(nav.select(nav.map.teammate, 'Survey route'), isTrue);
-    await tester.pumpAndSettle();
-    await tester.tap(start);
-    await tester.pumpAndSettle();
-    expect(nav.guiding, isTrue);
-    expect(nav.position, nav.map.base);
-    expect(nav.canReturnToBase, isFalse);
-    final awayFromTarget = nav.map.teammate.dx >= nav.map.base.dx
-        ? -150.0
-        : 150.0;
-    final walked = nav.map.coordinates.toGrid(
-      displaceOnMars(
-        nav.map.coordinates.toMars(nav.map.base),
-        Offset(awayFromTarget, 0),
-      ),
+    var now = DateTime.utc(2026, 11, 15, 18);
+    final map = await _launch(
+      tester,
+      size: const Size(390, 844),
+      clock: () => now,
     );
-    nav.applyStepPosition(walked);
+    final session = await _connectPhoneCrew(tester, map);
+    session.updateSignals();
     await tester.pumpAndSettle();
-    expect(nav.canReturnToBase, isTrue);
-    await _mobileTab(tester, 'astronaut');
-    final pause = find.text('PAUSE MISSION');
-    await _tapPhoneAction(tester, pause);
-    await tester.pumpAndSettle();
-    expect(nav.paused, isTrue);
-    await tester.tap(find.text('RESUME MISSION'));
-    await tester.pumpAndSettle();
-    expect(nav.paused, isFalse);
-    await _mobileTab(tester, 'astronaut');
-
-    await _tapTooltip(tester, 'Return to Base');
-    expect(nav.position, walked);
-    expect(find.text('Return to habitat base?'), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(nav.position, walked);
-    expect(nav.target, nav.map.teammate);
-    await _tapTooltip(tester, 'Return to Base');
-    await tester.tap(find.text('Return to base'));
-    expect(nav.position, walked);
-    expect(nav.target, nav.map.base);
-    await tester.pumpAndSettle();
-    expect(nav.position, walked);
-    expect(nav.guiding, isTrue);
-    nav.applyStepPosition(nav.map.base);
-    await tester.pumpAndSettle();
-    expect(nav.position, nav.map.base);
-    expect(find.text('You have arrived at Habitat Base.'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 3));
+    final base = map.tracking.pose.mars;
+    final moved = displaceOnMars(base, const Offset(11, 0));
+    map.navigation.applyStepPosition(map.tracking.coordinates.toGrid(moved));
     await tester.pumpAndSettle();
 
-    nav.select(nav.map.teammate, 'Another destination');
+    final gate = Completer<void>();
+    session.pinGate = gate;
+    await _tapTooltip(tester, 'Send PIN');
+    expect(session.pinWrites.single.mars, moved);
+    expect(map.tracking.pose.mars, moved);
+    expect(find.text('PIN shared with Crew.'), findsNothing);
+    gate.complete();
     await tester.pumpAndSettle();
-    await _tapTooltip(tester, 'Send Ping');
-    expect(find.text('Send Location Ping?'), findsOneWidget);
-    expect(find.text('Mark your estimated Mars position?'), findsOneWidget);
-    final no = find.text('NO');
-    final yes = find.text('YES');
-    expect(nav.pings, isEmpty);
-    await tester.tap(no);
+    expect(find.text('PIN shared with Crew.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('crew-pin-ARES-01')), findsOneWidget);
+
+    final other = displaceOnMars(base, const Offset(0, 18));
+    session.pinned['ARES-02'] = (mars: other, updated: now);
+    session.updateSignals();
     await tester.pumpAndSettle();
-    expect(nav.pings, isEmpty);
-    await _tapTooltip(tester, 'Send Ping');
-    var notifications = 0;
-    nav.addListener(() => notifications++);
-    final noButton = find.ancestor(of: no, matching: find.byType(FilledButton));
-    final yesButton = find.ancestor(
-      of: yes,
-      matching: find.byType(FilledButton),
-    );
-    expect(tester.getSize(noButton), tester.getSize(yesButton));
-    expect(tester.getTopLeft(noButton).dy, tester.getTopLeft(yesButton).dy);
     expect(
-      tester.getCenter(noButton).dx,
-      lessThan(tester.getCenter(yesButton).dx),
+      tester
+          .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
+          .sharedPins['ARES-02'],
+      map.tracking.gridPosition(other),
     );
-    await tester.tap(yes);
-    await tester.tap(yes, warnIfMissed: false);
+    expect(find.text('PIN · ARES-02'), findsOneWidget);
+
+    final movedAgain = displaceOnMars(base, const Offset(20, 0));
+    map.navigation.applyStepPosition(
+      map.tracking.coordinates.toGrid(movedAgain),
+    );
+    now = now.add(const Duration(seconds: 30));
+    await _tapTooltip(tester, 'Send PIN');
+    expect(session.pinWrites.last.mars, movedAgain);
+    expect(find.byKey(const ValueKey('crew-pin-ARES-01')), findsOneWidget);
+    now = now.add(const Duration(seconds: 31));
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.pumpAndSettle();
-    expect(notifications, 1);
-    expect(nav.pings.single.type, DemoPingType.location);
-    expect(nav.pings.single.position, nav.position);
-    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('PIN · ARES-02'), findsNothing);
+    expect(find.text('PIN · ARES-01'), findsOneWidget);
+    now = now.add(const Duration(seconds: 30));
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.pumpAndSettle();
+    expect(find.text('PIN · ARES-01'), findsNothing);
+  });
+
+  testWidgets('Sender can cancel shared SOS and keep moving', (tester) async {
+    final map = await _launch(tester, size: const Size(390, 844));
+    final session = await _connectPhoneCrew(tester, map);
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    final normal = _missionRim(tester);
+    final captured = map.tracking.pose.mars;
 
     await _tapTooltip(tester, 'SOS');
-    expect(find.text('Activate SOS?'), findsOneWidget);
-    expect(
-      find.text('Pause exploration and mark your position on this device?'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('This mission alert stays on this device.'),
-      findsOneWidget,
-    );
-    expect(nav.sos, isFalse);
-    await tester.tap(no);
+    expect(session.started, 0);
+    await tester.tap(find.text('SEND SOS'));
     await tester.pumpAndSettle();
-    expect(nav.sos, isFalse);
-    await _tapTooltip(tester, 'SOS');
-    await tester.tap(yes);
-    await tester.tap(yes, warnIfMissed: false);
+    expect(session.started, 1);
+    expect(session.alert!.mars, captured);
+    expect(find.text('SOS ACTIVE'), findsOneWidget);
+    expect(find.byKey(const ValueKey('incoming-crew-sos')), findsNothing);
+    final active = _missionRim(tester);
+    expect(active.color, DashboardStyle.danger.toARGB32());
+    expect(active.bounds, normal.bounds);
+    expect(map.navigation.paused, isFalse);
+
+    final walked = displaceOnMars(captured, const Offset(9, 0));
+    map.navigation.applyStepPosition(map.tracking.coordinates.toGrid(walked));
     await tester.pumpAndSettle();
-    expect(notifications, 2);
-    expect(nav.sos, isTrue);
-    expect(nav.paused, isTrue);
-    expect(find.text('SOS active'), findsOneWidget);
+    final updated = tester.widget<DemoTerrainMap>(find.byType(DemoTerrainMap));
+    expect(updated.sharedSos!.point, map.tracking.gridPosition(captured));
+    expect(map.tracking.pose.mars, walked);
+    expect(session.finished, isEmpty);
+
     await _tapTooltip(tester, 'Cancel SOS');
-    expect(nav.sos, isFalse);
-    expect(tester.takeException(), isNull);
+    expect(session.finished.single, SosState.canceled);
+    expect(find.byKey(const ValueKey('crew-sos-marker')), findsNothing);
+    expect(_missionRim(tester), normal);
+    expect(find.text('Crew SOS canceled.'), findsOneWidget);
+  });
+
+  testWidgets('Receiver gets one SOS modal and resolves by accepted arrival', (
+    tester,
+  ) async {
+    final motion = _PhoneMotion();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final map = await _launch(
+      tester,
+      size: const Size(390, 844),
+      astronaut: DemoCrew.adrian,
+      clock: () => motion.now,
+    );
+    final session = await _connectPhoneCrew(tester, map);
+    final home = map.tracking.pose.mars;
+    final rescue = displaceOnMars(home, const Offset(0, 10));
+    final prior = map.navigation.map.landmarks.first.position;
+    map.navigation.select(prior, 'Survey');
+    final normal = _missionRim(tester);
+    session.alert = (
+      id: 'peer-arrival-test',
+      sender: 'ARES-01',
+      mars: rescue,
+      started: motion.now,
+      state: SosState.active,
+      finishedBy: null,
+    );
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    expect(find.text('SOS — ARES-01 NEEDS HELP'), findsOneWidget);
+    expect(
+      find.textContaining('Dan Urquía has requested assistance.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Estimated distance · 10 m'), findsOneWidget);
+    expect(map.navigation.target, map.tracking.gridPosition(rescue));
+    expect(map.navigation.guiding, isTrue);
+    expect(_missionRim(tester).bounds, normal.bounds);
+    expect(_missionRim(tester).color, DashboardStyle.danger.toARGB32());
+    await tester.tap(find.text('DISMISS'));
+    await tester.pumpAndSettle();
+    session.updateSignals();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('incoming-crew-sos')), findsNothing);
+    expect(find.text('RESCUE · ARES-01'), findsOneWidget);
+    expect(find.text('Rescue waypoint'), findsOneWidget);
+    expect(session.finished, isEmpty);
+
+    await _tapTooltip(tester, 'Heading-up');
+    await motion.poll(tester, 1, yaw: 42);
+    await motion.poll(tester, 2, yaw: 42, steps: 4);
+    expect(map.navigation.remainingMeters, closeTo(7.2, .01));
+    expect(session.finished, isEmpty);
+    await motion.poll(tester, 3, yaw: 42, steps: 9);
+    expect(map.tracking.appliedSteps, 9);
+    expect(session.finished.single, SosState.resolved);
+    expect(session.alert!.finishedBy, 'ARES-02');
+    expect(map.navigation.target, prior);
+    expect(find.byKey(const ValueKey('crew-sos-marker')), findsNothing);
+    expect(_missionRim(tester), normal);
+    expect(find.text('Rescue completed by ARES-02.'), findsOneWidget);
+    session.updateSignals();
+    await motion.poll(tester, 4, yaw: 42, steps: 10);
+    expect(session.finished, hasLength(1));
+    expect(find.byKey(const ValueKey('incoming-crew-sos')), findsNothing);
+    await _tapTooltip(tester, 'North-up');
+  });
+
+  testWidgets('Rescue survives signal reconnect without reopening the modal', (
+    tester,
+  ) async {
+    final motion = _PhoneMotion();
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    final connections = <_PhonePresence>[];
+    CrewSos? serverAlert;
+    final map = await _launch(
+      tester,
+      size: const Size(390, 844),
+      astronaut: DemoCrew.adrian,
+      clock: () => motion.now,
+      connectPresence: (key) async {
+        final connection = _PhonePresence(() => motion.now)
+          ..key = key
+          ..alert = serverAlert;
+        connections.add(connection);
+        connection.update({});
+        connection.updateSignals();
+        return connection;
+      },
+    );
+    await _mobileTab(tester, 'crew');
+    serverAlert = (
+      id: 'test-reconnect-alert',
+      sender: 'ARES-01',
+      mars: map.tracking.pose.mars,
+      started: motion.now,
+      state: SosState.active,
+      finishedBy: null,
+    );
+    connections.single
+      ..alert = serverAlert
+      ..updateSignals();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('VIEW WAYPOINT'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Close Crew'), findsNothing);
+    expect(map.navigation.rescuing, isTrue);
+    connections.single.signals.addError(StateError('Connection lost'));
+    await tester.pumpAndSettle();
+    expect(map.navigation.rescuing, isTrue);
+    expect(find.byKey(const ValueKey('crew-sos-marker')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(connections, hasLength(2));
+    expect(find.byKey(const ValueKey('incoming-crew-sos')), findsNothing);
+    expect(map.navigation.rescuing, isTrue);
+    expect(connections.last.finished, isEmpty);
+    connections.last
+      ..alert = null
+      ..updateSignals();
+    await tester.pumpAndSettle();
+    expect(map.navigation.rescuing, isFalse);
+    expect(find.byKey(const ValueKey('crew-sos-marker')), findsNothing);
   });
 
   testWidgets(
@@ -2159,7 +2351,7 @@ void main() {
         for (final label in [
           'Start Navigation',
           'Return to Base',
-          'Send Ping',
+          'Send PIN',
           'SOS',
         ]) {
           expect(find.bySemanticsLabel(label), findsOneWidget);
@@ -2244,6 +2436,27 @@ void main() {
       }
       semantics.dispose();
     },
+  );
+}
+
+({Rect bounds, int color}) _missionRim(WidgetTester tester) {
+  final finder = find.byKey(const ValueKey('mission-route-overlay'));
+  final canvas = TestRecordingCanvas();
+  tester
+      .widget<CustomPaint>(finder)
+      .painter!
+      .paint(canvas, tester.getSize(finder));
+  final stroke = canvas.invocations
+      .map((record) => record.invocation)
+      .firstWhere(
+        (call) =>
+            call.memberName == #drawPath &&
+            (call.positionalArguments.last as Paint).style ==
+                PaintingStyle.stroke,
+      );
+  return (
+    bounds: (stroke.positionalArguments.first as Path).getBounds(),
+    color: (stroke.positionalArguments.last as Paint).color.toARGB32(),
   );
 }
 
@@ -2506,12 +2719,19 @@ Future<_PhonePresence> _connectPhoneCrew(
 }
 
 /// Keeps the existing presence publisher active without a Firebase connection.
-final class _PhonePresence implements PresenceConnection {
+final class _PhonePresence implements CrewSignalConnection {
   _PhonePresence(this.clock);
 
   final DateTime Function() clock;
   late SessionKey key;
   final crew = StreamController<PresenceSnapshot>();
+  final signals = StreamController<CrewSignals>();
+  final pinned = <String, CrewPin>{};
+  final pinWrites = <AstronautPose>[];
+  final finished = <SosState>[];
+  CrewSos? alert;
+  Completer<void>? pinGate;
+  int started = 0;
   final writes = <AstronautPose>[];
   final offlineWrites = <AstronautPose>[];
   bool closed = false;
@@ -2540,9 +2760,60 @@ final class _PhonePresence implements PresenceConnection {
     (online ? writes : offlineWrites).add(pose);
   }
 
+  void updateSignals() => signals.add((pins: Map.of(pinned), sos: alert));
+
+  @override
+  Stream<CrewSignals> get signalSnapshots => signals.stream;
+
+  @override
+  Future<void> sendPin(AstronautPose pose) async {
+    pinWrites.add(pose);
+    await pinGate?.future;
+    pinned[key.astronaut] = (mars: pose.mars, updated: clock());
+    updateSignals();
+  }
+
+  @override
+  Future<bool> startSos(Offset mars) async {
+    if (alert?.state == SosState.active) return false;
+    started++;
+    alert = (
+      id: 'sender-alert-$started',
+      sender: key.astronaut,
+      mars: mars,
+      started: clock(),
+      state: SosState.active,
+      finishedBy: null,
+    );
+    updateSignals();
+    return true;
+  }
+
+  @override
+  Future<bool> finishSos(String eventId, SosState state) async {
+    final previous = alert;
+    if (previous == null ||
+        previous.id != eventId ||
+        previous.state != SosState.active) {
+      return false;
+    }
+    finished.add(state);
+    alert = (
+      id: previous.id,
+      sender: previous.sender,
+      mars: previous.mars,
+      started: previous.started,
+      state: state,
+      finishedBy: key.astronaut,
+    );
+    updateSignals();
+    return true;
+  }
+
   @override
   void close() {
     closed = true;
     unawaited(crew.close());
+    unawaited(signals.close());
   }
 }

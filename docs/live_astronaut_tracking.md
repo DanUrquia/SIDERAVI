@@ -120,3 +120,5 @@ Phase 5A established that the Wi-Fi-only iPads can supply motion at approximatel
 The production project has all five active `field-test-01` sessions with their catalog Habitat Bases and both verified legacy memberships. Jezero keeps its existing session and presence records. The deployed rules deny public reads and writes. The emulator verifies access with an enrolled anonymous UID and its refreshed credential, denies writes to the other astronaut's slot, rejects extra pose fields, and exercises independent presence streams across all five missions.
 
 Dan’s iPhone 16 and Keren’s iPhone 14 Plus were enrolled in ARES-01 and ARES-02. Both automatically published fresh presence in Endeavour at 0 m separation. The other four sessions had no fresh presence during that observation.
+
+Phase 6F adds one authorized PIN per slot and a shared rescue alert per mission. [Crew PIN and SOS](crew_signals.md)

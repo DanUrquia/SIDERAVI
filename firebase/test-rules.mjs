@@ -194,6 +194,117 @@ for (const [index, mission] of missionIds.entries()) {
   }
 }
 
+// Check atomic PIN/pose updates, SSE delivery and independent SOS state.
+const serverTime = {'.sv': 'timestamp'};
+const location = {marsLon: -5.17, marsLat: -2.295};
+const tracked = {...pose, ...location, quality: 'accepted'};
+const beforeRescue = {...tracked, marsLat: location.marsLat + .001};
+const sendPin = (slot, point) => ({
+  method: 'PATCH',
+  body: JSON.stringify({
+    ['presence/' + slot]: {...tracked, ...point},
+    ['signals/pins/' + slot]: {...point, updated: serverTime},
+  }),
+  headers: {'content-type': 'application/json'},
+});
+const sse = async (path, user, apply, text) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(uri(path, user), {
+      headers: {accept: 'text/event-stream'}, signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    assert.equal((await reader.read()).done, false);
+    await apply();
+    let data = '';
+    while (!data.includes(text)) {
+      const chunk = await reader.read();
+      assert.equal(chunk.done, false);
+      data += chunk.value;
+    }
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+};
+for (const mission of missionIds) {
+  const sessionPath = sessionAt(mission);
+  const signals = sessionPath + '/signals';
+  const incident = signals + '/sos';
+  const danToken = danPhone.idToken;
+  const peerToken = adrianPhone.idToken;
+  const pin = signals + '/pins/ARES-01';
+  assert.equal(await expectStatus(signals, danToken, 200), null);
+  await expectStatus(signals, null, 401);
+  await expectStatus(signals, sparePhone.idToken, 401);
+  await expectStatus(pin, peerToken, 401, write({...location, updated: serverTime}));
+  await expectStatus(pin, danToken, 401, write({...location, updated: 2}));
+  await expectStatus(pin, danToken, 401, write({...location, updated: serverTime, earthLatitude: 0}));
+  await expectStatus(sessionPath, null, 401, sendPin('ARES-01', location));
+  await expectStatus(sessionPath, peerToken, 401, sendPin('ARES-01', location));
+
+  await sse(signals, peerToken,
+    () => expectStatus(sessionPath, danToken, 200, sendPin('ARES-01', location)),
+    '"marsLon":-5.17');
+  assert.equal((await expectStatus(pin, peerToken, 200)).marsLat, location.marsLat);
+  const peerPin = {...location, marsLat: location.marsLat + .0001};
+  await expectStatus(sessionPath, peerToken, 200, sendPin('ARES-02', peerPin));
+  assert.equal((await expectStatus(signals, danToken, 200)).pins['ARES-02'].marsLat, peerPin.marsLat);
+  await expectStatus(sessionPath, danToken, 200, sendPin('ARES-01', {...location, marsLat: -2.294}));
+  assert.equal((await expectStatus(signals, peerToken, 200)).pins['ARES-01'].marsLat, -2.294);
+  await expectStatus(sessionPath + '/presence/ARES-01', danToken, 200, write(tracked));
+
+  const id = randomUUID().replaceAll('-', '');
+  const open = {id, sender: 'ARES-01', ...location, state: 'active', started: serverTime};
+  await expectStatus(incident, peerToken, 401, write(open));
+  await expectStatus(incident, danToken, 401, write({...open, marsLat: 50}));
+  await sse(signals, peerToken,
+    () => expectStatus(incident, danToken, 200, write(open)), id);
+  const current = await expectStatus(incident, peerToken, 200);
+  assert.equal(current.state, 'active');
+  assert.equal(current.marsLat, location.marsLat);
+  const peerOpen = {...open, id: randomUUID().replaceAll('-', ''), ...peerPin, sender: 'ARES-02'};
+  await expectStatus(incident, peerToken, 401, write(peerOpen));
+
+  const end = (state, finishedBy) => write({
+    ...current, state, finishedBy, finished: serverTime,
+  });
+  await expectStatus(incident, peerToken, 401, end('canceled', 'ARES-02'));
+  await expectStatus(incident, danToken, 401, end('resolved', 'ARES-01'));
+  await expectStatus(sessionPath + '/presence/ARES-02', peerToken, 200, write(beforeRescue));
+  await expectStatus(incident, peerToken, 401, end('resolved', 'ARES-02'));
+  await expectStatus(sessionPath + '/presence/ARES-02', peerToken, 200, write({
+    ...tracked, quality: 'waiting',
+  }));
+  await expectStatus(incident, peerToken, 401, end('resolved', 'ARES-02'));
+  const tagged = await fetch(uri(incident, peerToken), {'headers': {'X-Firebase-ETag': 'true'}});
+  await tagged.json();
+  const etag = tagged.headers.get('etag');
+  assert.ok(etag);
+  await expectStatus(sessionPath + '/presence/ARES-02', peerToken, 200, write(tracked));
+  const resolution = end('resolved', 'ARES-02');
+  await expectStatus(incident, peerToken, 200, {...resolution, headers: {
+    ...resolution.headers, 'if-match': etag,
+  }});
+  await expectStatus(incident, peerToken, 401, end('resolved', 'ARES-02'));
+  await expectStatus(incident, danToken, 401, end('canceled', 'ARES-01'));
+  assert.equal((await expectStatus(incident, danToken, 200)).finishedBy, 'ARES-02');
+  await expectStatus(sessionPath + '/presence/ARES-01', danToken, 200, write(tracked));
+  await expectStatus(incident, danToken, 401, write(open));
+  const newId = randomUUID().replaceAll('-', '');
+  await expectStatus(incident, danToken, 200, write({...open, id: newId}));
+  const next = await expectStatus(incident, peerToken, 200);
+  const cancel = write({...next, state: 'canceled', finished: serverTime, finishedBy: 'ARES-01'});
+  await expectStatus(incident, danToken, 200, cancel);
+  assert.equal((await expectStatus(incident, peerToken, 200)).state, 'canceled');
+  const adjacent = missionIds[(missionIds.indexOf(mission) + 1) % missionIds.length];
+  const neighbor = await expectStatus(sessionAt(adjacent) + '/signals', danToken, 200);
+  assert.notEqual(neighbor?.sos?.id, newId);
+}
+console.log('Firebase emulator passed authorized PIN and SOS delivery, concurrent state guards, radius evidence, cancellation, and signal isolation across five missions.');
+
 const refresh = await fetch(
   'http://127.0.0.1:9099/securetoken.googleapis.com/v1/token?key=demo',
   {

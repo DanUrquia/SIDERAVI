@@ -11,6 +11,7 @@ import '../../missions/mission.dart';
 import '../../maps/trek_tile_source.dart';
 import '../../sensors/sensor_service.dart';
 import '../../tracking/astronaut_tracking.dart';
+import '../../tracking/crew_signals.dart';
 import '../../tracking/firebase_presence.dart';
 import '../../tracking/mission_presence.dart';
 import '../../tracking/tracking_geometry.dart';
@@ -60,11 +61,18 @@ class _MissionDashboardState extends State<MissionDashboard>
   late final AstronautTracking _tracking;
   late final MissionPresence _presence;
   final _firebase = FirebasePresenceConfig.current;
+  static final _shownSos = <SessionKey, String>{};
+  CrewSos? _activeSos;
+  RescueArrival? _arrival;
+  DialogRoute<void>? _sosDialog;
+  bool _resolving = false;
+  String? _submittedResolution;
   bool _initialized = false;
   bool _showingDiagnostics = false;
   bool _foreground = true;
   Duration _lastFrame = Duration.zero;
   int _announcedArrivals = 0;
+  int _revealRescue = 0;
 
   @override
   void didChangeDependencies() {
@@ -95,9 +103,11 @@ class _MissionDashboardState extends State<MissionDashboard>
       ),
       pose: () => _tracking.pose,
       restore: _tracking.restore,
+      clock: widget.clock ?? DateTime.now,
     );
     _navigation.addListener(_presence.pulse);
     _navigation.addListener(_announceArrival);
+    _navigation.addListener(_observeRescueStep);
     _presence.addListener(_noteConnection);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_tracking.resume());
@@ -107,7 +117,167 @@ class _MissionDashboardState extends State<MissionDashboard>
   bool _isCompactMission() => MediaQuery.sizeOf(context).shortestSide < 600;
 
   /// Records connection transitions alongside local movement diagnostics.
-  void _noteConnection() => _tracking.noteConnection(_presence.status);
+  void _noteConnection() {
+    _tracking.noteConnection(_presence.status);
+    if (_tracking.automaticPhysical) _updateSos();
+  }
+
+  void _updateSos() {
+    final incoming = _presence.sos;
+    final previous = _activeSos;
+    if (incoming == null || incoming.state != SosState.active) {
+      if (previous == null) return;
+      _activeSos = null;
+      _arrival = null;
+      _navigation.setRescueWaypoint(null);
+      final dialog = _sosDialog;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (dialog != null && dialog.isActive) {
+          dialog.navigator?.removeRoute(dialog);
+        }
+        if (incoming?.id == previous.id) {
+          _notify(
+            incoming!.state == SosState.resolved
+                ? 'Rescue completed by ${incoming.finishedBy}.'
+                : 'Crew SOS canceled.',
+          );
+        }
+      });
+      return;
+    }
+    if (incoming.id == previous?.id) return;
+    _activeSos = incoming;
+    final old = _sosDialog;
+    if (previous != null && old != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && old.isActive) old.navigator?.removeRoute(old);
+      });
+    }
+    if (incoming.sender == widget.astronaut.id) {
+      _arrival = null;
+      _navigation.setRescueWaypoint(null);
+      return;
+    }
+    _arrival = RescueArrival(incoming.mars, _tracking.pose.mars);
+    _navigation.setRescueWaypoint(_tracking.gridPosition(incoming.mars));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _foreground && _activeSos?.id == incoming.id) {
+        _announceSos(incoming);
+      }
+    });
+  }
+
+  void _announceSos(CrewSos event) {
+    if (_shownSos[_presence.key] == event.id ||
+        _showingDiagnostics ||
+        ModalRoute.of(context)?.isActive != true) {
+      return;
+    }
+    _shownSos[_presence.key] = event.id;
+    final distance = formatNavigationDistance(
+      _arrival!.distance(_tracking.pose.mars),
+      live: true,
+    );
+    final dialog = DialogRoute<void>(
+      context: context,
+      barrierColor: const Color(0xCC000000),
+      builder: (context) => AlertDialog(
+        key: const ValueKey('incoming-crew-sos'),
+        backgroundColor: DashboardStyle.emergency,
+        icon: const Icon(
+          Icons.warning_amber_rounded,
+          size: 44,
+          color: DashboardStyle.danger,
+        ),
+        title: Text('SOS — ${event.sender} NEEDS HELP'),
+        content: Text(
+          '${_teammate.fullName} has requested assistance.\n\n'
+          'Estimated distance · $distance\n'
+          'Rescue waypoint activated.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('DISMISS'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: DashboardStyle.danger,
+              foregroundColor: DashboardStyle.background,
+            ),
+            onPressed: () {
+              setState(() => _revealRescue++);
+              Navigator.pop(context);
+            },
+            child: const Text('VIEW WAYPOINT'),
+          ),
+        ],
+      ),
+    );
+    _sosDialog = dialog;
+    unawaited(Navigator.of(context).push(dialog));
+  }
+
+  void _observeRescueStep() {
+    final event = _activeSos;
+    final arrival = _arrival;
+    if (event == null || arrival == null) return;
+    final captured = _tracking.pose;
+    final accepted =
+        _navigation.positionSource ==
+            NavigationPositionSource.pedestrianDeadReckoning &&
+        captured.quality == PositionQuality.accepted;
+    if (arrival.moved(captured.mars, accepted: accepted) &&
+        !_resolving &&
+        _submittedResolution != event.id &&
+        _presence.canSendSignals) {
+      unawaited(_resolveSos(event, captured));
+    }
+  }
+
+  Future<void> _resolveSos(CrewSos event, AstronautPose arrival) async {
+    _resolving = true;
+    try {
+      final result = await _presence.finishSos(
+        event.id,
+        SosState.resolved,
+        arrival: arrival,
+      );
+      if (result == CrewActionResult.sent) _submittedResolution = event.id;
+    } finally {
+      _resolving = false;
+    }
+  }
+
+  Future<void> _sendCrewPin() async {
+    final result = await _presence.sendPin();
+    if (!mounted) return;
+    _notify(switch (result) {
+      CrewActionResult.sent => 'PIN shared with Crew.',
+      CrewActionResult.offline => 'Connect to Crew to share a PIN.',
+      CrewActionResult.busy => 'A Crew update is in progress.',
+      _ => 'PIN delivery could not be confirmed.',
+    });
+  }
+
+  Future<void> _changeSharedSos() async {
+    final current = _activeSos;
+    if (current != null && current.sender != widget.astronaut.id) {
+      _notify('A crew rescue alert is already active.', warning: true);
+      return;
+    }
+    final result = current == null
+        ? await _presence.startSos()
+        : await _presence.finishSos(current.id, SosState.canceled);
+    if (!mounted || result == CrewActionResult.sent) return;
+    _notify(switch (result) {
+      CrewActionResult.changed => 'Crew SOS changed. Check the current alert.',
+      CrewActionResult.offline => 'Connect to Crew to update SOS.',
+      CrewActionResult.busy => 'A Crew update is in progress.',
+      _ => 'The SOS update could not be confirmed.',
+    }, warning: true);
+  }
 
   void _announceArrival() {
     final count = _navigation.liveArrivalCount;
@@ -140,7 +310,7 @@ class _MissionDashboardState extends State<MissionDashboard>
 
   /// Reports a rejected point without disrupting an existing route.
   void _selectDestination(Offset point, String label) {
-    if (_navigation.sos) return;
+    if (_navigation.sos || _navigation.rescuing) return;
     if (!_navigation.select(point, label)) {
       _notify('Choose a destination inside the exploration boundary.');
     }
@@ -247,6 +417,7 @@ class _MissionDashboardState extends State<MissionDashboard>
     WidgetsBinding.instance.removeObserver(this);
     _navigation.removeListener(_presence.pulse);
     _navigation.removeListener(_announceArrival);
+    _navigation.removeListener(_observeRescueStep);
     _presence.removeListener(_noteConnection);
     _presence.dispose();
     _tracking.dispose();
@@ -320,6 +491,18 @@ class _MissionDashboardState extends State<MissionDashboard>
               peerPoint: peerPoint,
               peer: member,
               peerFresh: member != null && fresh,
+              sharedPins: mobile
+                  ? _presence.pins.map(
+                      (id, pin) =>
+                          MapEntry(id, _tracking.gridPosition(pin.mars)),
+                    )
+                  : const {},
+              sharedSos: mobile && _activeSos != null
+                  ? (
+                      sender: _activeSos!.sender,
+                      point: _tracking.gridPosition(_activeSos!.mars),
+                    )
+                  : null,
               teammateName: _teammate.fullName,
               onSelect: _selectDestination,
               onAstronaut: onAstronaut,
@@ -352,9 +535,9 @@ class _MissionDashboardState extends State<MissionDashboard>
             onReturn: _navigation.returnToBase,
             onSensorTest: _openDiagnostics,
             onMovementLog: movementLog,
-            onPing: () =>
-                _placePing(DemoPingType.location, at: _navigation.position),
-            onSos: _toggleConfirmedSos,
+            onPing: () => unawaited(_sendCrewPin()),
+            onSos: () => unawaited(_changeSharedSos()),
+            revealRescue: _revealRescue,
           );
         }
         final map = Stack(

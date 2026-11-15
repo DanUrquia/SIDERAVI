@@ -59,6 +59,7 @@ final class DemoNavigation extends ChangeNotifier {
   NavigationPositionSource _positionSource =
       NavigationPositionSource.localNavigation;
   Offset? _target;
+  Offset? _rescueWaypoint;
   String? _targetLabel;
   double? _heading;
   bool _started = false;
@@ -70,25 +71,33 @@ final class DemoNavigation extends ChangeNotifier {
 
   Offset get position => _position;
   NavigationPositionSource get positionSource => _positionSource;
-  Offset? get target => _target;
-  String? get targetLabel => _targetLabel;
+  bool get rescuing => _rescueWaypoint != null;
+  Offset? get target => _rescueWaypoint ?? _target;
+  String? get targetLabel => rescuing ? 'Rescue waypoint' : _targetLabel;
   bool get paused => _paused;
   bool get sos => _sos;
   double? get heading => _heading;
   List<DemoPing> get pings => List.unmodifiable(_pings);
   bool get live => !_acceptsDemoMovement;
-  bool get guiding => _started;
+  bool get guiding => rescuing || _started;
   bool get moving => _acceptsDemoMovement && _started && !_paused && !_sos;
   bool get arrived =>
-      live ? _liveArrived : _target != null && _position == _target;
+      !rescuing &&
+      (live ? _liveArrived : _target != null && _position == _target);
   int get liveArrivalCount => _liveArrivalCount;
-  bool get targetsBase => _target == map.base;
-  Offset? get routeTarget => arrived ? null : _target;
-  double? get remainingMeters => _target == null ? null : distanceTo(_target!);
+  bool get targetsBase => !rescuing && _target == map.base;
+  Offset? get routeTarget => arrived ? null : target;
+  double? get remainingMeters => target == null ? null : distanceTo(target!);
   double get baseDistanceMeters => distanceTo(map.base);
   bool get canNavigate =>
-      _target != null && !arrived && !_started && !_paused && !_sos;
+      !rescuing &&
+      _target != null &&
+      !arrived &&
+      !_started &&
+      !_paused &&
+      !_sos;
   bool get canReturnToBase =>
+      !rescuing &&
       !_sos &&
       !(_started && targetsBase) &&
       baseDistanceMeters - returnThresholdMeters > .000001;
@@ -137,7 +146,9 @@ final class DemoNavigation extends ChangeNotifier {
 
   /// Selects a valid destination and stops the previous route.
   bool select(Offset point, String label) {
-    if (_sos || !point.isFinite || !map.contains(point)) return false;
+    if (_sos || rescuing || !point.isFinite || !map.contains(point)) {
+      return false;
+    }
     _setTarget(point, label);
     notifyListeners();
     return true;
@@ -189,7 +200,7 @@ final class DemoNavigation extends ChangeNotifier {
   void applyStepPosition(Offset point) {
     if (!live || paused || sos || point == position) return;
     _updatePosition(point, NavigationPositionSource.pedestrianDeadReckoning);
-    if (_started && remainingMeters! <= _arrivalRadius) {
+    if (!rescuing && _started && remainingMeters! <= _arrivalRadius) {
       _liveArrived = true;
       _liveArrivalCount++;
       _started = false;
@@ -209,9 +220,16 @@ final class DemoNavigation extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Gives shared assistance priority over an optional local destination.
+  void setRescueWaypoint(Offset? waypoint) {
+    if (waypoint == _rescueWaypoint) return;
+    _rescueWaypoint = waypoint;
+    notifyListeners();
+  }
+
   /// Selects base and starts a fresh return route.
   void returnToBase({bool instant = false}) {
-    if (_sos || (live && !canReturnToBase)) return;
+    if (_sos || rescuing || (live && !canReturnToBase)) return;
     if (_acceptsDemoMovement) _paused = false;
     _setTarget(map.base, 'Habitat base');
     _startRoute(instant);

@@ -7,6 +7,7 @@ import '../../maps/mars_projection.dart';
 import '../../missions/mission.dart';
 import '../../missions/mola_elevations.dart';
 import '../../tracking/astronaut_tracking.dart';
+import '../../tracking/crew_signals.dart';
 import '../../tracking/mission_presence.dart';
 import '../../tracking/pedometer_monitor.dart';
 import '../../tracking/tracking_geometry.dart';
@@ -388,6 +389,7 @@ class MobileCrewContent extends StatelessWidget {
     required this.presence,
     required this.member,
     required this.onTeammate,
+    this.onCancelSos,
   });
 
   final Astronaut astronaut;
@@ -397,6 +399,7 @@ class MobileCrewContent extends StatelessWidget {
   final MissionPresence presence;
   final CrewPresence? member;
   final VoidCallback? onTeammate;
+  final VoidCallback? onCancelSos;
 
   @override
   Widget build(BuildContext context) {
@@ -413,6 +416,22 @@ class MobileCrewContent extends StatelessWidget {
               label: 'Connection',
               value: presence.status.mobileLabel,
             ),
+            if (presence.sos case final sos? when sos.state == SosState.active)
+              Text(
+                'SOS ACTIVE · ${sos.sender}',
+                style: const TextStyle(
+                  color: DashboardStyle.danger,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            if (onCancelSos != null)
+              DashboardButton(
+                label: 'CANCEL SOS',
+                icon: Icons.warning_amber,
+                emergency: true,
+                height: 48,
+                onPressed: onCancelSos,
+              ),
             if (presence.enrollmentPending)
               const Text('Crew device setup pending.'),
             if (presence.accessDenied)

@@ -10,7 +10,7 @@ SIDERA VI is a smartphone and iPad prototype by team **SIDERA VI** for the [2026
 - Start Mission opens the dashboard and automatically connects enrolled iOS devices to that mission’s Crew session. Back to Missions restores the selected briefing. Back from Select Mission returns to astronaut selection. [Crew setup and Firebase authorization](docs/live_astronaut_tracking.md)
 - Each dashboard centers on its mission region with Habitat Base and selectable landmarks. On phones, the last map control toggles Heading-Up and North-Up. Uncached tiles need internet access. [NASA Mars Trek imagery](docs/mars_trek_integration.md)
 - Tap an in-bounds map point, a landmark, or a connected teammate to set a destination. On phones, Start Navigation shows direct guidance, and Return to Base offers guidance when the estimated position is more than 100 m from base.
-- Send Ping places a location, item or danger marker on the current device. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
+- On iPhones, **Send PIN** shares a temporary Mars position marker. **SOS** shares a confirmed in-app rescue alert and estimated waypoint. [Crew PIN and SOS](docs/crew_signals.md)
 - Phones begin tracking physical steps automatically on mission entry, even offline and without a destination. Relative device attitude and estimated stride determine Mars movement. The iPhone restores its saved mission position. The landscape iPad dashboard retains its simulation controls. [iPhone walking procedure](docs/real_navigation_validation.md).
 - **Sensor Test** opens a foreground Earth location and device orientation diagnostic from the dashboard. It shows reported accuracy, movement uncertainty, relative heading, and sample timing. Optional JSON export uses the system share sheet or document picker. [Phase 5A procedure and limitations](docs/sensor_feasibility.md).
 - **Movement Log** is an optional diagnostic with step counts, estimates, and an opt-in local timeline. Map markers retain their screen size during zoom.
@@ -44,7 +44,7 @@ The tests exercise both astronauts, PIN editing and retry, welcome timing, missi
 
 ## Prototype limits
 
-The two astronaut PINs are bundled in the app for offline roster selection. Firebase authorizes device enrollment separately from the local PIN. On phones, pings and SOS affect the local interface.
+The two astronaut PINs are bundled in the app for offline roster selection. Firebase authorizes device enrollment separately from the local PIN.
 
 The mission briefings and physical step tracking work offline. PDR estimates positions on the Mars 2000 sphere using a calibrated local direction and measured steps. Crew sharing publishes the estimated Mars pose to the selected mission. Mars Trek imagery is cached in memory for the current run.
 

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/services.dart';
 
+import 'crew_signals.dart';
 import 'mission_presence.dart';
 
 /// Firebase client settings supplied by the build, without account credentials.
@@ -216,7 +218,7 @@ final class _Credential {
 }
 
 /// Uses the documented RTDB Server-Sent Events and HTTP write endpoints.
-final class _FirebaseConnection implements PresenceConnection {
+final class _FirebaseConnection implements CrewSignalConnection {
   _FirebaseConnection(this.config, this.key, this.authToken);
 
   final FirebasePresenceConfig config;
@@ -226,16 +228,19 @@ final class _FirebaseConnection implements PresenceConnection {
   final _closed = Completer<void>();
   Future<void> get closed => _closed.future;
 
-  Future<Uri> _uri([String? astronaut]) async => _sessionUri(
-    config.database,
-    key,
-    astronaut == null ? ['presence.json'] : ['presence', '$astronaut.json'],
-    await authToken(),
-  );
+  Future<Uri> _uri(List<String> path) async =>
+      _sessionUri(config.database, key, path, await authToken());
 
   @override
-  Stream<PresenceSnapshot> get snapshots async* {
-    var uri = await _uri();
+  Stream<PresenceSnapshot> get snapshots =>
+      _stream('presence.json').map(decodePresence);
+
+  @override
+  Stream<CrewSignals> get signalSnapshots =>
+      _stream('signals.json').map(decodeCrewSignals);
+
+  Stream<Map<String, Object?>> _stream(String node) async* {
+    var uri = await _uri([node]);
     var response = await _streamRequest(uri);
     for (
       var attempt = 0;
@@ -282,7 +287,7 @@ final class _FirebaseConnection implements PresenceConnection {
       if ((event == 'put' || event == 'patch') && data.isNotEmpty) {
         final message = jsonDecode(data.toString()) as Map;
         mergePresenceEvent(tree, message, patch: event == 'patch');
-        yield decodePresence(tree);
+        yield Map.of(tree);
       }
       event = '';
       data.clear();
@@ -296,22 +301,109 @@ final class _FirebaseConnection implements PresenceConnection {
     return request.close().timeout(_timeout);
   }
 
+  static const _serverTime = {'.sv': 'timestamp'};
+  static final _random = Random.secure();
+
+  Map<String, Object> _location(Offset mars) => {
+    'marsLon': mars.dx,
+    'marsLat': mars.dy,
+  };
+
+  Map<String, Object> _pose(AstronautPose pose, bool online) => {
+    ..._location(pose.mars),
+    if (pose.heading != null) 'relativeHeading': pose.heading!,
+    'mode': pose.mode.name,
+    'quality': pose.quality.name,
+    'online': online,
+    'updated': _serverTime,
+  };
+
   @override
   Future<void> publish(AstronautPose pose, {required bool online}) async {
     await _request(
       _http,
       'PUT',
-      await _uri(key.astronaut),
+      await _uri(['presence', '${key.astronaut}.json']),
+      body: jsonEncode(_pose(pose, online)),
+    );
+  }
+
+  @override
+  Future<void> sendPin(AstronautPose pose) async {
+    await _request(
+      _http,
+      'PATCH',
+      await _uri(const []),
       body: jsonEncode({
-        'marsLon': pose.mars.dx,
-        'marsLat': pose.mars.dy,
-        if (pose.heading != null) 'relativeHeading': pose.heading,
-        'mode': pose.mode.name,
-        'quality': pose.quality.name,
-        'online': online,
-        'updated': {'.sv': 'timestamp'},
+        'presence/${key.astronaut}': _pose(pose, true),
+        'signals/pins/${key.astronaut}': {
+          ..._location(pose.mars),
+          'updated': _serverTime,
+        },
       }),
     );
+  }
+
+  @override
+  Future<bool> startSos(Offset mars) => _changeSos((current) {
+    if (current?['state'] == SosState.active.name) return null;
+    return {
+      'id': List.generate(
+        16,
+        (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join(),
+      'sender': key.astronaut,
+      ..._location(mars),
+      'started': _serverTime,
+      'state': SosState.active.name,
+    };
+  });
+
+  @override
+  Future<bool> finishSos(String eventId, SosState state) =>
+      _changeSos((current) {
+        if (current == null ||
+            current['id'] != eventId ||
+            current['state'] != SosState.active.name ||
+            state == SosState.active) {
+          return null;
+        }
+        return {
+          ...current,
+          'state': state.name,
+          'finishedBy': key.astronaut,
+          'finished': _serverTime,
+        };
+      });
+
+  Future<bool> _changeSos(
+    Map<String, Object?>? Function(Map<String, Object?>?) change,
+  ) async {
+    final uri = await _uri(['signals', 'sos.json']);
+    final read = await _http.getUrl(uri).timeout(_timeout)
+      ..followRedirects = false
+      ..headers.set('X-Firebase-ETag', 'true');
+    final response = await read.close().timeout(_timeout);
+    final payload = await utf8.decoder.bind(response).join().timeout(_timeout);
+    final etag = response.headers.value('etag');
+    if (response.statusCode != 200 || etag == null) {
+      throw const HttpException('Rescue state unavailable');
+    }
+    final next = change((jsonDecode(payload) as Map?)?.cast<String, Object?>());
+    if (next == null) return false;
+
+    final write = await _http.putUrl(uri).timeout(_timeout)
+      ..followRedirects = false
+      ..headers.set('if-match', etag)
+      ..headers.contentType = ContentType.json;
+    write.write(jsonEncode(next));
+    final result = await write.close().timeout(_timeout);
+    await result.drain<void>().timeout(_timeout);
+    if (result.statusCode == 412) return false;
+    if (result.statusCode != 200) {
+      throw const HttpException('Rescue update unavailable');
+    }
+    return true;
   }
 
   @override
@@ -411,6 +503,72 @@ PresenceSnapshot decodePresence(Map<String, Object?> tree) {
   return crew;
 }
 
+const _crewSlots = ['ARES-01', 'ARES-02'];
+
+CrewSignals decodeCrewSignals(Map<String, Object?> tree) {
+  final pins = <String, CrewPin>{};
+  if (tree['pins'] case final Map rows) {
+    for (final slot in _crewSlots) {
+      if (rows[slot] case final Map row) {
+        final mars = _signalLocation(row);
+        final updated = _signalTime(row['updated']);
+        if (mars != null && updated != null) {
+          pins[slot] = (mars: mars, updated: updated);
+        }
+      }
+    }
+  }
+  CrewSos? sos;
+  if (tree['sos'] case final Map row) {
+    final id = row['id'];
+    final sender = row['sender'];
+    final mars = _signalLocation(row);
+    final started = _signalTime(row['started']);
+    final state = SosState.values
+        .where((state) => state.name == row['state'])
+        .firstOrNull;
+    final finishedBy = row['finishedBy'];
+    if (id is String &&
+        id.isNotEmpty &&
+        sender is String &&
+        _crewSlots.contains(sender) &&
+        mars != null &&
+        started != null &&
+        state != null &&
+        (state == SosState.active || _crewSlots.contains(finishedBy))) {
+      sos = (
+        id: id,
+        sender: sender,
+        mars: mars,
+        started: started,
+        state: state,
+        finishedBy: finishedBy as String?,
+      );
+    }
+  }
+  return (pins: Map.unmodifiable(pins), sos: sos);
+}
+
+Offset? _signalLocation(Map row) {
+  final lon = row['marsLon'];
+  final lat = row['marsLat'];
+  if (lon is! num ||
+      !lon.isFinite ||
+      lon < -180 ||
+      lon >= 180 ||
+      lat is! num ||
+      !lat.isFinite ||
+      lat.abs() > 90) {
+    return null;
+  }
+  return Offset(lon.toDouble(), lat.toDouble());
+}
+
+DateTime? _signalTime(Object? value) =>
+    value is int && value >= 0 && value <= 4102444800000
+    ? DateTime.fromMillisecondsSinceEpoch(value, isUtc: true)
+    : null;
+
 /// Builds a token-authenticated endpoint scoped to the selected mission session.
 Uri _sessionUri(
   Uri database,
@@ -418,7 +576,13 @@ Uri _sessionUri(
   List<String> path,
   String token,
 ) => database.replace(
-  pathSegments: ['missions', key.mission, 'sessions', key.session, ...path],
+  pathSegments: [
+    'missions',
+    key.mission,
+    'sessions',
+    path.isEmpty ? '${key.session}.json' : key.session,
+    ...path,
+  ],
   queryParameters: {'auth': token},
 );
 
