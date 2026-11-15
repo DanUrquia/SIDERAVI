@@ -12,16 +12,66 @@ class MissionPhotoPanel extends StatelessWidget {
     required this.index,
     required this.onPrevious,
     required this.onNext,
+    this.compact = false,
   });
 
   final MarsMission mission;
   final String index;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final imagery = mission.imagery;
+    final inset = compact ? 11.0 : 17.0;
+    final badges = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 10,
+      children: [
+        const Flexible(
+          flex: 3,
+          child: _PhotoLabel(
+            label: 'AVAILABLE',
+            status: true,
+            color: MissionTheme.ready,
+          ),
+        ),
+        Flexible(
+          flex: 4,
+          child: _PhotoLabel(label: 'REGION REF\n${mission.coordinates.label}'),
+        ),
+      ],
+    );
+    final caption = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 5,
+      children: [
+        Text(
+          imagery.instrument.toUpperCase(),
+          style: MissionTheme.display(
+            compact ? 11 : 13,
+            tracking: 1.1,
+          ).copyWith(color: MissionTheme.warmOrange),
+        ),
+        Text(
+          imagery.caption,
+          style: TextStyle(
+            fontSize: compact ? 12 : null,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          imagery.credit,
+          style: TextStyle(
+            color: MissionTheme.muted,
+            fontSize: compact ? 10 : 12,
+          ),
+        ),
+      ],
+    );
     // Keep overlaid captions proportionate to the fixed photograph frame.
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.4,
@@ -34,109 +84,86 @@ class MissionPhotoPanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
           ),
           child: Stack(
-            fit: StackFit.expand,
+            fit: compact ? StackFit.loose : StackFit.expand,
             children: [
-              Image.asset(
-                imagery.asset,
-                key: ValueKey(imagery.asset),
-                semanticLabel: imagery.caption,
-                fit: BoxFit.cover,
-                alignment: mission.id == 'endeavour'
-                    ? const Alignment(.5, 0)
-                    : Alignment.center,
+              Positioned.fill(
+                child: Image.asset(
+                  imagery.asset,
+                  key: ValueKey(imagery.asset),
+                  semanticLabel: imagery.caption,
+                  fit: BoxFit.cover,
+                  alignment: mission.id == 'endeavour'
+                      ? const Alignment(.5, 0)
+                      : Alignment.center,
+                ),
               ),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: [0, .24, .61, .9, 1],
-                    colors: [
-                      Color(0xB30A111C),
-                      Colors.transparent,
-                      Color(0x150A111C),
-                      Color(0xE00B1320),
-                      Color(0xFF0B1320),
-                    ],
+              const Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: [0, .24, .61, .9, 1],
+                      colors: [
+                        Color(0xB30A111C),
+                        Colors.transparent,
+                        Color(0x150A111C),
+                        Color(0xE00B1320),
+                        Color(0xFF0B1320),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              Align(
-                alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: const EdgeInsets.all(17),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 10,
+              if (compact)
+                Padding(
+                  padding: EdgeInsets.all(inset),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Flexible(
-                        flex: 3,
-                        child: _PhotoLabel(
-                          label: 'AVAILABLE',
-                          status: true,
-                          color: MissionTheme.ready,
+                      badges,
+                      SizedBox(
+                        height: 120,
+                        child: MissionNavigationControls(
+                          onPrevious: onPrevious,
+                          onNext: onNext,
+                          compact: true,
+                          index: index,
                         ),
                       ),
-                      Flexible(
-                        flex: 4,
-                        child: _PhotoLabel(
-                          label: 'REGION REF\n${mission.coordinates.label}',
-                        ),
-                      ),
+                      caption,
                     ],
                   ),
+                )
+              else ...[
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(padding: EdgeInsets.all(inset), child: badges),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: MissionNavigationControls(
-                  onPrevious: onPrevious,
-                  onNext: onNext,
-                ),
-              ),
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.all(17),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    spacing: 12,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          spacing: 5,
-                          children: [
-                            Text(
-                              imagery.instrument.toUpperCase(),
-                              style: MissionTheme.display(
-                                13,
-                                tracking: 1.1,
-                              ).copyWith(color: MissionTheme.warmOrange),
-                            ),
-                            Text(
-                              imagery.caption,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              imagery.credit,
-                              style: const TextStyle(
-                                color: MissionTheme.muted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _PhotoLabel(label: index),
-                    ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: MissionNavigationControls(
+                    onPrevious: onPrevious,
+                    onNext: onNext,
+                    compact: compact,
                   ),
                 ),
-              ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: EdgeInsets.all(inset),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      spacing: 12,
+                      children: [
+                        Expanded(child: caption),
+                        _PhotoLabel(label: index),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -152,10 +179,14 @@ class MissionNavigationControls extends StatelessWidget {
     super.key,
     required this.onPrevious,
     required this.onNext,
+    this.compact = false,
+    this.index,
   });
 
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final bool compact;
+  final String? index;
 
   @override
   Widget build(BuildContext context) {
@@ -163,6 +194,7 @@ class MissionNavigationControls extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         _arrow('Previous mission', Icons.chevron_left, onPrevious),
+        if (index case final label?) _PhotoLabel(label: label),
         _arrow('Next mission', Icons.chevron_right, onNext),
       ],
     );
@@ -173,7 +205,7 @@ class MissionNavigationControls extends StatelessWidget {
     return Tooltip(
       message: label,
       child: SizedBox.square(
-        dimension: 56,
+        dimension: compact ? 48 : 56,
         child: FilledButton(
           onPressed: onPressed,
           style:

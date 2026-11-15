@@ -87,6 +87,36 @@ class _MissionSelectionState extends State<MissionSelection>
     final index =
         '${(_index + 1).toString().padLeft(2, '0')} / '
         '${marsMissions.length.toString().padLeft(2, '0')}';
+    final mobile = MediaQuery.sizeOf(context).width < 600;
+    final photo = MissionPhotoPanel(
+      mission: mission,
+      index: index,
+      onPrevious: _index > 0 ? () => _move(-1) : null,
+      onNext: _index < marsMissions.length - 1 ? () => _move(1) : null,
+      compact: mobile,
+    );
+    Widget details({required bool bounded}) => MissionInformationPanel(
+      key: ValueKey(mission.id),
+      mission: mission,
+      index: _index,
+      total: marsMissions.length,
+      onStart: () {
+        if (!_transition.isAnimating) widget.onStart(mission);
+      },
+      bounded: bounded,
+    );
+    Widget carousel(Widget child) => GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: (_) => _dragDistance = 0,
+      onHorizontalDragUpdate: (details) => _dragDistance += details.delta.dx,
+      onHorizontalDragEnd: _finishSwipe,
+      child: FadeTransition(
+        opacity: _transition
+            .drive(CurveTween(curve: Curves.easeOut))
+            .drive(Tween(begin: .68, end: 1)),
+        child: child,
+      ),
+    );
     return Scaffold(
       body: DecoratedBox(
         decoration: const BoxDecoration(
@@ -99,84 +129,105 @@ class _MissionSelectionState extends State<MissionSelection>
         child: CustomPaint(
           painter: const CockpitGrid(),
           child: SafeArea(
-            minimum: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+            minimum: mobile
+                ? const EdgeInsets.fromLTRB(16, 8, 16, 8)
+                : const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1512),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _MissionHeader(
-                      astronaut: widget.astronaut,
-                      onBack: widget.onBack,
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 14),
-                      child: Divider(height: 1, color: Color(0xFF2B3140)),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onHorizontalDragStart: (_) => _dragDistance = 0,
-                        onHorizontalDragUpdate: (details) =>
-                            _dragDistance += details.delta.dx,
-                        onHorizontalDragEnd: _finishSwipe,
-                        child: FadeTransition(
-                          opacity: _transition
-                              .drive(CurveTween(curve: Curves.easeOut))
-                              .drive(Tween(begin: .68, end: 1)),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final photo = MissionPhotoPanel(
-                                mission: mission,
-                                index: index,
-                                onPrevious: _index > 0 ? () => _move(-1) : null,
-                                onNext: _index < marsMissions.length - 1
-                                    ? () => _move(1)
-                                    : null,
-                              );
-                              final details = MissionInformationPanel(
-                                mission: mission,
-                                index: _index,
-                                total: marsMissions.length,
-                                onStart: () {
-                                  if (!_transition.isAnimating) {
-                                    widget.onStart(mission);
-                                  }
-                                },
-                                key: ValueKey(mission.id),
-                                bounded: constraints.maxWidth >= 780,
-                              );
-                              if (constraints.maxWidth < 780) {
-                                return ListView(
-                                  primary: false,
-                                  children: [
-                                    SizedBox(height: 345, child: photo),
-                                    const SizedBox(height: 14),
-                                    details,
-                                  ],
-                                );
-                              }
-                              return Row(
-                                spacing: 22,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Expanded(flex: 58, child: photo),
-                                  Expanded(flex: 42, child: details),
-                                ],
-                              );
-                            },
+                child: mobile
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _MobileMissionHeader(
+                            astronaut: widget.astronaut,
+                            onBack: widget.onBack,
                           ),
-                        ),
+                          Expanded(
+                            child: carousel(
+                              ListView(
+                                primary: false,
+                                padding: const EdgeInsets.only(
+                                  top: 12,
+                                  bottom: 12,
+                                ),
+                                children: [
+                                  Semantics(
+                                    header: true,
+                                    child: Text(
+                                      'Select Mission',
+                                      style: MissionTheme.display(22),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  const Text(
+                                    'Choose your next Mars expedition',
+                                    style: TextStyle(
+                                      color: MissionTheme.muted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  photo,
+                                  const SizedBox(height: 10),
+                                  details(bounded: false),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _MissionHeader(
+                            astronaut: widget.astronaut,
+                            onBack: widget.onBack,
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 14),
+                            child: Divider(height: 1, color: Color(0xFF2B3140)),
+                          ),
+                          Expanded(
+                            child: carousel(
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  if (constraints.maxWidth < 780) {
+                                    return ListView(
+                                      primary: false,
+                                      children: [
+                                        SizedBox(height: 345, child: photo),
+                                        const SizedBox(height: 14),
+                                        details(bounded: false),
+                                      ],
+                                    );
+                                  }
+                                  return Row(
+                                    spacing: 22,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(flex: 58, child: photo),
+                                      Expanded(
+                                        flex: 42,
+                                        child: details(bounded: true),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Educational simulation  ·  Regional coordinates and published imagery',
+                            style: TextStyle(
+                              color: MissionTheme.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Educational simulation  ·  Regional coordinates and published imagery',
-                      style: TextStyle(color: MissionTheme.muted, fontSize: 12),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),
@@ -184,6 +235,80 @@ class _MissionSelectionState extends State<MissionSelection>
       ),
     );
   }
+}
+
+/// Keeps the back action and the active astronaut in a compact phone toolbar.
+class _MobileMissionHeader extends StatelessWidget {
+  const _MobileMissionHeader({required this.astronaut, required this.onBack});
+
+  final Astronaut astronaut;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    spacing: 10,
+    children: [
+      SizedBox(
+        height: 48,
+        child: FilledButton.icon(
+          onPressed: onBack,
+          icon: const Icon(
+            Icons.chevron_left,
+            size: 20,
+            color: MissionTheme.warmOrange,
+          ),
+          label: const Text('Back'),
+          style:
+              MissionTheme.control(
+                fill: MissionTheme.utilityFace,
+                border: MissionTheme.outline,
+                elevation: 0,
+                radius: 12,
+              ).copyWith(
+                padding: const WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+        ),
+      ),
+      Expanded(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+            decoration: BoxDecoration(
+              color: MissionTheme.utilityFace,
+              border: Border.all(color: MissionTheme.outline),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              spacing: 2,
+              children: [
+                Text(
+                  astronaut.id,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: MissionTheme.display(
+                    10,
+                    tracking: 1.1,
+                  ).copyWith(color: MissionTheme.warmOrange),
+                ),
+                Text(
+                  astronaut.fullName,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: MissionTheme.display(16),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 /// Aligns navigation, the page title, and the authenticated astronaut.

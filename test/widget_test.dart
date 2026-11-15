@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sidera_vi/auth/astronaut.dart';
 import 'package:sidera_vi/auth/mission_session.dart';
 import 'package:sidera_vi/auth/prototype_auth.dart';
 import 'package:sidera_vi/dashboard/demo_navigation.dart';
@@ -11,6 +12,8 @@ import 'package:sidera_vi/ui/dashboard/trek_tile_view.dart';
 import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/missions/mission_photo_panel.dart';
+import 'package:sidera_vi/ui/missions/mission_selection.dart';
+import 'package:sidera_vi/ui/mission_theme.dart';
 
 import 'fake_trek_tiles.dart';
 
@@ -234,6 +237,91 @@ void main() {
       await tester.fling(photo, const Offset(240, 0), 600);
       await tester.pumpAndSettle();
       _expectMission(3);
+    },
+  );
+
+  testWidgets('Phone mission picker scrolls to a working Start Mission', (
+    tester,
+  ) async {
+    await _openLogin(tester, size: const Size(393, 852));
+    await _signIn(tester, '0107');
+    expect(find.text('Select Mission'), findsOneWidget);
+    expect(find.text('Choose your next Mars expedition'), findsOneWidget);
+    expect(find.text('SELECT MISSION'), findsNothing);
+    expect(find.textContaining('Educational simulation'), findsNothing);
+    expect(find.text('DU'), findsNothing);
+
+    final photo = find.byType(MissionPhotoPanel);
+    await tester.fling(photo, const Offset(-200, 0), 550);
+    await tester.pumpAndSettle();
+    _expectMission(1);
+    final start = find.text('START MISSION');
+    await tester.ensureVisible(start);
+    await tester.pumpAndSettle();
+    expect(start.hitTestable(), findsOneWidget);
+    expect(find.text('Select Mission').hitTestable(), findsNothing);
+    expect(find.text('Dan Urquía').hitTestable(), findsOneWidget);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<MissionDashboard>(find.byType(MissionDashboard)).mission,
+      same(marsMissions[1]),
+    );
+  });
+
+  testWidgets(
+    'Small phone with large text keeps identity and photo controls usable',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      const astronaut = Astronaut(
+        id: 'ARES-01',
+        fullName: 'Dan Urquía de la Vega Hernández',
+      );
+      MarsMission? started;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: MissionTheme.dark,
+          home: MissionSelection(
+            astronaut: astronaut,
+            onBack: () {},
+            onStart: (mission) => started = mission,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final identity = tester.widget<Text>(find.text(astronaut.fullName));
+      expect(identity.maxLines, 1);
+      expect(identity.overflow, TextOverflow.ellipsis);
+
+      for (var index = 0; index < marsMissions.length; index++) {
+        final next = find.byTooltip('Next mission');
+        await tester.ensureVisible(next);
+        await tester.pumpAndSettle();
+        expect(next.hitTestable(), findsOneWidget);
+        expect(
+          tester
+              .getRect(find.byType(MissionPhotoPanel))
+              .contains(tester.getCenter(next)),
+          isTrue,
+        );
+        if (index < marsMissions.length - 1) {
+          await tester.tap(next);
+          await tester.pumpAndSettle();
+        }
+      }
+      final start = find.text('START MISSION');
+      await tester.scrollUntilVisible(start, 220);
+      await tester.pumpAndSettle();
+      await tester.tap(start.hitTestable());
+      expect(started, same(marsMissions.last));
+      expect(tester.takeException(), isNull);
     },
   );
 
