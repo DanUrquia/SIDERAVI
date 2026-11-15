@@ -66,9 +66,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
   AstronautTracking get tracking => widget.tracking;
 
   static const _openingDelay = Duration(seconds: 1);
-  static const _openingDuration = Duration(milliseconds: 850);
+  static const _openingDuration = Duration(milliseconds: 1600);
   static const _followDuration = Duration(milliseconds: 220);
-  static const _walkingWidth = 150.0;
+  static const _openingScaleBarMeters = 200.0;
 
   late final AnimationController _camera;
   Timer? _openingTimer;
@@ -127,15 +127,13 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             )
         ? detail
         : globalTrekLayer;
-    final usableWidth = viewport.width - widget.overlayInsets.horizontal;
-    if (usableWidth <= 0) return;
     _openingScale = view.value.getMaxScaleOnAxis();
     _openingAnchor = MatrixUtils.transformPoint(view.value, pixel);
     _walkingScale = TerrainViewController.zoomForGroundWidth(
       scene,
       pixel,
-      usableWidth,
-      _walkingWidth,
+      _MarsScaleBar.width,
+      _openingScaleBarMeters,
     ).clamp(1.0, TerrainViewController.rasterZoomLimit(scene, layer));
     _openingZoom = true;
     _startCamera(_openingDuration);
@@ -992,6 +990,8 @@ class _MarkerChip extends StatelessWidget {
 class _MarsScaleBar extends StatelessWidget {
   const _MarsScaleBar({required this.scene, required this.view});
 
+  static const width = 50.0;
+
   final MarsScene scene;
   final TerrainViewController view;
 
@@ -1002,12 +1002,12 @@ class _MarsScaleBar extends StatelessWidget {
       final center = view.toScene(scene.viewport.center(Offset.zero));
       final metersPerPixel =
           scene.groundMetersPerPixel(center) / transform.getMaxScaleOnAxis();
-      final meters = metersPerPixel * 50;
+      final meters = metersPerPixel * width;
       return Row(
         mainAxisSize: MainAxisSize.min,
         spacing: 7,
         children: [
-          Container(width: 50, height: 2, color: DashboardStyle.warm),
+          Container(width: width, height: 2, color: DashboardStyle.warm),
           Text(
             meters >= 1000
                 ? '≈ ${(meters / 1000).toStringAsPrecision(2)} km'

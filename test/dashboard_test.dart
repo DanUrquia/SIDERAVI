@@ -1065,7 +1065,7 @@ void main() {
   });
 
   testWidgets(
-    'Endeavour opens regionally then follows at a 150 m ground span',
+    'Endeavour opens regionally then follows with a 200 m scale bar',
     (tester) async {
       const size = Size(393, 852);
       final mission = marsMissions[2];
@@ -1103,6 +1103,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       final intermediateScale = view.value.getMaxScaleOnAxis();
       expect(intermediateScale, greaterThan(1));
+      await tester.pump(const Duration(milliseconds: 650));
       expect(map.tracking.follow, isFalse);
       final currentPosition = walkFromBase(35, 15);
       nav.applyStepPosition(currentPosition);
@@ -1110,14 +1111,14 @@ void main() {
 
       final scale = view.value.getMaxScaleOnAxis();
       final focus = world.topLeft + currentPosition * world.width;
-      final actualSpan = scene.groundMetersPerPixel(focus) * size.width / scale;
-      expect(actualSpan, closeTo(150, .001));
+      final barDistance = scene.groundMetersPerPixel(focus) * 50 / scale;
+      expect(barDistance, closeTo(200, .001));
       expect(scale, greaterThan(intermediateScale));
       expect((view.toScene(center) - focus).distance, lessThan(.0001));
       expect(map.tracking.follow, isTrue);
       expect(nav.position, currentPosition);
       expect(tester.getRect(local).width, closeTo(markerWidth, .001));
-      expect(find.text('≈ 19 m'), findsOneWidget);
+      expect(find.text('≈ 200 m'), findsOneWidget);
       expect(find.text('Fit area · 750 m radius'), findsOneWidget);
       expect(find.text('Raster resolution limit'), findsNothing);
       expect(find.text('Map connection unavailable'), findsOneWidget);
