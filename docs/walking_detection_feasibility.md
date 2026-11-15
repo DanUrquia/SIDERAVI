@@ -1,5 +1,7 @@
 # Phase 5F walking detection feasibility
 
+This is a historical engineering record of the walking detection assessment. See [current iPhone step navigation](real_navigation_validation.md) and [current device layouts](mobile_navigation.md) for the submitted build.
+
 **Walking Detection Lab** is available under **Jezero → Movement Log → Walking Detection Lab**. It runs independently of the Live Sensors selector. The Lab measures only device motion. The existing navigation and presence controllers receive no Lab results.
 
 ## Collection and processing

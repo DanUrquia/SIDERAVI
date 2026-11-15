@@ -1,5 +1,7 @@
 # Phase 5A sensor feasibility
 
+This is a historical engineering record of the sensor assessment. See [current iPhone step navigation](real_navigation_validation.md) and [current device layouts](mobile_navigation.md) for the submitted build.
+
 Open a mission dashboard and tap **Sensor Test**. **Start Test** starts a foreground measurement window and requests When In Use location authorization if needed. Motion can still be tested if location is denied or unavailable. **Stop Test**, leaving the screen, and backgrounding the app stop collection. After backgrounding, tap **Start Test** to begin a new session.
 
 ## Sensors and devices

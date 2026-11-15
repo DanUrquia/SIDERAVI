@@ -1,6 +1,6 @@
 # Crew PIN and SOS
 
-Open the same mission on two enrolled iPhones. The field build uses the mission's existing `field-test-01` session and automatically connects Crew.
+Open the same mission on two enrolled iOS or iPadOS devices. Crew connects automatically to the configured session. Enrolled simulators can exercise sharing and rescue presentation in an isolated session.
 
 ## Destination PIN
 
@@ -55,7 +55,7 @@ The DEV build was installed and launched in place on Dan's iPhone 16 and the iPh
 
 ## Phase 6F verification
 
-The iPhone 16 running as ARES-01 and the iPhone 18 Pro simulator running as ARES-02 joined a separate Endeavour session. Firebase accepted a PIN from each device. Dan's PIN matched his estimated Mars pose. The simulator displayed his PIN, its red rescue marker, the red boundary, and 13 m of remaining guidance during his SOS. When Dan canceled, the simulator cleared the rescue, and Firebase recorded the terminal state.
+The iPhone 16 running as ARES-01 and the iPhone 18 Pro simulator running as ARES-02 joined a separate Endeavour session. Firebase accepted a PIN from each device in this historical trial. Phase 6F sent the estimated pose. The current action shares the selected destination, as verified in Phase 6G.1. The simulator displayed his PIN, its red rescue marker, the red boundary, and 13 m of remaining guidance during his SOS. When Dan canceled, the simulator cleared the rescue, and Firebase recorded the terminal state.
 
 The app and Realtime Database emulator tests exercise expiry, delivery acknowledgments, cancellation, two-device authorization, connection loss, position-based resolution and isolation across the five missions. The simulator has its own enrolled identity for the isolated test and cannot assume a field slot.
 

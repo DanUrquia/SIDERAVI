@@ -1,5 +1,7 @@
 # Phase 5E pedometer validation and map markers
 
+This is a historical engineering record of the pedometer assessment. See [current iPhone step navigation](real_navigation_validation.md) and [current device layouts](mobile_navigation.md) for the submitted build.
+
 The Phase 5D Air field trial reported almost identical Core Location fixes over approximately 30 hand-counted steps. Wi-Fi positioning can return a useful area estimate while supplying little evidence about a short walk. The original Movement Log did not capture step measurements. The availability flags on both iPads only showed that iPadOS exposes the relevant APIs. [Phase 5D field notes](live_movement_validation.md)
 
 ## Measurement-only build

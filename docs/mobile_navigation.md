@@ -1,6 +1,6 @@
 # Phone and iPad navigation
 
-For current automatic iPhone tracking and the walking procedure, see [Phase 6B.3](real_navigation_validation.md).
+The cold launch presents the official logo over the Viking Orbiter 1 Mars mosaic for four seconds, including a short fade into the local PIN screen. Reduce Motion skips the fade. For automatic step tracking and the walking procedure, see [physical navigation validation](real_navigation_validation.md).
 
 Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The iPad uses a landscape mission-control workspace with the same map and scientific models.
 
@@ -76,7 +76,11 @@ Run `flutter doctor -v` and `flutter devices`. Supply the existing SIDERA VI Fir
 
 ## Verification
 
-Flutter widget tests cover the four circular controls, safe-area layout, stable header, telemetry, near-full-height scrolling sheets, fixed-size markers, objective card state and persistence, safe return, and cancellation and confirmation of the local ping and SOS actions. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+Flutter widget tests cover the four circular controls, safe-area layout, stable header, telemetry, near-full-height scrolling sheets, fixed-size markers, objective card state and persistence, return guidance, destination PIN sharing and the SOS lifecycle. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+
+### Final simulator verification
+
+The iPhone 18 Pro and iPad Pro 13-inch simulators opened Endeavour in a dedicated Firebase test session. The iPhone used ARES-01 and the iPad used ARES-02. Each reported Connected and saw the other astronaut online. Firebase received fresh presence from both. Their physical step sensors were unavailable.
 
 ### Phase 6K validation
 

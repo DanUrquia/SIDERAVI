@@ -40,7 +40,7 @@ The Columbia Hills lie inside Gusev Crater, about 3 kilometers from NASA’s Spi
 2. Compare the geological characteristics of five rock classes identified by Spirit: Clovis, Wishstone, Peace, Watchtower, and Backstay.
 3. Look for mineralogical and geological evidence of ancient water activity.
 
-[Spirit traverse and regional geology](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2006JE002795) · [Rocks of the Columbia Hills and Backstay class](https://pubs.usgs.gov/publication/70030671) · [JPL site worksheet](https://marsnext.jpl.nasa.gov/documents/LandingSiteWorksheet_ColumbiaHillsGusev_final.pdf)
+[Spirit observations of Wishstone and Watchtower rocks](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2006JE002795) · [Rocks of the Columbia Hills and Backstay class](https://pubs.usgs.gov/publication/70030671) · [JPL site worksheet](https://marsnext.jpl.nasa.gov/documents/LandingSiteWorksheet_ColumbiaHillsGusev_final.pdf)
 
 ## Valles Marineris
 
@@ -76,7 +76,7 @@ The sheet reuses each mission briefing’s bundled image and credit. The 16:9 cr
 
 ## Local mean solar time
 
-The dashboard calculates Mars Local Mean Solar Time (LMST) at Habitat Base from the device's UTC timestamp. The map clock, mini solar card and Astronaut sheet share an update every foreground minute and immediately on resume. It follows NASA GISS Mars24 with the mission catalog's east-positive longitude convention. [NASA Mars24 algorithm and worked examples](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [Allison and McEwen 2000](https://doi.org/10.1016/S0032-0633(99)00092-6)
+The dashboard calculates Mars Local Mean Solar Time (LMST) at Habitat Base from the device's UTC timestamp. The map clock, mini solar card and Astronaut sheet share an update every foreground minute and immediately on resume. It follows NASA GISS Mars24 with the mission catalog's east-positive longitude convention. [NASA Mars24 algorithm and worked examples](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [Allison and McEwen 2000](https://www.giss.nasa.gov/pubs/abs/al05000n.html)
 
 ```text
 JD_UTC = 2440587.5 + Unix UTC seconds / 86400
@@ -86,7 +86,7 @@ Mars Sol Date = (JD_TT − 2451549.5) / 1.0274912517 + 44796.0 − 0.0009626
 LMST hours = 24 × fractional_part(Mars Sol Date + east_longitude / 360)
 ```
 
-One mean solar sol is approximately 88,775.244 Earth seconds. The bundled historic leap-second table uses the Mars24 polynomial for dates before 1972 and a TAI−UTC offset of 37 seconds from 2017-01-01, confirmed through 2026. A future unlisted leap second would shift the clock by about one second until the table is updated. [US Naval Observatory leap-second data](https://maia.usno.navy.mil/products/leap-second) · [IERS Bulletin C 72](https://datacenter.iers.org/data/html/bulletinc-072.html)
+One mean solar sol is approximately 88,775.244 Earth seconds. The bundled historic leap-second table uses the Mars24 polynomial for dates before 1972 and a TAI−UTC offset of 37 seconds from 2017-01-01, confirmed through 2026. A future unlisted leap second would shift the clock by about one second until the table is updated. [IERS Bulletin C 72](https://datacenter.iers.org/data/html/bulletinc-072.html)
 
 Both published Mars24 worked examples agree within one Mars second using their reference dates and longitudes. The minute display and the device's UTC clock bound practical precision. Local True Solar Time (LTST) additionally applies the equation of time, which can differ from LMST by tens of minutes depending on season. [Mars24 technical notes](https://www.giss.nasa.gov/tools/mars24/help/notes.html)
 
@@ -156,7 +156,7 @@ All five grid cells contain valid elevations. Each companion hit count is zero, 
 
 ### Maximum within the operational boundary
 
-For each mission, enumerate neighboring grid cells and retain those whose centers are at most the mission radius from Habitat Base using great-circle distance on the same 3,396,190 m Mars sphere as the app. Each center is `latitude = north edge − (row + 0.5) / 128`, `longitude = west edge + (column + 0.5) / 128`. Read the corresponding MEGT and MEGC samples, then take the largest signed MEGT value across the included centers. A partially overlapping cell counts only when its center lies within the radius. All selected elevations were valid. The phone's Astronaut sheet displays this maximum.
+For each mission, enumerate neighboring grid cells and retain those whose centers are at most the mission radius from Habitat Base using great-circle distance on the same 3,396,190 m Mars sphere as the app. Each center is `latitude = north edge − (row + 0.5) / 128`, `longitude = west edge + (column + 0.5) / 128`. Read the corresponding MEGT and MEGC samples, then take the largest signed MEGT value across the included centers. A partially overlapping cell counts only when its center lies within the radius. All selected elevations were valid. Astronaut → Mars Topography on iPhone and iPad displays this maximum.
 
 | Mission | Included cells | Cells containing MOLA returns | Maximum cell row, column | Center ° (lat, lon) | MEGT byte offset and raw hex | Hits at maximum cell |
 | --- | ---: | ---: | --- | --- | --- | ---: |
@@ -172,4 +172,4 @@ Jezero's maximum is shared by three cells, and two contain an observation. MEGT 
 
 The Jezero briefing uses the USGS-named crater center, while the existing Habitat Base remains the map boundary center. Possible biosignatures and habitable conditions remain hypotheses students can consider. Gale’s Mount Sharp objective is a local observation. Backstay is the documented fifth Spirit rock class for the Columbia Hills comparison. The canyon objectives treat clues about water, climate and habitability as questions for investigation.
 
-Progress is saved on each installation by astronaut ID, mission ID and stable objective ID. The user checks each objective explicitly. Each location button closes the Missions sheet, centers the map on the assigned waypoint and selects it as the current destination. Start Navigation and PIN remain separate actions. The earlier checklist’s stored IDs remain in local preferences. The scientific objectives have new IDs because the completion criteria changed. Crew presence uses a separate Firebase session for each mission, independently of checklist progress.
+Progress is saved on each installation by astronaut ID, mission ID and stable objective ID. The user checks each objective explicitly. Each location button centers the map on the assigned waypoint and selects it as the current destination. On a phone it closes the Missions sheet. On iPad the objective list remains beside the map. Start Navigation and PIN remain separate actions. The earlier checklist’s stored IDs remain in local preferences. The scientific objectives have new IDs because the completion criteria changed. Crew presence uses a separate Firebase session for each mission, independently of checklist progress.
