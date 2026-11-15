@@ -87,6 +87,12 @@ final class TerrainViewController extends TransformationController {
     value.getMaxScaleOnAxis(),
   );
 
+  /// Centers a normalized mission landmark in the current viewport.
+  void recenterMissionPoint(Offset point, Size viewport) {
+    final world = missionWorld(viewport);
+    recenter(world.topLeft + point * world.width, viewport);
+  }
+
   /// Centers a local exploration window without changing the map projection.
   void fitArea(Offset sceneCenter, double scale, Size viewport) =>
       frame(sceneCenter, viewport.center(Offset.zero), scale);

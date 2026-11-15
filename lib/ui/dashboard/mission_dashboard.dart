@@ -322,11 +322,13 @@ class _MissionDashboardState extends State<MissionDashboard>
   }
 
   /// Reports a rejected point without disrupting an existing route.
-  void _selectDestination(Offset point, String label) {
-    if (_navigation.sos || _navigation.rescuing) return;
-    if (!_navigation.select(point, label)) {
+  bool _selectDestination(Offset point, String label) {
+    if (_navigation.sos || _navigation.rescuing) return false;
+    final selected = _navigation.select(point, label);
+    if (!selected) {
       _notify('Choose a destination inside the exploration boundary.');
     }
+    return selected;
   }
 
   /// Places a marker only if the ping picker was confirmed.

@@ -55,6 +55,59 @@ void main() {
   });
 
   test(
+    'The fifteen stable objective IDs resolve to distinct existing landmarks',
+    () {
+      const assignments = {
+        'endeavour': {
+          'review-minerals': 'Ridge overlook',
+          'survey-crater-rim': 'Rim outcrop',
+          'ancient-habitability': 'Ripple field',
+        },
+        'gale': {
+          'compare-cross-beds': 'Sandstone bench',
+          'past-water-activity': 'Bedding station',
+          'layered-mount-sharp': 'Lower overlook',
+        },
+        'columbia-hills': {
+          'ascent-and-basalt': 'Basalt station',
+          'compare-five-rock-classes': 'Hillside outcrop',
+          'ancient-water-evidence': 'Debris slope',
+        },
+        'valles-marineris': {
+          'plan-safe-corridor': 'Western corridor',
+          'erosion-and-collapse': 'Wall overlook',
+          'water-and-climate': 'Orbital survey point',
+        },
+        'jezero': {
+          'ancient-liquid-water': 'Delta outcrop',
+          'potential-biosignatures': 'Survey station',
+          'ancient-channel': 'Channel edge',
+        },
+      };
+      for (final mission in marsMissions) {
+        final config = missionMaps[mission.id]!;
+        final mapped = {
+          for (final objective in mission.objectives)
+            objective.id: config.landmarks.singleWhere(
+              (point) => point.id == objective.landmarkId,
+            ),
+        };
+        expect(
+          mapped.map((id, point) => MapEntry(id, point.name)),
+          assignments[mission.id],
+        );
+        final positions = mapped.values.map((point) => point.position).toSet();
+        expect(positions, hasLength(3));
+        expect(
+          positions,
+          config.landmarks.map((point) => point.position).toSet(),
+        );
+        expect(positions.every(config.contains), isTrue);
+      }
+    },
+  );
+
+  test(
     'Scientific catalog and spherical map agree at all five Habitat Bases',
     () {
       final ids = <String>{};
@@ -1383,9 +1436,7 @@ void main() {
     await _mobileTab(tester, 'missions');
     expect(_within(survey, 'Completed'), findsOneWidget);
     final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
-    await tester.tap(
-      find.descendant(of: sheet, matching: find.text('Delta outcrop')),
-    );
+    await _tapPhoneAction(tester, _within(sheet, 'Delta outcrop'));
     await tester.pumpAndSettle();
     expect(map.navigation.targetLabel, 'Delta outcrop');
     expect(completed, ['ancient-liquid-water']);
@@ -1398,6 +1449,212 @@ void main() {
     expect(_within(survey, 'Completed'), findsOneWidget);
     expect(_objectiveColor(tester, survey), const Color(0xFF145341));
   });
+
+  testWidgets(
+    'Five mission panoramas and objective controls fit the fixed dock',
+    (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, (
+        call,
+      ) async {
+        switch (call.method) {
+          case 'readMissionChecklist':
+            return <String>[];
+          case 'writeMissionChecklist':
+            fail('Location selection must leave the checklist untouched.');
+          case 'snapshot':
+            return <String, Object?>{};
+        }
+        return null;
+      });
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+      );
+
+      for (final (id, size, scale) in [
+        ('endeavour', const Size(393, 852), 1.0),
+        ('gale', const Size(428, 926), 1.0),
+        ('columbia-hills', const Size(320, 568), 1.0),
+        ('valles-marineris', const Size(320, 568), 2.0),
+        ('jezero', const Size(852, 393), 1.0),
+      ]) {
+        await tester.pumpWidget(const SizedBox.shrink());
+        final mission = marsMissionById[id]!;
+        final map = await _launch(
+          tester,
+          size: size,
+          mission: mission,
+          platform: TargetPlatform.iOS,
+          textScale: scale,
+        );
+        final dock = find.byKey(const ValueKey('mobile-navigation-dock'));
+        final dockRect = tester.getRect(dock);
+        await _mobileTab(tester, 'missions');
+        final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
+        final panorama = find.byKey(const ValueKey('mission-panorama'));
+        final photo = tester.widget<Image>(
+          find.descendant(of: panorama, matching: find.byType(Image)),
+        );
+        expect(
+          (photo.image as AssetImage).assetName,
+          'assets/missions/$id.jpg',
+        );
+        expect(photo.semanticLabel, mission.imagery.caption);
+        expect(photo.fit, BoxFit.cover);
+        final dimensions = tester.getSize(panorama);
+        expect(dimensions.aspectRatio, closeTo(16 / 9, .001));
+        expect(
+          dimensions.width,
+          closeTo(tester.getSize(sheet).width - 20, .001),
+        );
+        final sheetTop = tester.getTopLeft(sheet).dy;
+
+        for (final label in [
+          mission.title.toUpperCase(),
+          mission.description,
+          '3 locations',
+          'Radius · ${mission.radiusLabel}',
+          'Base · ${mission.elevationLabel}',
+          'SCIENTIFIC OBJECTIVES',
+          '0 of 3 complete · On this device',
+        ]) {
+          expect(_within(sheet, label), findsOneWidget);
+        }
+
+        final nav = map.navigation;
+        for (final (index, objective) in mission.objectives.indexed) {
+          final card = find.byKey(ValueKey('objective-${objective.id}'));
+          final location = find.byKey(
+            ValueKey('objective-location-${objective.id}'),
+          );
+          final landmark = nav.map.landmarks.singleWhere(
+            (point) => point.id == objective.landmarkId,
+          );
+          expect(_within(card, '0${index + 1}'), findsOneWidget);
+          expect(_within(card, objective.label), findsOneWidget);
+          expect(_within(card, 'Pending'), findsOneWidget);
+          expect(_within(location, landmark.name), findsOneWidget);
+          await Scrollable.ensureVisible(
+            tester.element(location),
+            alignment: .5,
+          );
+          await tester.pumpAndSettle();
+          final buttonRect = tester.getRect(location);
+          expect(buttonRect.height, greaterThanOrEqualTo(44));
+          expect(buttonRect.bottom, lessThanOrEqualTo(dockRect.top));
+          expect(location.hitTestable(), findsOneWidget);
+          expect(tester.getRect(dock), dockRect);
+          expect(tester.getTopLeft(sheet).dy, sheetTop);
+          expect(tester.takeException(), isNull);
+        }
+      }
+    },
+  );
+
+  testWidgets(
+    'Objective waypoint centers and shares the target in both camera modes',
+    (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, (
+        call,
+      ) async {
+        switch (call.method) {
+          case 'readMissionChecklist':
+            return <String>[];
+          case 'writeMissionChecklist':
+            fail('Location selection must leave the checklist untouched.');
+          case 'snapshot':
+            return <String, Object?>{};
+        }
+        return null;
+      });
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+      );
+
+      const size = Size(393, 852);
+      final map = await _launch(
+        tester,
+        size: size,
+        mission: marsMissionById['endeavour'],
+        platform: TargetPlatform.iOS,
+      );
+      final session = await _connectPhoneCrew(tester, map);
+      session.updateSignals();
+      await tester.pumpAndSettle();
+      final nav = map.navigation;
+      final world = missionWorld(size);
+      final original = nav.position;
+      final view = map.view;
+      final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
+
+      for (final (headingUp, objective, landmarkLabel) in [
+        (false, 'survey-crater-rim', 'Rim outcrop'),
+        (true, 'review-minerals', 'Ridge overlook'),
+      ]) {
+        if (headingUp) {
+          map.tracking.heading.value = 73;
+          await tester.pumpAndSettle();
+          await _tapTooltip(tester, 'Heading-up');
+          expect(map.tracking.follow, isTrue);
+          expect(view.rotation, closeTo(-73 * math.pi / 180, .001));
+        }
+        final scale = view.value.getMaxScaleOnAxis();
+        final angle = view.rotation;
+        final landmark = nav.map.landmarks.singleWhere(
+          (p) => p.name == landmarkLabel,
+        );
+        await _mobileTab(tester, 'missions');
+        final location = find.byKey(ValueKey('objective-location-$objective'));
+        await Scrollable.ensureVisible(tester.element(location), alignment: .5);
+        await tester.pumpAndSettle();
+        await tester.tap(location.hitTestable());
+        await tester.pumpAndSettle();
+
+        expect(sheet, findsNothing);
+        expect(nav.target, landmark.position);
+        expect(nav.targetLabel, landmark.name);
+        expect(nav.state(), NavigationState.destinationSelected);
+        expect(nav.moving, isFalse);
+        expect(nav.guiding, isFalse);
+        expect(nav.position, original);
+        expect(view.headingUp.value, headingUp);
+        expect(view.rotation, closeTo(angle, .001));
+        expect(view.value.getMaxScaleOnAxis(), closeTo(scale, .001));
+        final scene = world.topLeft + landmark.position * world.width;
+        final center = tester.getCenter(
+          find.byKey(const ValueKey('demo-map-viewport')),
+        );
+        expect(
+          (MatrixUtils.transformPoint(view.value, scene) - center).distance,
+          lessThan(.001),
+        );
+        expect(
+          (tester.getCenter(find.byIcon(Icons.flag)) - center).distance,
+          lessThan(.001),
+        );
+        await _tapTooltip(tester, 'Send PIN');
+        expect(
+          session.pinWrites.last,
+          nav.map.coordinates.toMars(landmark.position),
+        );
+        expect(nav.position, original);
+      }
+
+      await _tapTooltip(tester, 'North-up');
+      expect(view.rotation, closeTo(0, .001));
+      await _mobileTab(tester, 'missions');
+      expect(
+        _within(sheet, '0 of 3 complete · On this device'),
+        findsOneWidget,
+      );
+      expect(_within(sheet, 'Pending'), findsNWidgets(3));
+    },
+  );
 
   testWidgets('Solar HUD fits the portrait dock and action rail', (
     tester,
@@ -2195,7 +2452,10 @@ void main() {
             final tile = find.byKey(
               ValueKey('objective-${mission.objectives.first.id}'),
             );
-            await tester.tap(tile);
+            await _tapPhoneAction(
+              tester,
+              _within(tile, mission.objectives.first.label),
+            );
             await tester.pumpAndSettle();
             expect(saved['${astronaut.id}/${mission.id}'], [
               mission.objectives.first.id,

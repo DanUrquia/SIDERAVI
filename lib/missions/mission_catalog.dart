@@ -13,15 +13,17 @@ const marsMissions = [
       MissionObjective(
         'review-minerals',
         'Review the mineral composition of exposed rocks and geological formations.',
+        landmarkId: 'ridge-overlook',
       ),
       MissionObjective(
         'survey-crater-rim',
         'Survey the local crater rim and investigate the crater’s structure and surrounding terrain.',
-        waypoint: 'Rim outcrop',
+        landmarkId: 'rim-outcrop',
       ),
       MissionObjective(
         'ancient-habitability',
         'Examine soil and rocks for clues to past conditions that could have supported life.',
+        landmarkId: 'ripple-field',
       ),
     ],
     difficulty: MissionDifficulty.challenging,
@@ -50,16 +52,17 @@ const marsMissions = [
       MissionObjective(
         'compare-cross-beds',
         'Follow a short observation loop. Examine cross-bedding in two buttes and compare the apparent directions in which the layers dip.',
-        waypoint: 'Sandstone bench',
+        landmarkId: 'sandstone-bench',
       ),
       MissionObjective(
         'past-water-activity',
         'Examine exposed rocks for geological evidence of past water activity.',
+        landmarkId: 'bedding-station',
       ),
       MissionObjective(
         'layered-mount-sharp',
         'Observe Aeolis Mons (Mount Sharp) from the local survey area and identify features that reveal its layered history.',
-        waypoint: 'Lower overlook',
+        landmarkId: 'lower-overlook',
       ),
     ],
     difficulty: MissionDifficulty.easy,
@@ -88,15 +91,17 @@ const marsMissions = [
       MissionObjective(
         'ascent-and-basalt',
         'Plan a safe ascent around loose debris and compare hillside outcrops with basalt from the surrounding plains.',
-        waypoint: 'Basalt station',
+        landmarkId: 'basalt-station',
       ),
       MissionObjective(
         'compare-five-rock-classes',
         'Compare the geological characteristics of five rock classes identified by Spirit: Clovis, Wishstone, Peace, Watchtower, and Backstay.',
+        landmarkId: 'hillside-outcrop',
       ),
       MissionObjective(
         'ancient-water-evidence',
         'Look for mineralogical and geological evidence of ancient water activity.',
+        landmarkId: 'debris-slope',
       ),
     ],
     difficulty: MissionDifficulty.hard,
@@ -125,16 +130,17 @@ const marsMissions = [
       MissionObjective(
         'plan-safe-corridor',
         'Read the regional terrain map and identify a route that avoids steep cliffs and hazardous ground.',
-        waypoint: 'Western corridor',
+        landmarkId: 'western-corridor',
       ),
       MissionObjective(
         'erosion-and-collapse',
         'Look for erosion, landslides, and collapse. Consider what the exposed rock layers might reveal about past habitability.',
-        waypoint: 'Wall overlook',
+        landmarkId: 'wall-overlook',
       ),
       MissionObjective(
         'water-and-climate',
         'Examine landscape features for clues to ancient surface water and how Mars’s climate and atmosphere changed.',
+        landmarkId: 'orbital-survey-point',
       ),
     ],
     difficulty: MissionDifficulty.extreme,
@@ -163,16 +169,17 @@ const marsMissions = [
       MissionObjective(
         'ancient-liquid-water',
         'Look for geological evidence that liquid water once existed in Jezero Crater.',
-        waypoint: 'Delta outcrop',
+        landmarkId: 'delta-outcrop',
       ),
       MissionObjective(
         'potential-biosignatures',
         'Examine exposed rocks for possible signs of ancient microbial life, including fossil-like shapes. Consider nonbiological explanations.',
+        landmarkId: 'survey-station',
       ),
       MissionObjective(
         'ancient-channel',
         'Survey the surface for a possible ancient river channel or water-flow path.',
-        waypoint: 'Channel edge',
+        landmarkId: 'channel-edge',
       ),
     ],
     difficulty: MissionDifficulty.moderate,

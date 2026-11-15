@@ -8,8 +8,9 @@ import '../tracking/tracking_geometry.dart';
 /// Describes a selectable landmark in the normalized demonstration grid.
 final class DemoLandmark {
   /// Places a landmark at an east-positive, screen-south-positive coordinate.
-  const DemoLandmark(this.name, this.position);
+  const DemoLandmark(this.id, this.name, this.position);
 
+  final String id;
   final String name;
   final Offset position;
 }
@@ -43,7 +44,7 @@ final class MissionMapConfig {
     this.teammate = withinArea(teammate);
     this.landmarks = List.unmodifiable([
       for (final landmark in landmarks)
-        DemoLandmark(landmark.name, withinArea(landmark.position)),
+        DemoLandmark(landmark.id, landmark.name, withinArea(landmark.position)),
     ]);
     boundary = List.unmodifiable([
       for (var i = 0; i < 72; i++)
@@ -88,9 +89,9 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     teammate: Offset(.65, .41),
     layoutRadius: .37,
     landmarks: const [
-      DemoLandmark('Delta outcrop', Offset(.53, .32)),
-      DemoLandmark('Channel edge', Offset(.24, .50)),
-      DemoLandmark('Survey station', Offset(.67, .59)),
+      DemoLandmark('delta-outcrop', 'Delta outcrop', Offset(.53, .32)),
+      DemoLandmark('channel-edge', 'Channel edge', Offset(.24, .50)),
+      DemoLandmark('survey-station', 'Survey station', Offset(.67, .59)),
     ],
   ),
   'gale': MissionMapConfig(
@@ -102,9 +103,9 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     teammate: Offset(.64, .68),
     layoutRadius: .34,
     landmarks: const [
-      DemoLandmark('Sandstone bench', Offset(.41, .26)),
-      DemoLandmark('Bedding station', Offset(.70, .39)),
-      DemoLandmark('Lower overlook', Offset(.48, .73)),
+      DemoLandmark('sandstone-bench', 'Sandstone bench', Offset(.41, .26)),
+      DemoLandmark('bedding-station', 'Bedding station', Offset(.70, .39)),
+      DemoLandmark('lower-overlook', 'Lower overlook', Offset(.48, .73)),
     ],
   ),
   'endeavour': MissionMapConfig(
@@ -116,9 +117,9 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     teammate: Offset(.37, .44),
     layoutRadius: .36,
     landmarks: const [
-      DemoLandmark('Rim outcrop', Offset(.53, .29)),
-      DemoLandmark('Ripple field', Offset(.33, .60)),
-      DemoLandmark('Ridge overlook', Offset(.79, .50)),
+      DemoLandmark('rim-outcrop', 'Rim outcrop', Offset(.53, .29)),
+      DemoLandmark('ripple-field', 'Ripple field', Offset(.33, .60)),
+      DemoLandmark('ridge-overlook', 'Ridge overlook', Offset(.79, .50)),
     ],
   ),
   'columbia-hills': MissionMapConfig(
@@ -130,9 +131,9 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     teammate: Offset(.63, .27),
     layoutRadius: .35,
     landmarks: const [
-      DemoLandmark('Basalt station', Offset(.25, .43)),
-      DemoLandmark('Debris slope', Offset(.44, .29)),
-      DemoLandmark('Hillside outcrop', Offset(.71, .54)),
+      DemoLandmark('basalt-station', 'Basalt station', Offset(.25, .43)),
+      DemoLandmark('debris-slope', 'Debris slope', Offset(.44, .29)),
+      DemoLandmark('hillside-outcrop', 'Hillside outcrop', Offset(.71, .54)),
     ],
   ),
   'valles-marineris': MissionMapConfig(
@@ -144,9 +145,13 @@ final missionMaps = Map<String, MissionMapConfig>.unmodifiable({
     teammate: Offset(.72, .64),
     layoutRadius: .38,
     landmarks: const [
-      DemoLandmark('Western corridor', Offset(.25, .47)),
-      DemoLandmark('Wall overlook', Offset(.57, .71)),
-      DemoLandmark('Orbital survey point', Offset(.77, .39)),
+      DemoLandmark('western-corridor', 'Western corridor', Offset(.25, .47)),
+      DemoLandmark('wall-overlook', 'Wall overlook', Offset(.57, .71)),
+      DemoLandmark(
+        'orbital-survey-point',
+        'Orbital survey point',
+        Offset(.77, .39),
+      ),
     ],
   ),
 });

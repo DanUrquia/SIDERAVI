@@ -62,6 +62,18 @@ Jezero is an impact crater in the Syrtis Major quadrangle of Mars. Its center is
 
 [USGS Gazetteer center](https://planetarynames.wr.usgs.gov/Feature/14300) · [USGS Syrtis Major quadrangle](https://planetarynames.wr.usgs.gov/images/mc13_mola.pdf) · [USGS geologic map](https://pubs.usgs.gov/publication/sim3464) · [NASA on potential biosignatures](https://www.nasa.gov/news-release/nasa-says-mars-rover-discovered-potential-biosignature-last-year/)
 
+## Missions sheet images and waypoints
+
+The sheet reuses each mission briefing’s bundled image and credit. The 16:9 crop preserves image proportions. The three numbered objectives each link to an existing waypoint in the mission map through its stable landmark ID. These are educational survey points within the existing simulated operational radius. The regional images provide context for the mission as a whole.
+
+| Mission | NASA image source | Objective 01 | Objective 02 | Objective 03 |
+| --- | --- | --- | --- | --- |
+| Endeavour Crater | [Opportunity Pancam at Murray Ridge](https://science.nasa.gov/photojournal/endeavour-crater-rim-from-murray-ridge-on-mars/) | Ridge overlook for mineral observations | Rim outcrop for rim geology | Ripple field for soil and rock observations |
+| Gale Crater | [Curiosity Mastcam at Murray Buttes](https://science.nasa.gov/photojournal/farewell-to-murray-buttes-image-2/) | Sandstone bench for cross-bedding | Bedding station for evidence of past water | Lower overlook for the Mount Sharp strata |
+| Columbia Hills | [Spirit Pancam on the hillside](https://science.nasa.gov/photojournal/hillside-boulders/) | Basalt station for the ascent and plains comparison | Hillside outcrop for comparing rock classes | Debris slope for examining exposed material for water-related evidence |
+| Valles Marineris | [Viking Orbiter 1 mosaic](https://science.nasa.gov/resource/valles-marineris-the-grand-canyon-of-mars/) | Western corridor for route planning | Wall overlook for erosion and collapse | Orbital survey point for landscape evidence of water and climate |
+| Jezero Crater | [Perseverance Mastcam-Z panorama of the delta](https://science.nasa.gov/photojournal/perseverance-view-of-the-delta-in-jezero-crater/) | Delta outcrop for evidence of liquid water | Survey station for examining exposed rocks for potential biosignatures | Channel edge for possible former water flow |
+
 ## Local mean solar time
 
 The dashboard calculates Mars Local Mean Solar Time (LMST) at Habitat Base from the device's UTC timestamp. The map clock, mini solar card and Astronaut sheet share an update every foreground minute and immediately on resume. It follows NASA GISS Mars24 with the mission catalog's east-positive longitude convention. [NASA Mars24 algorithm and worked examples](https://www.giss.nasa.gov/tools/mars24/help/algorithm.html) · [Allison and McEwen 2000](https://doi.org/10.1016/S0032-0633(99)00092-6)
@@ -160,4 +172,4 @@ Jezero's maximum is shared by three cells, and two contain an observation. MEGT 
 
 The Jezero briefing uses the USGS-named crater center, while the existing Habitat Base remains the map boundary center. Possible biosignatures and habitable conditions remain hypotheses students can consider. Gale’s Mount Sharp objective is a local observation. Backstay is the documented fifth Spirit rock class for the Columbia Hills comparison. The canyon objectives treat clues about water, climate and habitability as questions for investigation.
 
-Progress is saved on each installation by astronaut ID, mission ID and stable objective ID. The user checks each objective explicitly. The waypoint suggestions can select a destination without changing the completion state. The earlier checklist’s stored IDs remain in local preferences. The scientific objectives have new IDs because the completion criteria changed. Crew presence uses a separate Firebase session for each mission, independently of checklist progress.
+Progress is saved on each installation by astronaut ID, mission ID and stable objective ID. The user checks each objective explicitly. Each location button closes the Missions sheet, centers the map on the assigned waypoint and selects it as the current destination. Start Navigation and PIN remain separate actions. The earlier checklist’s stored IDs remain in local preferences. The scientific objectives have new IDs because the completion criteria changed. Crew presence uses a separate Firebase session for each mission, independently of checklist progress.

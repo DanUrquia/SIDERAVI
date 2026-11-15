@@ -42,13 +42,13 @@ final class MissionImagery {
   final String sourceUrl;
 }
 
-/// A stable checklist entry with an optional simulated waypoint.
+/// A stable checklist entry linked to a scientific waypoint in the mission map.
 final class MissionObjective {
-  const MissionObjective(this.id, this.label, {this.waypoint});
+  const MissionObjective(this.id, this.label, {required this.landmarkId});
 
   final String id;
   final String label;
-  final String? waypoint;
+  final String landmarkId;
 }
 
 /// A NASA MOLA MEGDR grid estimate at the specified simulated Habitat Base.

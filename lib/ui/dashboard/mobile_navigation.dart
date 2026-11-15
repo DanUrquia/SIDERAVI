@@ -73,7 +73,7 @@ class MobileNavigation extends StatefulWidget {
   final CrewPresence? member;
   final Offset? peerPoint;
   final VoidCallback onBack;
-  final void Function(Offset, String) onSelect;
+  final bool Function(Offset, String) onSelect;
   final VoidCallback onNavigate;
   final VoidCallback onReturn;
   final VoidCallback onSensorTest;
@@ -261,7 +261,7 @@ class _MobileNavigationState extends State<MobileNavigation>
     }
   }
 
-  Widget _content(_Sheet sheet) => switch (sheet) {
+  Widget _content(_Sheet sheet, Size viewport) => switch (sheet) {
     _Sheet.missions => MobileMissionsContent(
       mission: widget.mission,
       landmarks: widget.navigation.map.landmarks,
@@ -269,7 +269,12 @@ class _MobileNavigationState extends State<MobileNavigation>
       loading: _loading,
       storageWarning: _storageWarning,
       onChange: _changeObjective,
-      onSelect: _select,
+      onSelect: (landmark) {
+        if (!widget.onSelect(landmark.position, landmark.name)) return;
+        widget.tracking.setFollow(false);
+        widget.view.recenterMissionPoint(landmark.position, viewport);
+        unawaited(_close());
+      },
     ),
     _Sheet.astronaut => MobileAstronautContent(
       astronaut: widget.astronaut,
@@ -362,14 +367,10 @@ class _MobileNavigationState extends State<MobileNavigation>
                               widget.presence.sos?.sender ==
                                   widget.astronaut.id,
                           headingUp: widget.view.headingUp,
-                          onRecenter: () {
-                            final world = missionWorld(viewport);
-                            widget.view.recenter(
-                              world.topLeft +
-                                  widget.navigation.position * world.width,
-                              viewport,
-                            );
-                          },
+                          onRecenter: () => widget.view.recenterMissionPoint(
+                            widget.navigation.position,
+                            viewport,
+                          ),
                           onToggleHeading: () => widget.view.headingUp.value =
                               !widget.view.headingUp.value,
                         ),
@@ -433,7 +434,7 @@ class _MobileNavigationState extends State<MobileNavigation>
                           key: ValueKey(sheet),
                           sheet: sheet,
                           onClose: _close,
-                          child: _content(sheet),
+                          child: _content(sheet, constraints.biggest),
                         ),
                       ),
                     ),
