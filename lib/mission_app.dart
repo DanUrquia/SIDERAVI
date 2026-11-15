@@ -7,6 +7,7 @@ import 'maps/trek_tile_source.dart';
 import 'ui/mission_login.dart';
 import 'ui/mission_theme.dart';
 import 'ui/mission_welcome.dart';
+import 'ui/startup_splash.dart';
 import 'ui/dashboard/mission_dashboard.dart';
 import 'ui/missions/mission_selection.dart';
 
@@ -62,9 +63,11 @@ class _MissionAppState extends State<MissionApp> {
       title: 'SIDERA VI',
       debugShowCheckedModeBanner: false,
       theme: MissionTheme.dark,
-      home: Builder(
-        builder: (context) => MissionLogin(
-          onAuthenticated: (astronaut) => _openMission(context, astronaut),
+      home: StartupSplash(
+        child: Builder(
+          builder: (context) => MissionLogin(
+            onAuthenticated: (astronaut) => _openMission(context, astronaut),
+          ),
         ),
       ),
     );

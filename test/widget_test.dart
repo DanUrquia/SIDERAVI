@@ -14,11 +14,131 @@ import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/missions/mission_photo_panel.dart';
 import 'package:sidera_vi/ui/missions/mission_selection.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
+import 'package:sidera_vi/ui/startup_splash.dart';
 
 import 'fake_trek_tiles.dart';
 
 /// Exercises the Phase 1 flow through the same controls as the iPad.
 void main() {
+  testWidgets('Cold launch holds the official Mars artwork and fades to PIN', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(393, 852);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await _mountStartup(tester);
+
+    final logo = find.byKey(const ValueKey('startup-logo'));
+    final mars = find.byKey(const ValueKey('startup-mars'));
+    final footer = find.text('Made with Super Intelligence.');
+    final pin = find.text('ENTER MISSION PIN');
+    expect(logo, findsOneWidget);
+    expect(mars, findsOneWidget);
+    expect(footer, findsOneWidget);
+    expect(pin.hitTestable(), findsNothing);
+    expect(find.bySemanticsLabel('ENTER MISSION PIN'), findsNothing);
+    final footerText = find.descendant(
+      of: footer,
+      matching: find.byType(RichText),
+    );
+    final decoration = tester
+        .widget<RichText>(footerText)
+        .text
+        .style
+        ?.decoration;
+    expect(decoration ?? TextDecoration.none, TextDecoration.none);
+
+    for (final (finder, asset, fit) in [
+      (logo, 'assets/branding/sidera_vi_logo.png', BoxFit.contain),
+      (mars, 'assets/missions/valles-marineris.jpg', BoxFit.cover),
+    ]) {
+      final picture = tester.widget<Image>(finder);
+      expect((picture.image as AssetImage).assetName, asset);
+      expect(picture.fit, fit);
+    }
+
+    await tester.pump(const Duration(milliseconds: 3779));
+    final fade = find.ancestor(
+      of: logo,
+      matching: find.byType(AnimatedOpacity),
+    );
+    expect(tester.widget<AnimatedOpacity>(fade).opacity, 1);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(tester.widget<AnimatedOpacity>(fade).opacity, 0);
+    await tester.pump(const Duration(milliseconds: 110));
+    final transition = find.descendant(
+      of: fade,
+      matching: find.byType(FadeTransition),
+    );
+    expect(
+      tester.widget<FadeTransition>(transition).opacity.value,
+      inExclusiveRange(0, 1),
+    );
+    expect(pin.hitTestable(), findsNothing);
+    await tester.pump(const Duration(milliseconds: 110));
+    await tester.pumpAndSettle();
+    expect(footer, findsNothing);
+    expect(logo, findsNothing);
+    expect(pin.hitTestable(), findsOneWidget);
+    expect(find.bySemanticsLabel('ENTER MISSION PIN'), findsOneWidget);
+  });
+
+  testWidgets('Reduce Motion keeps the four-second splash without a fade', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await _mountStartup(tester);
+
+    final logo = find.byKey(const ValueKey('startup-logo'));
+    final fade = find.ancestor(
+      of: logo,
+      matching: find.byType(AnimatedOpacity),
+    );
+    await tester.pump(const Duration(milliseconds: 3999));
+    expect(logo, findsOneWidget);
+    expect(tester.widget<AnimatedOpacity>(fade).opacity, 1);
+    expect(tester.widget<AnimatedOpacity>(fade).duration, Duration.zero);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(logo, findsNothing);
+    expect(find.text('ENTER MISSION PIN').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('Splash fits phone and iPad safe areas with large text', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetPadding);
+    for (final (size, top, bottom) in [
+      (const Size(320, 568), 20.0, 0.0),
+      (const Size(393, 852), 59.0, 34.0),
+      (const Size(1376, 1032), 24.0, 20.0),
+      (const Size(820, 1180), 24.0, 20.0),
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      tester.view.physicalSize = size;
+      tester.view.padding = FakeViewPadding(top: top, bottom: bottom);
+      await _mountStartup(tester);
+      final logo = tester.getRect(find.byKey(const ValueKey('startup-logo')));
+      final footer = tester.getRect(find.text('Made with Super Intelligence.'));
+      expect(tester.getSize(find.byKey(const ValueKey('startup-mars'))), size);
+      expect(logo.size.aspectRatio, closeTo(3, .001));
+      expect(logo.center.dx, closeTo(size.width / 2, .001));
+      expect(logo.left, greaterThan(0));
+      expect(logo.right, lessThan(size.width));
+      expect(footer.center.dx, closeTo(size.width / 2, .001));
+      expect(logo.bottom, lessThan(footer.top));
+      expect(footer.bottom, closeTo(size.height - bottom - 20, .001));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   for (final (pin, name, id, initials) in [
     ('0107', 'Dan Urquía', 'ARES-01', 'DU'),
     ('1412', 'Adrian Flores', 'ARES-02', 'AF'),
@@ -391,6 +511,7 @@ void main() {
       _expectMission(1);
       expect(find.text('Dan Urquía'), findsOneWidget);
       expect(find.text('Welcome Astronaut'), findsNothing);
+      expect(find.byKey(const ValueKey('startup-logo')), findsNothing);
 
       await tester.tap(find.text('BACK'));
       await tester.pumpAndSettle();
@@ -404,6 +525,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Adrian Flores — ARES-02'), findsOneWidget);
       expect(find.text('Endeavour Crater'), findsOneWidget);
+      expect(find.text('Made with Super Intelligence.'), findsNothing);
       final secondMap = tester.widget<DemoTerrainMap>(
         find.byType(DemoTerrainMap),
       );
@@ -444,7 +566,29 @@ Future<void> _openLogin(
   tester.view.physicalSize = size;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
-  await tester.pumpWidget(MissionApp(tileSource: FakeTrekTiles()));
+  await _mountStartup(tester);
+  await tester.pump(const Duration(seconds: 4));
+  await tester.pumpAndSettle();
+  expect(find.text('ENTER MISSION PIN').hitTestable(), findsOneWidget);
+}
+
+/// Decodes the actual bundled artwork before advancing the fake launch clock.
+Future<void> _mountStartup(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    await tester.pumpWidget(MissionApp(tileSource: FakeTrekTiles()));
+    final context = tester.element(find.byType(StartupSplash));
+    await Future.wait([
+      precacheImage(
+        const AssetImage('assets/branding/sidera_vi_logo.png'),
+        context,
+      ),
+      precacheImage(
+        const AssetImage('assets/missions/valles-marineris.jpg'),
+        context,
+      ),
+    ]);
+  });
+  await tester.pump();
 }
 
 /// Enters digits solely through the on-screen keypad.
