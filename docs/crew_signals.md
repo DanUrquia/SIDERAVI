@@ -12,7 +12,9 @@ Receiving a PIN leaves the current route in place. Tap the teammate's PIN to sel
 
 **SOS → SEND SOS** shares the estimated Mars location at the moment of confirmation. The crew receives an educational in-app assistance alert. The feature contacts no emergency services.
 
-Crew sees a red mission boundary with the original geographic radius and a red marker at the captured point. The sender sees **SOS ACTIVE** and can use **Cancel SOS**. Their own astronaut marker keeps following accepted physical steps. The other astronaut sees one incident modal per app run with the sender's name, ID, and estimated separation. Dismissing the modal leaves the rescue active. The existing guidance points straight toward the rescue waypoint and takes priority over the local destination. That destination returns when the rescue ends. Terrain along the guidance line is unverified.
+The sender's confirmation uses a dark emergency panel. The receiving astronaut sees a deep-red distress panel with the sender's name and ID, the current estimated distance and the active waypoint status. Both dialogs use the briefing's full-width action buttons. On short displays and with larger text, the body scrolls while both actions stay available. The dialogs use the system Reduce Motion setting.
+
+Crew sees a red mission boundary with the original geographic radius and a red marker at the captured point. The sender sees **SOS ACTIVE** and can use **Cancel SOS**. Their own astronaut marker keeps following accepted physical steps. The other astronaut sees one incident modal per app run with the sender's name, ID, and estimated separation. **Dismiss** closes the alert and leaves the rescue active. **View Waypoint** closes the alert and exposes the rescue map. The existing guidance points straight toward the rescue waypoint and takes priority over the local destination. That destination returns when the rescue ends. Terrain along the guidance line is unverified.
 
 The sender can cancel. To complete a rescue, the teammate must make accepted PDR movement after the alert becomes active and enter the five-meter circle from outside. A teammate already inside must first leave that circle by accepted movement. Resets, restored positions, and heading-only changes do not count toward arrival. The distance is calculated on the Mars sphere from the estimated coordinates. It expresses estimated separation. The terminal state closes the waypoint and restores the orange boundary on both devices.
 
@@ -38,6 +40,12 @@ The same authenticated mission membership authorizes signal reads. An astronaut 
 3. Start outside the five-meter radius and walk toward the waypoint with the rescuer's physical phone. Observe the transition to resolved and the restored boundary. A simulator can verify synchronization, presentation, and cancellation. Its step count is unavailable for physical arrival.
 
 See [device enrollment](live_astronaut_tracking.md) for the field phones. Dan and Keren already own the two field slots. An operator must explicitly provision a replacement device or use an isolated test session.
+
+## Phase 6G.2 verification
+
+The matching DEV builds ran on Dan's iPhone 16 and the iPhone 18 Pro simulator in the isolated Endeavour session. Dan's physical phone sent the SOS and Firebase recorded its position and cancellation. The simulator confirmed the redesigned outgoing dialog and its Cancel action, then displayed ARES-01, Dan Urquía and 13 m in the new incoming alert. The estimate matched 12.9 m between the incident and the simulated astronaut. **View Waypoint** closed the dialog and showed the active rescue route.
+
+Widget tests check dismissal without resolving the SOS, one alert per incident, live distance changes, Reduce Motion and the layout at iPhone 16, iPhone 14 Plus and small-phone dimensions with enlarged text. Firebase emulator tests exercise the existing SOS payload and authorization. Keren's physical iPhone 14 Plus was unavailable.
 
 ## Phase 6G.1 verification
 

@@ -24,6 +24,7 @@ import 'dashboard_style.dart';
 import 'demo_terrain_map.dart';
 import 'movement_diagnostics.dart';
 import 'mobile_navigation.dart';
+import 'sos_emergency_dialog.dart';
 import 'tracking_controls.dart';
 
 /// Hosts one astronaut's interactive offline mission scenario.
@@ -194,44 +195,32 @@ class _MissionDashboardState extends State<MissionDashboard>
       return;
     }
     _shownSos[_presence.key] = event.id;
-    final distance = formatNavigationDistance(
-      _arrival!.distance(_tracking.pose.mars),
-      live: true,
-    );
+    final arrival = _arrival!;
+    final senderName = _teammate.id == event.sender
+        ? _teammate.fullName
+        : event.sender;
     final dialog = DialogRoute<void>(
       context: context,
-      barrierColor: const Color(0xCC000000),
-      builder: (context) => AlertDialog(
+      barrierColor: SosEmergencyDialog.barrierColor,
+      animationStyle: SosEmergencyDialog.animationStyle(context),
+      builder: (context) => SosEmergencyDialog.incoming(
         key: const ValueKey('incoming-crew-sos'),
-        backgroundColor: DashboardStyle.emergency,
-        icon: const Icon(
-          Icons.warning_amber_rounded,
-          size: 44,
-          color: DashboardStyle.danger,
-        ),
-        title: Text('SOS — ${event.sender} NEEDS HELP'),
-        content: Text(
-          '${_teammate.fullName} has requested assistance.\n\n'
-          'Estimated distance · $distance\n'
-          'Rescue waypoint activated.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('DISMISS'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: DashboardStyle.danger,
-              foregroundColor: DashboardStyle.background,
+        senderId: event.sender,
+        senderName: senderName,
+        distance: ListenableBuilder(
+          listenable: _navigation,
+          builder: (context, _) => Text(
+            formatNavigationDistance(
+              arrival.distance(_tracking.pose.mars),
+              live: true,
             ),
-            onPressed: () {
-              setState(() => _revealRescue++);
-              Navigator.pop(context);
-            },
-            child: const Text('VIEW WAYPOINT'),
           ),
-        ],
+        ),
+        onPrimary: () {
+          setState(() => _revealRescue++);
+          Navigator.pop(context);
+        },
+        onSecondary: () => Navigator.pop(context),
       ),
     );
     _sosDialog = dialog;

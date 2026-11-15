@@ -17,6 +17,7 @@ import '../mission_theme.dart';
 import 'dashboard_style.dart';
 import 'mobile_map_controls.dart';
 import 'mobile_mission_sheets.dart';
+import 'sos_emergency_dialog.dart';
 
 enum _Sheet {
   missions('Missions', Icons.flag_outlined),
@@ -245,26 +246,12 @@ class _MobileNavigationState extends State<MobileNavigation>
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Send SOS to your crew?'),
-          content: const Text(
-            'Share your estimated Mars position with Crew in this mission. '
-            'This alert is for in-app assistance.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('CANCEL'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: DashboardStyle.danger,
-                foregroundColor: DashboardStyle.background,
-              ),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('SEND SOS'),
-            ),
-          ],
+        barrierColor: SosEmergencyDialog.barrierColor,
+        animationStyle: SosEmergencyDialog.animationStyle(context),
+        builder: (context) => SosEmergencyDialog.confirm(
+          key: const ValueKey('confirm-crew-sos'),
+          onPrimary: () => Navigator.pop(context, true),
+          onSecondary: () => Navigator.pop(context, false),
         ),
       );
       if (mounted && confirmed == true) widget.onSos();

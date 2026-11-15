@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../missions/mission.dart';
+import '../mission_action_button.dart';
 import '../mission_theme.dart';
 
 /// Displays the current mission's briefing and keeps Start Mission reachable.
@@ -71,7 +72,11 @@ class MissionInformationPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 15),
-          _StartMissionButton(onStart: onStart),
+          MissionActionButton(
+            label: 'START MISSION',
+            icon: Icons.arrow_forward,
+            onPressed: onStart,
+          ),
         ],
       ),
     );
@@ -297,49 +302,5 @@ class _BriefingCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
     ),
     child: child,
-  );
-}
-
-/// Presents the primary mission action with the orange cockpit treatment.
-class _StartMissionButton extends StatelessWidget {
-  const _StartMissionButton({required this.onStart});
-
-  final VoidCallback onStart;
-
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFFF36A36), Color(0xFFC7461F)],
-      ),
-      borderRadius: BorderRadius.circular(14),
-      boxShadow: const [BoxShadow(color: Color(0x48FF5826), blurRadius: 22)],
-    ),
-    child: SizedBox(
-      height: 72,
-      child: FilledButton(
-        onPressed: onStart,
-        style: MissionTheme.control(
-          fill: Colors.transparent,
-          border: const Color(0xFFD65B2E),
-          foreground: const Color(0xFF190C09),
-          elevation: 0,
-          radius: 14,
-        ),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            spacing: 12,
-            children: [
-              const Icon(Icons.arrow_forward, size: 27),
-              Text(
-                'START MISSION',
-                style: MissionTheme.display(21, tracking: 1.1),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
   );
 }

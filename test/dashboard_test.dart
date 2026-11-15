@@ -23,6 +23,7 @@ import 'package:sidera_vi/ui/dashboard/dashboard_style.dart';
 import 'package:sidera_vi/ui/dashboard/dashboard_panels.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/dashboard/mobile_navigation.dart';
+import 'package:sidera_vi/ui/mission_action_button.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
 
 import 'fake_trek_tiles.dart';
@@ -2139,7 +2140,7 @@ void main() {
       expect(nav.position, nav.map.base);
 
       await _tapTooltip(tester, 'SOS');
-      expect(find.text('Send SOS to your crew?'), findsOneWidget);
+      expect(find.text('SEND SOS?'), findsOneWidget);
       await tester.tap(find.text('CANCEL'));
       await tester.pumpAndSettle();
       expect(nav.paused, isFalse);
@@ -2369,6 +2370,147 @@ void main() {
     expect(map.view.rotation, closeTo(0, 1e-12));
   });
 
+  testWidgets(
+    'Emergency dialogs keep full-width actions inside phone safe areas',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      final confirmation = find.byKey(const ValueKey('confirm-crew-sos'));
+      final incoming = find.byKey(const ValueKey('incoming-crew-sos'));
+      for (final (size, insets, scale, reducedMotion) in [
+        (
+          const Size(393, 852),
+          const FakeViewPadding(top: 59, bottom: 34),
+          1.0,
+          false,
+        ),
+        (
+          const Size(428, 926),
+          const FakeViewPadding(top: 47, bottom: 34),
+          1.0,
+          false,
+        ),
+        (
+          const Size(320, 568),
+          const FakeViewPadding(top: 24, bottom: 20),
+          2.0,
+          true,
+        ),
+      ]) {
+        await tester.pumpWidget(const SizedBox.shrink());
+        tester.view.padding = insets;
+        tester.view.viewPadding = insets;
+        final map = await _launch(
+          tester,
+          size: size,
+          textScale: scale,
+          disableAnimations: reducedMotion,
+        );
+        final session = await _connectPhoneCrew(tester, map);
+        session.updateSignals();
+        await tester.pumpAndSettle();
+
+        void expectActions(Finder root, String primary, String secondary) {
+          final first = _within(root, primary);
+          final second = _within(root, secondary);
+          final buttons = find.descendant(
+            of: root,
+            matching: find.byType(FilledButton),
+          );
+          final shared = find.descendant(
+            of: root,
+            matching: find.byType(MissionActionButton),
+          );
+          expect(shared, findsNWidgets(2));
+          expect(buttons, findsNWidgets(2));
+          final firstRect = tester.getRect(buttons.first);
+          final secondRect = tester.getRect(buttons.last);
+          expect(firstRect.top, greaterThan(insets.top));
+          expect(secondRect.bottom, lessThan(size.height - insets.bottom));
+          expect(firstRect.height, 72);
+          expect(secondRect.height, 72);
+          expect(firstRect.width, greaterThan(size.width * .7));
+          expect(firstRect.width, secondRect.width);
+          expect(firstRect.bottom, lessThan(secondRect.top));
+          expect(first.hitTestable(), findsOneWidget);
+          expect(second.hitTestable(), findsOneWidget);
+          if (reducedMotion) {
+            final route = ModalRoute.of(tester.element(root))!;
+            expect(route.transitionDuration, Duration.zero);
+            expect(route.reverseTransitionDuration, Duration.zero);
+          }
+        }
+
+        await _tapTooltip(tester, 'SOS');
+        expect(_within(confirmation, 'EMERGENCY BROADCAST'), findsOneWidget);
+        expect(_within(confirmation, 'SEND SOS?'), findsOneWidget);
+        expect(
+          _within(
+            confirmation,
+            'Your crew will receive an emergency alert with your estimated Mars position.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel('Emergency siren'), findsOneWidget);
+        expectActions(confirmation, 'SEND SOS', 'CANCEL');
+        await tester.tap(_within(confirmation, 'CANCEL'));
+        await tester.pumpAndSettle();
+        expect(session.started, 0);
+
+        final base = map.tracking.pose.mars;
+        final rescue = displaceOnMars(base, const Offset(0, 125));
+        session.alert = (
+          id: 'responsive-sos-${size.width}',
+          sender: DemoCrew.adrian.id,
+          mars: rescue,
+          started: session.clock(),
+          state: SosState.active,
+          finishedBy: null,
+        );
+        session.updateSignals();
+        await tester.pumpAndSettle();
+        expect(_within(incoming, 'ACTIVE DISTRESS SIGNAL'), findsOneWidget);
+        expect(_within(incoming, 'ARES-02 NEEDS HELP'), findsOneWidget);
+        expect(
+          _within(
+            incoming,
+            'Adrian Flores has requested immediate assistance.',
+          ),
+          findsOneWidget,
+        );
+        expect(_within(incoming, '125 m'), findsOneWidget);
+        expectActions(incoming, 'VIEW WAYPOINT', 'DISMISS');
+        final scrollable = find.descendant(
+          of: incoming,
+          matching: find.byType(Scrollable),
+        );
+        if (scale > 1) {
+          final position = tester.state<ScrollableState>(scrollable).position;
+          expect(position.maxScrollExtent, greaterThan(0));
+          await tester.ensureVisible(
+            _within(incoming, 'Rescue waypoint activated'),
+          );
+          await tester.pumpAndSettle();
+          expect(position.pixels, greaterThan(0));
+          expectActions(incoming, 'VIEW WAYPOINT', 'DISMISS');
+        }
+
+        map.navigation.applyStepPosition(
+          map.tracking.gridPosition(displaceOnMars(base, const Offset(0, 25))),
+        );
+        await tester.pumpAndSettle();
+        expect(_within(incoming, '100 m'), findsOneWidget);
+        await tester.tap(_within(incoming, 'DISMISS'));
+        await tester.pumpAndSettle();
+        expect(map.navigation.rescuing, isTrue);
+        expect(session.finished, isEmpty);
+        expect(tester.takeException(), isNull);
+      }
+      semantics.dispose();
+    },
+  );
+
   testWidgets('Sender can cancel shared SOS and keep moving', (tester) async {
     final map = await _launch(tester, size: const Size(390, 844));
     final session = await _connectPhoneCrew(tester, map);
@@ -2442,12 +2584,14 @@ void main() {
     );
     session.updateSignals();
     await tester.pumpAndSettle();
-    expect(find.text('SOS — ARES-01 NEEDS HELP'), findsOneWidget);
+    expect(find.text('ARES-01 NEEDS HELP'), findsOneWidget);
     expect(
-      find.textContaining('Dan Urquía has requested assistance.'),
+      find.text('Dan Urquía has requested immediate assistance.'),
       findsOneWidget,
     );
-    expect(find.textContaining('Estimated distance · 10 m'), findsOneWidget);
+    final dialog = find.byKey(const ValueKey('incoming-crew-sos'));
+    expect(_within(dialog, 'ESTIMATED DISTANCE'), findsOneWidget);
+    expect(_within(dialog, '10 m'), findsOneWidget);
     expect(map.navigation.target, map.tracking.gridPosition(rescue));
     expect(map.navigation.guiding, isTrue);
     expect(_missionRim(tester).bounds, normal.bounds);
@@ -2714,6 +2858,7 @@ Future<DemoTerrainMap> _launch(
   TargetPlatform? platform,
   ConnectPresence? connectPresence,
   double textScale = 1,
+  bool? disableAnimations,
   bool settle = true,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -2724,9 +2869,10 @@ Future<DemoTerrainMap> _launch(
     MaterialApp(
       theme: MissionTheme.dark.copyWith(platform: platform),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(textScale),
+          disableAnimations: disableAnimations,
+        ),
         child: child!,
       ),
       home: MissionDashboard(
