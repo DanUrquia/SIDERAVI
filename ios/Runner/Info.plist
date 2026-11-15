@@ -23,9 +23,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Sensor Test measures Earth location on this iPad. SIDERA VI processes the readings locally and does not upload them.</string>
+	<string>Sensor Test measures Earth location on this device. SIDERA VI processes the readings locally and does not upload them.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>SIDERA VI measures relative orientation, steps, and estimated walking distance locally on this iPad.</string>
+	<string>SIDERA VI measures relative orientation, steps, and estimated walking distance locally on this device.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -54,8 +54,6 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<true/>

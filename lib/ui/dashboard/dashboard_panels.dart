@@ -30,18 +30,18 @@ class PositionPanel extends StatelessWidget {
     icon: Icons.my_location,
     children: [
       Text(astronaut.fullName, style: MissionTheme.display(18)),
-      _Readout(
+      DashboardReadout(
         label: 'Simulated Mars',
-        value: _marsPosition(tracking.pose.mars),
+        value: formatMarsPosition(tracking.pose.mars),
       ),
       ValueListenableBuilder<double?>(
         valueListenable: tracking.heading,
-        builder: (context, heading, _) => _Readout(
+        builder: (context, heading, _) => DashboardReadout(
           label: 'Relative heading',
           value: heading == null ? 'Unavailable' : '${heading.round()}°',
         ),
       ),
-      _Readout(
+      DashboardReadout(
         label: 'Exploration',
         value: navigation.sos
             ? 'Demo SOS'
@@ -54,8 +54,9 @@ class PositionPanel extends StatelessWidget {
 }
 
 /// Formats the simulated geographic position without identifying an Earth fix.
-String _marsPosition(Offset point) =>
-    '${point.dy.toStringAsFixed(4)}°, ${point.dx.toStringAsFixed(4)}° E';
+String formatMarsPosition(Offset point) =>
+    '${point.dy.abs().toStringAsFixed(4)}° ${point.dy < 0 ? 'S' : 'N'}, '
+    '${point.dx.abs().toStringAsFixed(4)}° ${point.dx < 0 ? 'W' : 'E'}';
 
 /// Shows the route status and actions for destination or base travel.
 class NavigationPanel extends StatelessWidget {
@@ -97,15 +98,18 @@ class NavigationPanel extends StatelessWidget {
       title: 'NAVIGATION',
       icon: Icons.alt_route,
       children: [
-        _Readout(
+        DashboardReadout(
           label: 'Destination',
           value: navigation.targetLabel ?? 'Tap the map',
         ),
-        _Readout(
+        DashboardReadout(
           label: 'To destination',
           value: target == null ? '—' : distance(target),
         ),
-        _Readout(label: 'To base', value: distance(navigation.map.base)),
+        DashboardReadout(
+          label: 'To base',
+          value: distance(navigation.map.base),
+        ),
         Text(
           live && !navigation.paused
               ? tracking.quality.label
@@ -282,8 +286,8 @@ class DashboardPanel extends StatelessWidget {
 }
 
 /// Pairs a short metric label and a wrap-capable value.
-class _Readout extends StatelessWidget {
-  const _Readout({required this.label, required this.value});
+class DashboardReadout extends StatelessWidget {
+  const DashboardReadout({super.key, required this.label, required this.value});
 
   final String label;
   final String value;

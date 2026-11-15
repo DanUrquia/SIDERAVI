@@ -20,12 +20,16 @@ class TrekTileView extends StatefulWidget {
     required this.source,
     required this.child,
     this.detail,
+    this.statusBottom = 79,
+    this.statusLeft = 15,
   });
 
   final MarsScene scene;
   final TerrainViewController view;
   final TrekTileSource source;
   final TrekLayer? detail;
+  final double statusBottom;
+  final double statusLeft;
   final Widget child;
 
   @override
@@ -222,8 +226,8 @@ class _TrekTileViewState extends State<TrekTileView> {
         widget.child,
         if (loading || hasError || _resolutionLimit)
           Positioned(
-            bottom: 79,
-            left: 15,
+            bottom: widget.statusBottom,
+            left: widget.statusLeft,
             child: _MapTileStatus(
               loading: loading,
               error: hasError

@@ -71,6 +71,7 @@ class MissionPhotoPanel extends StatelessWidget {
                     spacing: 10,
                     children: [
                       const Flexible(
+                        flex: 3,
                         child: _PhotoLabel(
                           label: 'AVAILABLE',
                           status: true,
@@ -78,7 +79,7 @@ class MissionPhotoPanel extends StatelessWidget {
                         ),
                       ),
                       Flexible(
-                        flex: 2,
+                        flex: 4,
                         child: _PhotoLabel(
                           label: 'REGION REF\n${mission.coordinates.label}',
                         ),
@@ -217,7 +218,7 @@ class _PhotoLabel extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: status ? 9 : 12, vertical: 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           spacing: 6,
@@ -227,6 +228,8 @@ class _PhotoLabel extends StatelessWidget {
               child: Text(
                 label,
                 textAlign: TextAlign.center,
+                maxLines: status ? 1 : null,
+                overflow: status ? TextOverflow.ellipsis : null,
                 style: MissionTheme.display(
                   12,
                   tracking: .65,

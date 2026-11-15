@@ -598,6 +598,21 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
       }
       motion.finishWalking(reason: args["reason"] ?? "operator", id: id)
       result(walkingBatch(motion.walkingSnapshot(id: id)))
+    case "readMissionChecklist":
+      guard let key = checklistKey(call.arguments as? String) else {
+        result(FlutterError(code: "invalid_checklist", message: "Mission checklist is unavailable.", details: nil))
+        return
+      }
+      result(UserDefaults.standard.stringArray(forKey: key) ?? [])
+    case "writeMissionChecklist":
+      guard let value = call.arguments as? [String: Any],
+            let key = checklistKey(value["scope"] as? String),
+            let completed = value["completed"] as? [String] else {
+        result(FlutterError(code: "invalid_checklist", message: "Mission checklist is unavailable.", details: nil))
+        return
+      }
+      UserDefaults.standard.set(completed, forKey: key)
+      result(nil)
     case "export", "exportMovement", "exportWalking":
       guard let content = call.arguments as? String else {
         result(FlutterError(code: "invalid_report", message: "Report is unavailable.", details: nil))
@@ -613,6 +628,13 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func checklistKey(_ scope: String?) -> String? {
+    guard let scope, scope.range(
+      of: "^[A-Za-z0-9:/-]{1,90}$", options: .regularExpression
+    ) != nil else { return nil }
+    return "checklist/\(scope)"
   }
 
   private func walkingBatch(_ data: [String: Any]) -> [String: Any] {

@@ -21,6 +21,7 @@ import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
 import 'demo_terrain_map.dart';
 import 'movement_diagnostics.dart';
+import 'mobile_navigation.dart';
 import 'tracking_controls.dart';
 
 /// Hosts one astronaut's interactive offline mission scenario.
@@ -31,7 +32,7 @@ class MissionDashboard extends StatefulWidget {
     required this.astronaut,
     required this.mission,
     required this.tileSource,
-    this.sensors = const IpadSensorService(),
+    this.sensors = const NativeSensorService(),
   });
 
   final Astronaut astronaut;
@@ -126,8 +127,8 @@ class _MissionDashboardState extends State<MissionDashboard>
     _navigation.addPing(type);
     _notify(
       type == DemoPingType.danger
-          ? 'Warning marker placed on this iPad.'
-          : '${type.label} placed on this iPad.',
+          ? 'Warning marker placed on this device.'
+          : '${type.label} placed on this device.',
       warning: type == DemoPingType.danger,
     );
   }
@@ -232,119 +233,158 @@ class _MissionDashboardState extends State<MissionDashboard>
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
     final astronaut = widget.astronaut;
     final mission = widget.mission;
+    final mobile = MediaQuery.sizeOf(context).shortestSide < 600;
+    final dashboard = ListenableBuilder(
+      listenable: Listenable.merge([
+        _navigation,
+        _tracking,
+        _presence,
+        if (mobile) _tracking.pedometer,
+      ]),
+      builder: (context, _) {
+        final member = _presence.crew[_teammate.id];
+        final fresh = member != null && _presence.isFresh(member);
+        final demoPeer =
+            member == null &&
+            _presence.status == ConnectionStatus.offline &&
+            _tracking.mode == TrackingMode.demo;
+        final peerPoint = member != null
+            ? _tracking.coordinates.toGrid(member.pose.mars)
+            : demoPeer
+            ? _map.teammate
+            : null;
+        final rightPanel = _DashboardSidebar(
+          astronaut: astronaut,
+          teammate: _teammate,
+          mission: mission,
+          navigation: _navigation,
+          tracking: _tracking,
+          teammateStatus: member != null
+              ? fresh
+                    ? member.pose.mode.label
+                    : 'Last known · offline'
+              : demoPeer
+              ? 'Simulated teammate'
+              : 'Not in session',
+          onNavigate: () => _navigation.start(instant: reducedMotion),
+          onReturn: () => _navigation.returnToBase(instant: reducedMotion),
+          onTeammate: _navigation.sos || peerPoint == null
+              ? null
+              : () => _selectDestination(peerPoint, _teammate.fullName),
+        );
+        void movementLog() =>
+            showMovementDiagnostics(context, _tracking, mission.id);
+        final insets = MediaQuery.viewPaddingOf(context);
+        final terrain = DemoTerrainMap(
+          navigation: _navigation,
+          view: _view,
+          mission: mission,
+          tileSource: widget.tileSource,
+          tracking: _tracking,
+          astronautId: astronaut.id,
+          teammateId: _teammate.id,
+          peerPoint: peerPoint,
+          peer: member,
+          peerFresh: fresh,
+          teammateName: _teammate.fullName,
+          onSelect: _selectDestination,
+          fullScreen: mobile,
+          overlayInsets: mobile
+              ? EdgeInsets.fromLTRB(
+                  insets.left,
+                  0,
+                  insets.right,
+                  MobileNavigation.chromeBottom(context),
+                )
+              : EdgeInsets.zero,
+        );
+        if (mobile) {
+          return MobileNavigation(
+            map: terrain,
+            view: _view,
+            astronaut: astronaut,
+            teammate: _teammate,
+            mission: mission,
+            navigation: _navigation,
+            tracking: _tracking,
+            presence: _presence,
+            member: member,
+            peerPoint: peerPoint,
+            peerFresh: fresh,
+            onBack: () => Navigator.of(context).maybePop(),
+            onSelect: _selectDestination,
+            onNavigate: () => _navigation.start(instant: reducedMotion),
+            onReturn: () => _navigation.returnToBase(instant: reducedMotion),
+            onSensorTest: _openDiagnostics,
+            onMovementLog: movementLog,
+            onJoin: _firebase == null ? null : _joinCrew,
+            onPing: _sendPing,
+            onSos: _handleSos,
+          );
+        }
+        final map = Stack(
+          fit: StackFit.expand,
+          children: [
+            terrain,
+            if (_navigation.sos)
+              Positioned(
+                top: 63,
+                left: 14,
+                right: 14,
+                child: DemoSosBanner(astronautName: astronaut.fullName),
+              ),
+          ],
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 13,
+          children: [
+            _DashboardHeader(
+              astronaut: astronaut,
+              mission: mission,
+              navigation: _navigation,
+              onBack: () => Navigator.of(context).maybePop(),
+              onDiagnostics: _openDiagnostics,
+            ),
+            TrackingControls(
+              tracking: _tracking,
+              presence: _presence,
+              onJoin: _firebase == null ? null : _joinCrew,
+              onMovementLog: movementLog,
+            ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) => Row(
+                  spacing: 14,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: map),
+                    SizedBox(
+                      width: (constraints.maxWidth * .34).clamp(245.0, 460.0),
+                      child: rightPanel,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            DashboardActions(
+              navigation: _navigation,
+              onPause: _navigation.togglePause,
+              onPing: _sendPing,
+              onSos: _handleSos,
+            ),
+          ],
+        );
+      },
+    );
     return ScaffoldMessenger(
       key: _messages,
       child: Scaffold(
         backgroundColor: DashboardStyle.background,
-        body: SafeArea(
-          minimum: const EdgeInsets.all(16),
-          child: ListenableBuilder(
-            listenable: Listenable.merge([_navigation, _tracking, _presence]),
-            builder: (context, _) {
-              final member = _presence.crew[_teammate.id];
-              final fresh = member != null && _presence.isFresh(member);
-              final demoPeer =
-                  member == null &&
-                  _presence.status == ConnectionStatus.offline &&
-                  _tracking.mode == TrackingMode.demo;
-              final peerPoint = member != null
-                  ? _tracking.coordinates.toGrid(member.pose.mars)
-                  : demoPeer
-                  ? _map.teammate
-                  : null;
-              final rightPanel = _DashboardSidebar(
-                astronaut: astronaut,
-                teammate: _teammate,
-                mission: mission,
-                navigation: _navigation,
-                tracking: _tracking,
-                teammateStatus: member != null
-                    ? fresh
-                          ? member.pose.mode.label
-                          : 'Last known · offline'
-                    : demoPeer
-                    ? 'Simulated teammate'
-                    : 'Not in session',
-                onNavigate: () => _navigation.start(instant: reducedMotion),
-                onReturn: () =>
-                    _navigation.returnToBase(instant: reducedMotion),
-                onTeammate: _navigation.sos || peerPoint == null
-                    ? null
-                    : () => _selectDestination(peerPoint, _teammate.fullName),
-              );
-              final map = Stack(
-                fit: StackFit.expand,
-                children: [
-                  DemoTerrainMap(
-                    navigation: _navigation,
-                    view: _view,
-                    mission: mission,
-                    tileSource: widget.tileSource,
-                    tracking: _tracking,
-                    astronautId: astronaut.id,
-                    teammateId: _teammate.id,
-                    peerPoint: peerPoint,
-                    peer: member,
-                    peerFresh: fresh,
-                    teammateName: _teammate.fullName,
-                    onSelect: _selectDestination,
-                  ),
-                  if (_navigation.sos)
-                    Positioned(
-                      top: 63,
-                      left: 14,
-                      right: 14,
-                      child: DemoSosBanner(astronautName: astronaut.fullName),
-                    ),
-                ],
-              );
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                spacing: 13,
-                children: [
-                  _DashboardHeader(
-                    astronaut: astronaut,
-                    mission: mission,
-                    navigation: _navigation,
-                    onBack: () => Navigator.of(context).maybePop(),
-                    onDiagnostics: _openDiagnostics,
-                  ),
-                  TrackingControls(
-                    tracking: _tracking,
-                    presence: _presence,
-                    onJoin: _firebase == null ? null : _joinCrew,
-                    onMovementLog: () =>
-                        showMovementDiagnostics(context, _tracking, mission.id),
-                  ),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) => Row(
-                        spacing: 14,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(child: map),
-                          SizedBox(
-                            width: (constraints.maxWidth * .34).clamp(
-                              245.0,
-                              460.0,
-                            ),
-                            child: rightPanel,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  DashboardActions(
-                    navigation: _navigation,
-                    onPause: _navigation.togglePause,
-                    onPing: _sendPing,
-                    onSos: _handleSos,
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
+        resizeToAvoidBottomInset: !mobile,
+        body: mobile
+            ? dashboard
+            : SafeArea(minimum: const EdgeInsets.all(16), child: dashboard),
       ),
     );
   }

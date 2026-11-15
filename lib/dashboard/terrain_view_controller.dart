@@ -1,5 +1,12 @@
 import 'package:flutter/widgets.dart';
 
+/// The geographic overlay spans the shortest axis on every viewport.
+Rect missionWorld(Size viewport) => Rect.fromCenter(
+  center: viewport.center(Offset.zero),
+  width: viewport.shortestSide,
+  height: viewport.shortestSide,
+);
+
 /// Controls the viewport transform shared by the image and all demo markers.
 final class TerrainViewController extends TransformationController {
   static const maxZoom = 4.0;
@@ -28,6 +35,13 @@ final class TerrainViewController extends TransformationController {
       ..setEntry(1, 1, next)
       ..setEntry(2, 2, next)
       ..setTranslationRaw(x, y, 0);
+  }
+
+  /// Centers a geographic scene point and preserves the current zoom.
+  void recenter(Offset scenePoint, Size viewport) {
+    final scale = value.getMaxScaleOnAxis();
+    final position = viewport.center(Offset.zero) - scenePoint * scale;
+    value = Matrix4.copy(value)..setTranslationRaw(position.dx, position.dy, 0);
   }
 
   /// Restores the mission center and initial zoom.

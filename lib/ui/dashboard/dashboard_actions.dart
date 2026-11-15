@@ -101,7 +101,7 @@ Future<bool?> confirmDemoSos(BuildContext context) => showDialog<bool>(
     backgroundColor: DashboardStyle.panel,
     title: const Text('Activate demo SOS?'),
     content: const Text(
-      'This highlights your position and pauses exploration on this iPad.',
+      'This highlights your position and pauses exploration on this device.',
     ),
     scrollable: true,
     actions: [

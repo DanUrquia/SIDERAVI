@@ -44,7 +44,7 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
     } catch (_) {
       if (mounted) {
         _error = export
-            ? 'Could not open the local share sheet.'
+            ? 'Could not open the report export.'
             : 'Could not finish capture.';
       }
     } finally {
@@ -78,7 +78,7 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
               children: [
                 const Text(
                   'A capture can contain precise Earth coordinates. It stays on '
-                  'this iPad until you export it.',
+                  'this device until you export it.',
                 ),
                 if (tracking.requiresRebaseline)
                   const Text(
@@ -151,10 +151,11 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => showWalkingDetectionLab(context),
-              child: const Text('Walking Detection Lab'),
-            ),
+            if (Theme.of(context).platform == TargetPlatform.iOS)
+              TextButton(
+                onPressed: () => showWalkingDetectionLab(context),
+                child: const Text('Walking Detection Lab'),
+              ),
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Close'),

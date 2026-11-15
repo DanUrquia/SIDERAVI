@@ -121,7 +121,7 @@ void main() {
       final tracking = AstronautTracking(
         navigation: navigation,
         coordinates: MissionCoordinates(mission),
-        sensors: const IpadSensorService(),
+        sensors: const NativeSensorService(),
       );
       addTearDown(navigation.dispose);
       addTearDown(view.dispose);
@@ -407,7 +407,7 @@ void main() {
       );
       if (type == DemoPingType.danger) {
         expect(
-          find.text('Warning marker placed on this iPad.'),
+          find.text('Warning marker placed on this device.'),
           findsOneWidget,
         );
       }
@@ -461,6 +461,184 @@ void main() {
     await tester.pumpAndSettle();
     expect(map.navigation.targetLabel, 'Adrian Flores');
   });
+  testWidgets('Phone sheets share one full-bleed map and preserve its camera', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      sensorDiagnosticsChannel,
+      (call) async => call.method == 'readMissionChecklist' ? <String>[] : null,
+    );
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+    tester.view.viewPadding = const FakeViewPadding(top: 57, bottom: 32);
+    addTearDown(tester.view.resetViewPadding);
+    const size = Size(390, 844);
+    final map = await _launch(tester, size: size);
+    final mapWidget = find.byType(DemoTerrainMap);
+    final mapState = tester.state(mapWidget);
+    final viewport = find.byKey(const ValueKey('demo-map-viewport'));
+    final surface = find.byKey(const ValueKey('mobile-mission-sheet'));
+    expect(tester.getRect(viewport), Offset.zero & size);
+    expect(find.text('N'), findsNothing);
+    expect(surface, findsNothing);
+    expect(
+      tester.getBottomRight(find.byKey(const ValueKey('mobile-tab-crew'))).dy,
+      lessThan(size.height - 32),
+    );
+
+    final center = tester.getCenter(viewport);
+    final local = find.descendant(
+      of: find.byKey(const ValueKey('ARES-01')),
+      matching: find.byType(RelativeMarkerArrow),
+    );
+    final markerSize = tester.getSize(local);
+    final first = await tester.startGesture(center - const Offset(32, 0));
+    final second = await tester.startGesture(center + const Offset(32, 0));
+    await first.moveBy(const Offset(-35, 0));
+    await second.moveBy(const Offset(35, 0));
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(map.view.value.getMaxScaleOnAxis(), greaterThan(1.1));
+    expect(tester.getRect(local).size.width, closeTo(markerSize.width, .001));
+    final pinched = Matrix4.copy(map.view.value);
+
+    await _mobileTab(tester, 'missions');
+    expect(surface, findsOneWidget);
+    final openHeight = tester.getSize(surface).height;
+    await _tapTooltip(tester, 'Expand or collapse Missions');
+    expect(tester.getSize(surface).height, greaterThan(openHeight));
+    await _tapTooltip(tester, 'Expand or collapse Missions');
+    expect(tester.getSize(surface).height, lessThan(openHeight));
+
+    await _mobileTab(tester, 'astronaut');
+    expect(surface, findsOneWidget);
+    expect(find.byTooltip('Close Missions'), findsNothing);
+    expect(find.text('Total steps'), findsOneWidget);
+    await _mobileTab(tester, 'crew');
+    expect(surface, findsOneWidget);
+    expect(find.byTooltip('Close Astronaut'), findsNothing);
+    expect(find.text('Adrian Flores'), findsOneWidget);
+    await _mobileTab(tester, 'crew');
+    expect(surface, findsNothing);
+    expect(map.view.value, pinched);
+
+    await _mobileTab(tester, 'missions');
+    await tester.dragFrom(
+      tester.getTopLeft(surface) + const Offset(75, 33),
+      const Offset(0, 470),
+    );
+    await tester.pumpAndSettle();
+    expect(surface, findsNothing);
+    expect(map.view.value, pinched);
+    await _mobileTab(tester, 'astronaut');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(surface, findsNothing);
+    expect(tester.state(mapWidget), same(mapState));
+    expect(map.view.value, pinched);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('The phone checklist saves to the active astronaut and mission', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var completed = <String>[];
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, (call) async {
+      switch (call.method) {
+        case 'readMissionChecklist':
+          expect(call.arguments, 'ARES-01/jezero');
+          return completed;
+        case 'writeMissionChecklist':
+          final args = call.arguments as Map;
+          expect(args['scope'], 'ARES-01/jezero');
+          completed = (args['completed'] as List).cast<String>();
+        case 'snapshot':
+          return <String, Object?>{};
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+
+    final map = await _launch(tester, size: const Size(390, 844));
+    await _mobileTab(tester, 'missions');
+    await _tapTooltip(tester, 'Expand or collapse Missions');
+    final survey = find.byKey(const ValueKey('objective-survey-delta-margin'));
+    expect(tester.widget<CheckboxListTile>(survey).value, isFalse);
+    await tester.tap(survey);
+    await tester.pumpAndSettle();
+    expect(completed, ['survey-delta-margin']);
+    final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
+    await tester.tap(
+      find.descendant(of: sheet, matching: find.text('Delta outcrop')),
+    );
+    await tester.pumpAndSettle();
+    expect(map.navigation.targetLabel, 'Delta outcrop');
+    expect(sheet, findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await _launch(tester, size: const Size(390, 844));
+    await _mobileTab(tester, 'missions');
+    expect(tester.widget<CheckboxListTile>(survey).value, isTrue);
+  });
+
+  testWidgets('Compact phone keeps pause, return and crew emergency actions', (
+    tester,
+  ) async {
+    final map = await _launch(tester, size: const Size(320, 568));
+    final nav = map.navigation;
+    nav.select(nav.map.teammate, 'Survey route');
+    nav.start(instant: true);
+    await tester.pumpAndSettle();
+    await _mobileTab(tester, 'astronaut');
+    await _tapTooltip(tester, 'Expand or collapse Astronaut');
+    final pause = find.text('PAUSE MISSION');
+    await _tapPhoneAction(tester, pause);
+    await tester.pumpAndSettle();
+    expect(nav.paused, isTrue);
+    await tester.tap(find.text('RESUME MISSION'));
+    await tester.pumpAndSettle();
+    expect(nav.paused, isFalse);
+
+    final returnToBase = find.text('RETURN TO BASE');
+    await _tapPhoneAction(tester, returnToBase);
+    await tester.pumpAndSettle();
+    expect(nav.position, nav.map.teammate);
+    expect(find.text('Return to habitat base?'), findsOneWidget);
+    await tester.tap(find.text('Return to base'));
+    await tester.pumpAndSettle();
+    expect(nav.position, nav.map.base);
+
+    await _mobileTab(tester, 'crew');
+    await _tapTooltip(tester, 'Expand or collapse Crew');
+    final ping = find.text('SEND PING');
+    await _tapPhoneAction(tester, ping);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Location Ping'));
+    await tester.pumpAndSettle();
+    expect(nav.pings.single.type, DemoPingType.location);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    final sos = find.text('SOS');
+    await _tapPhoneAction(tester, sos);
+    await tester.pumpAndSettle();
+    expect(nav.sos, isFalse);
+    await tester.tap(find.text('ACTIVATE DEMO SOS'));
+    await tester.pumpAndSettle();
+    expect(nav.sos, isTrue);
+    expect(nav.paused, isTrue);
+    expect(find.text('Demo SOS active'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// Mounts the dashboard in the existing mission theme.
@@ -490,4 +668,27 @@ Future<DemoTerrainMap> _launch(
 Future<void> _tapTooltip(WidgetTester tester, String label) async {
   await tester.tap(find.byTooltip(label));
   await tester.pumpAndSettle();
+}
+
+Future<void> _mobileTab(WidgetTester tester, String name) async {
+  await tester.tap(find.byKey(ValueKey('mobile-tab-$name')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tapPhoneAction(WidgetTester tester, Finder action) async {
+  final surface = find.byKey(const ValueKey('mobile-mission-sheet'));
+  for (
+    var index = 0;
+    index < 12 && action.hitTestable().evaluate().isEmpty;
+    index++
+  ) {
+    final region = tester.getRect(surface);
+    await tester.dragFrom(
+      Offset(region.center.dx, region.bottom - 30),
+      const Offset(0, -110),
+    );
+    await tester.pumpAndSettle();
+  }
+  expect(action.hitTestable(), findsOneWidget);
+  await tester.tap(action.hitTestable());
 }

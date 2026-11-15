@@ -30,6 +30,8 @@ class DemoTerrainMap extends StatefulWidget {
     required this.peerFresh,
     required this.teammateName,
     required this.onSelect,
+    this.fullScreen = false,
+    this.overlayInsets = EdgeInsets.zero,
   });
 
   final DemoNavigation navigation;
@@ -44,6 +46,8 @@ class DemoTerrainMap extends StatefulWidget {
   final bool peerFresh;
   final String teammateName;
   final void Function(Offset point, String label) onSelect;
+  final bool fullScreen;
+  final EdgeInsets overlayInsets;
 
   @override
   State<DemoTerrainMap> createState() => _DemoTerrainMapState();
@@ -114,17 +118,13 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(widget.fullScreen ? 0 : 16),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final viewport = constraints.biggest;
           // A square world preserves heading and distance on any viewport.
           final side = viewport.shortestSide;
-          final world = Rect.fromCenter(
-            center: viewport.center(Offset.zero),
-            width: side,
-            height: side,
-          );
+          final world = missionWorld(viewport);
           final config = navigation.map;
           final palette = Theme.of(context).textTheme;
           final mission = widget.mission;
@@ -138,6 +138,9 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             view: view,
             source: widget.tileSource,
             detail: trek.detail,
+            statusBottom:
+                widget.overlayInsets.bottom + (widget.fullScreen ? 55 : 79),
+            statusLeft: widget.overlayInsets.left + 15,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -253,66 +256,69 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     ),
                   ),
                 ),
-                Positioned(
-                  left: 15,
-                  top: 15,
-                  child: _MapChip(
-                    text: tracking.mode == TrackingMode.live
-                        ? 'SIMULATED MARS'
-                        : 'DEMO OVERLAY',
-                    icon: Icons.layers_outlined,
-                    color: DashboardStyle.warm,
+                if (!widget.fullScreen)
+                  Positioned(
+                    left: 15,
+                    top: 15,
+                    child: _MapChip(
+                      text: tracking.mode == TrackingMode.live
+                          ? 'SIMULATED MARS'
+                          : 'DEMO OVERLAY',
+                      icon: Icons.layers_outlined,
+                      color: DashboardStyle.warm,
+                    ),
                   ),
-                ),
-                Positioned(
-                  right: 14,
-                  top: 14,
-                  child: const _MapChip(
-                    text: 'N',
-                    icon: Icons.navigation_rounded,
+                if (!widget.fullScreen)
+                  Positioned(
+                    right: 14,
+                    top: 14,
+                    child: const _MapChip(
+                      text: 'N',
+                      icon: Icons.navigation_rounded,
+                    ),
                   ),
-                ),
-                Positioned(
-                  right: 14,
-                  bottom: 16,
-                  child: ValueListenableBuilder(
-                    valueListenable: view,
-                    builder: (context, transform, _) {
-                      final zoom = transform.getMaxScaleOnAxis();
-                      return Column(
-                        spacing: 8,
-                        children: [
-                          _mapButton(
-                            'Zoom in',
-                            Icons.add,
-                            zoom < TerrainViewController.maxZoom
-                                ? () => view.zoomBy(1.4, viewport)
-                                : null,
-                          ),
-                          _mapButton(
-                            'Zoom out',
-                            Icons.remove,
-                            zoom > 1
-                                ? () => view.zoomBy(1 / 1.4, viewport)
-                                : null,
-                          ),
-                          _mapButton(
-                            'Reset view',
-                            Icons.center_focus_strong,
-                            () {
-                              tracking.setFollow(false);
-                              view.reset();
-                            },
-                          ),
-                        ],
-                      );
-                    },
+                if (!widget.fullScreen)
+                  Positioned(
+                    right: 14,
+                    bottom: 16,
+                    child: ValueListenableBuilder(
+                      valueListenable: view,
+                      builder: (context, transform, _) {
+                        final zoom = transform.getMaxScaleOnAxis();
+                        return Column(
+                          spacing: 8,
+                          children: [
+                            _mapButton(
+                              'Zoom in',
+                              Icons.add,
+                              zoom < TerrainViewController.maxZoom
+                                  ? () => view.zoomBy(1.4, viewport)
+                                  : null,
+                            ),
+                            _mapButton(
+                              'Zoom out',
+                              Icons.remove,
+                              zoom > 1
+                                  ? () => view.zoomBy(1 / 1.4, viewport)
+                                  : null,
+                            ),
+                            _mapButton(
+                              'Reset view',
+                              Icons.center_focus_strong,
+                              () {
+                                tracking.setFollow(false);
+                                view.reset();
+                              },
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
-                ),
                 Positioned(
-                  left: 14,
-                  right: 82,
-                  bottom: 15,
+                  left: widget.overlayInsets.left + 14,
+                  right: widget.overlayInsets.right + 82,
+                  bottom: widget.overlayInsets.bottom + 15,
                   child: Align(
                     alignment: Alignment.bottomLeft,
                     child: DecoratedBox(
@@ -332,9 +338,11 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                           children: [
                             _MarsScaleBar(scene: scene, view: view),
                             Text(
-                              'Map imagery: NASA Mars Trek\n'
-                              '${trek.detail?.product ?? globalTrekLayer.product}'
-                              '${trek.detail == null ? '' : ' / Global CTX'}',
+                              widget.fullScreen
+                                  ? 'NASA Mars Trek'
+                                  : 'Map imagery: NASA Mars Trek\n'
+                                        '${trek.detail?.product ?? globalTrekLayer.product}'
+                                        '${trek.detail == null ? '' : ' / Global CTX'}',
                               style: palette.bodySmall?.copyWith(
                                 color: DashboardStyle.text,
                                 fontSize: 11,

@@ -1,6 +1,6 @@
 # SIDERA VI — Martian Space Exploration
 
-SIDERA VI is a landscape iPad prototype by team **SIDERA VI** for the [2026 NASA Space Apps Challenge](https://www.spaceappschallenge.org/2026/). The project explores how astronauts on Mars could navigate terrain, consult scientific information, and coordinate with their crew.
+SIDERA VI is a smartphone and iPad prototype by team **SIDERA VI** for the [2026 NASA Space Apps Challenge](https://www.spaceappschallenge.org/2026/). The project explores how astronauts on Mars could navigate terrain, consult scientific information, and coordinate with their crew.
 
 ## Login, mission selection and dashboard
 
@@ -10,16 +10,18 @@ SIDERA VI is a landscape iPad prototype by team **SIDERA VI** for the [2026 NASA
 - Start Mission opens the interactive dashboard. Back to Missions restores the selected briefing. Back from Select Mission clears the session and returns to login.
 - Every dashboard centers on its mission region with [NASA Mars Trek imagery](docs/mars_trek_integration.md), a demo grid, habitat base, three selectable landmarks, and a simulated teammate. The dashboard needs internet access for uncached tiles.
 - Tap a point inside the exploration boundary, tap a landmark or select the demo teammate to set a destination. Pinch and drag the map or use the zoom and reset buttons. Start Navigation moves the astronaut along a straight demo route that can be paused or resumed. Return to Base plans the same kind of route to the habitat.
-- Send Ping places a location, item or danger marker on the iPad. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
-- Each new dashboard starts at the simulated Habitat Base. **Demo Movement** runs the waypoint controls, and **Live Sensors** applies conservative experimental Earth displacement to simulated Mars coordinates. Both modes use available relative iPad orientation. **Calibrate** sets the forward reference and **Follow Astronaut** recenters the map. [Tracking and optional Firebase crew setup](docs/live_astronaut_tracking.md).
-- **Sensor Test** opens a foreground Earth location and iPad orientation diagnostic from the dashboard. It shows reported accuracy, movement uncertainty, relative heading, and sample timing. Optional JSON export uses the iPad share sheet. [Phase 5A procedure and limitations](docs/sensor_feasibility.md).
+- Send Ping places a location, item or danger marker on the current device. SOS requires confirmation, highlights the signed-in astronaut, and pauses exploration until the user cancels and resumes.
+- Each new dashboard starts at the simulated Habitat Base. **Demo Movement** runs the waypoint controls, and **Live Sensors** applies conservative experimental Earth displacement to simulated Mars coordinates. Both modes use available relative device orientation. **Calibrate** sets the forward reference and **Follow Astronaut** recenters the map. [Tracking and optional Firebase crew setup](docs/live_astronaut_tracking.md).
+- **Sensor Test** opens a foreground Earth location and device orientation diagnostic from the dashboard. It shows reported accuracy, movement uncertainty, relative heading, and sample timing. Optional JSON export uses the system share sheet or document picker. [Phase 5A procedure and limitations](docs/sensor_feasibility.md).
 - **Movement Log** shows foreground pedometer measurements and can record an opt-in local timeline of movement decisions and simulated position changes. It supports private JSON export and rebaselining at the current Mars position. Map symbols keep their screen size during zoom. [Movement guard](docs/live_movement_validation.md) · [Pedometer and marker checks](docs/pedometer_validation.md).
-- **Walking Detection Lab** opens from Movement Log and tests whether the iPad's acceleration and rotation reveal rhythmic walking. It supports labeled captures, manual step counts, and local JSON replay. [Phase 5F field procedure and results](docs/walking_detection_feasibility.md).
+- **Walking Detection Lab** on iOS opens from Movement Log and tests whether the iPad's acceleration and rotation reveal rhythmic walking. It supports labeled captures, manual step counts, and local JSON replay. [Phase 5F field procedure and results](docs/walking_detection_feasibility.md).
 - The official SIDERA VI wordmark, S‑VI home-screen icon, and display name.
 
-## Run on iPad
+## Run on phones and iPad
 
-The app uses **Flutter 3.35.4** and **Dart 3.9.2**. It targets iPads running **iPadOS 17.6 or later** and uses both landscape orientations in full screen. Use macOS with Xcode and a compatible iPad simulator or a trusted, developer-enabled iPad.
+On phones, the dashboard puts Missions, Astronaut and Crew sheets over one full-screen map. The wide dashboard remains available on iPad. The field devices use ARES-01 on iPhone 16 and ARES-02 on OPPO. [Mobile navigation, Android setup and device verification](docs/mobile_navigation.md).
+
+The app uses **Flutter 3.35.4** and **Dart 3.9.2**. It targets **iOS and iPadOS 17.6 or later** and uses both landscape orientations on iPad. Use macOS with Xcode and a compatible iPad simulator or a trusted, developer-enabled iPad.
 
 From the repository root:
 

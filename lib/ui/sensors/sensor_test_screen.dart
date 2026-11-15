@@ -11,7 +11,10 @@ import '../dashboard/dashboard_style.dart';
 /// Displays Earth sensor feasibility readings without touching the Mars session.
 class SensorTestScreen extends StatefulWidget {
   /// Allows an alternate service during tests.
-  const SensorTestScreen({super.key, this.service = const IpadSensorService()});
+  const SensorTestScreen({
+    super.key,
+    this.service = const NativeSensorService(),
+  });
 
   final SensorService service;
 
@@ -285,7 +288,7 @@ class _SensorTestScreenState extends State<SensorTestScreen>
                   spacing: 12,
                   children: [
                     const Text(
-                      'Earth sensor readings stay on this iPad unless you export a report.',
+                      'Earth sensor readings stay on this device unless you export a report.',
                     ),
                     if (_test.error case final error?)
                       Text(

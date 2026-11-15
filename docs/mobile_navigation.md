@@ -1,0 +1,43 @@
+# Phase 6A smartphone navigation
+
+Phone-sized viewports open one edge-to-edge Mars Trek dashboard. The existing geographic map, route controller, camera transform, fixed-size glyphs, and Firebase presence stay mounted while the sheets change. The portrait phone UI follows the Stitch guide's dark floating surfaces, orange selected tab, and cyan orientation controls. The navigation header and dock respect system insets. The wider landscape iPad layout still uses the map, sidebar and action row.
+
+## Map and sheets
+
+- **Missions** presents the briefing, progress, and the Jezero survey, sediment logging, and return tasks from the mission objective. The delta outcrop and Habitat base are the existing map waypoints. Other missions retain their published briefing objective as a checklist item. Each checkbox is saved on that installation by astronaut ID and mission ID, including after restart. Checklist progress is private to the device.
+- **Astronaut** shows the current simulated Mars pose, mission status, destination, movement source and position quality. It uses the existing illustrative Mars solar-time and temperature references and the device clock labeled Tegucigalpa (UTC−6). Distance traveled accumulates accepted simulated route segments during the dashboard visit and excludes the initial position and Firebase restores. The local step total sums accepted native pedometer readings while Live Sensors provides them during the visit. The reading stays unavailable until a measurement arrives. The total counts samples accepted while the mission is unpaused. The OS may batch measurements. The total uses foreground sensor windows and excludes retrospective reports and the Walking Detection Lab. Pause, resume, start route and Return to Base use the shared controller. The phone confirms Return to Base before selecting or initiating it.
+- **Crew** shows the authenticated roster and distinguishes shared, stale, offline and simulated positions. Separation uses the existing Mars spherical geometry. Relative position describes the map direction from the local astronaut. The current presence schema carries no shared step count. Join Crew uses the existing account dialog. Send Ping and confirmed demo SOS retain their local prototype behavior.
+
+Tap the selected bottom item again, use its close button, or drag the sheet to the bottom to dismiss it. Tap another item to switch directly. Drag up or use the extent button to expand, then scroll inside the sheet. Android Back dismisses an open sheet first. Behind the sheets, the map supports pinch, pan and destination taps. Recenter preserves zoom and centers the local glyph. Follow tracks subsequent local movement. The arrow uses calibrated relative device orientation. The phone map carries no compass widget.
+
+## Platform readiness
+
+| Platform | Collection |
+| --- | --- |
+| iOS | The existing Core Motion attitude, Core Location and CMPedometer bridge covers iPhone and iPad. The phone runs in portrait and iPad keeps landscape. Location and motion collection use existing foreground controls and permission descriptions. Measured steps require actual Core Motion callbacks. The Walking Detection Lab remains available in iOS Movement Log as a diagnostic. |
+| Android | The bridge checks the accelerometer, gyro, optional rotation vector and optional hardware step sensors. It prefers the game rotation vector for relative attitude and falls back to the standard rotation vector. When the projected screen top is too close to vertical, heading is unavailable. Android's step counter discards the pre-window hardware total, with the hardware step detector used on models that lack a counter. It supplies steps only. Live Sensors requests activity recognition when the hardware and OS require it. Sensor Test and Live Sensors can request location while in use. Approximate location remains subject to the existing movement guard. |
+
+Both bridges stop hardware collection in the background. Android exposes capability and runtime readings through Sensor Test and can save diagnostic JSON using the system document picker. Android does not offer the experimental iOS Walking Detection Lab. The shared Live Sensors movement guard remains the source of any accepted Earth-to-Mars movement. Physical walking-driven navigation remains unvalidated. [Android motion sensors](https://developer.android.com/develop/sensors-and-location/sensors/sensors_motion) · [Android location permissions](https://developer.android.com/develop/sensors-and-location/location/permissions/runtime) · [Apple Core Motion](https://developer.apple.com/documentation/coremotion/getting-processed-device-motion-data)
+
+## Install and pair
+
+Run `flutter doctor -v` and `flutter devices`. Supply the existing SIDERA VI Firebase build settings through a local Dart defines file. The native builds use the same Dart REST/SSE client and the `sidera-vi` project at `missions/jezero/sessions/field-test-01`. Account credentials are entered in the app. The iPhone uses ARES-01, and the OPPO uses ARES-02.
+
+- **iOS.** Use the existing `com.bluelionsoft.sideraVi` bundle ID and development team. The app's deployment target is iOS 17.6 and its target family includes iPhone and iPad. Build, sign and install with Xcode or `flutter build ios --release --dart-define-from-file=/path/to/sidera-defines.json`. If a generic profile does not list the iPhone, select the physical device in Xcode with automatic signing so Xcode can include it. iOS may request Developer Mode or explicit trust for the installed development signing identity.
+- **Android.** The unique app ID is `com.bluelionsoft.sideravi`. On a connected, ADB-authorized OPPO, run `flutter build apk --debug --target-platform android-arm64 --dart-define-from-file=/path/to/sidera-defines.json`, then `adb install -r build/app/outputs/flutter-apk/app-debug.apk` and `adb shell am start -n com.bluelionsoft.sideravi/.MainActivity`. The APK uses development signing.
+
+## Physical checklist
+
+1. Open SIDERA VI on both phones in portrait, use each astronaut's assigned mission PIN, and select Jezero. Check the imagery, status bars, cutout, dock and tappable map. Pinch from 1× to 4× and compare the local arrow and label. Pan, recenter and tap a waypoint.
+2. Switch among the three sheets while zoomed. Expand, scroll, collapse and dismiss. Check a Jezero objective, reopen the dashboard, and confirm it persisted. Start a Demo Movement route, pause, resume, and confirm Return to Base.
+3. In **Crew → Join Crew**, enter the assigned Firebase account on each phone. Confirm both show **Connected**, the remote ID and current map marker. Move each astronaut with Demo Movement and observe the other marker. Interrupt and restore connectivity on one device. Inspect stale labeling before reconnect. Test a local ping and cancel a confirmed demo SOS.
+4. In **Astronaut → Sensor Test**, compare reported capability and sample delivery. In Live Sensors, align the top edge of the phone with a visible point, calibrate the arrow, then turn the device about 90° with the top edge near the horizontal plane. Record real sample availability and any permission or freshness limitations separately from map movement.
+5. On an iPad, confirm the landscape dashboard, map gestures, navigation and diagnostics remain available.
+
+## Verification
+
+Flutter widget tests exercise a phone's full-bleed map and safe-area dock, pinch and marker size, section switching and drag-to-dismiss, local checklist persistence, pause/resume, Return to Base confirmation, ping and confirmed SOS. Existing iPad, sensor and live presence tests remain in the suite. iOS tests cover the relative screen-top projection in both phone portrait and iPad landscape. Android JVM tests cover heading and step window accounting.
+
+- **OPPO CPH2579, Android 15.** ADB installed and launched the DEV APK. The device reached portrait mission selection as ARES-02. Android's sensor service reported accelerometer, gyro, game rotation vector, rotation vector, step counter and step detector. Jezero map rendering and the sensor readouts remain to be checked on the unlocked phone.
+- **iPhone 16.** A generic development profile failed installation because it excluded the iPhone. Xcode signed a device-specific build, and CoreDevice confirmed installation. The phone then refused launch with a security error. Check the development signing identity's trust and Developer Mode on the phone before continuing portrait and sensor checks.
+- **Paired session.** Account sign-in, shared membership, remote marker updates and reconnect are pending on the two physical phones. The automated presence suite covers snapshot parsing, stale state and reconnect independently of these devices.

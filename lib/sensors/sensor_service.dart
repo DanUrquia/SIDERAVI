@@ -11,10 +11,10 @@ abstract interface class SensorService {
   Future<Map<String, Object?>> snapshot();
 }
 
-/// Talks directly to Core Location and Core Motion through the Runner.
-final class IpadSensorService implements SensorService {
+/// Uses the platform-native sensor bridge on iOS and Android.
+final class NativeSensorService implements SensorService {
   /// Creates the channel client without starting either sensor.
-  const IpadSensorService();
+  const NativeSensorService();
 
   @override
   Future<void> command(String name, [String? argument]) =>

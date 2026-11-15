@@ -23,6 +23,18 @@ final class RunnerTests: XCTestCase {
     XCTAssertEqual(abs(opposite), 180, accuracy: 0.0001)
   }
 
+  func testPortraitScreenTopUsesClockwiseRelativeHeading() throws {
+    let initial = CMRotationMatrix(
+      m11: 1, m12: 0, m13: 0, m21: 0, m22: 1, m23: 0, m31: 0, m32: 0, m33: 1
+    )
+    let clockwise = CMRotationMatrix(
+      m11: 0, m12: -1, m13: 0, m21: 1, m22: 0, m23: 0, m31: 0, m32: 0, m33: 1
+    )
+    let before = try XCTUnwrap(ScreenTopAttitude.project(initial, orientation: .portrait)?.yaw)
+    let after = try XCTUnwrap(ScreenTopAttitude.project(clockwise, orientation: .portrait)?.yaw)
+    XCTAssertEqual(after - before, 90, accuracy: 0.0001)
+  }
+
   func testWalkingCaptureKeepsBoundedRowsAndDrainsWithoutLosingTiming() throws {
     let capture = WalkingMotionCapture(capacity: 2, started: 100, uptime: 20)
     let values = Array(repeating: 0.0, count: 13)

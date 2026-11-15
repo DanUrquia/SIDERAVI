@@ -43,6 +43,8 @@ final class AstronautTracking extends ChangeNotifier {
   int _locationEpoch = 0;
   bool _restoreReviewed = false;
   bool _positionChanged = false;
+  double distanceTraveled = 0;
+  int? measuredSteps;
   Timer? _timer;
   Future<void> _pending = Future.value();
   Future<void>? _finishingCapture;
@@ -317,12 +319,17 @@ final class AstronautTracking extends ChangeNotifier {
       motion is Map ? motion : null,
       now,
       active: mode == TrackingMode.live,
-      onSample: (sample) => telemetry.pedometer(
-        clock(),
-        sample,
-        relativeHeading: heading.value,
-        authorization: pedometer.authorization,
-      ),
+      onSample: (sample) {
+        if (!_paused && sample.decision == 'observed') {
+          measuredSteps = (measuredSteps ?? 0) + sample.incrementalSteps;
+        }
+        telemetry.pedometer(
+          clock(),
+          sample,
+          relativeHeading: heading.value,
+          authorization: pedometer.authorization,
+        );
+      },
     );
     if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
       _location(batch, now);
@@ -434,6 +441,11 @@ final class AstronautTracking extends ChangeNotifier {
     final position = navigation.position;
     if (_lastPosition != position) {
       _positionChanged = true;
+      final source = navigation.positionSource;
+      if (source == NavigationPositionSource.demoMovement ||
+          source == NavigationPositionSource.coreLocation) {
+        distanceTraveled += coordinates.distance(_lastPosition, position);
+      }
       telemetry.position(
         clock(),
         navigation.positionSource.name,
