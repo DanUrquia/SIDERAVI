@@ -247,6 +247,71 @@ void main() {
     },
   );
 
+  testWidgets('A remote astronaut at Habitat base keeps a separate label', (
+    tester,
+  ) async {
+    final mission = marsMissions.first;
+    final navigation = DemoNavigation(missionMaps[mission.id]!);
+    final coordinates = MissionCoordinates(mission);
+    final view = TerrainViewController();
+    final tracking = AstronautTracking(
+      navigation: navigation,
+      coordinates: coordinates,
+      sensors: const NativeSensorService(),
+    );
+    addTearDown(navigation.dispose);
+    addTearDown(view.dispose);
+    addTearDown(tracking.dispose);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: MissionTheme.dark,
+        home: DemoTerrainMap(
+          navigation: navigation,
+          view: view,
+          mission: mission,
+          tileSource: FakeTrekTiles(),
+          tracking: tracking,
+          astronautId: 'ARES-01',
+          teammateId: 'ARES-02',
+          teammateName: 'Adrian Flores',
+          peerPoint: navigation.map.base,
+          peer: (
+            pose: (
+              mars: coordinates.toMars(navigation.map.base),
+              heading: 0.0,
+              mode: TrackingMode.demo,
+              quality: PositionQuality.simulated,
+            ),
+            updated: DateTime.utc(2026),
+            online: true,
+          ),
+          peerFresh: true,
+          onSelect: (point, label) => navigation.select(point, label),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final zoom in [1.0, 2.0, 4.0]) {
+      view.reset();
+      view.zoomBy(zoom, const Size(390, 844));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .getRect(find.text('Habitat base'))
+            .overlaps(tester.getRect(find.text('ARES-02'))),
+        isFalse,
+      );
+    }
+    view.reset();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Select Adrian Flores on map'));
+    expect(navigation.target, navigation.map.base);
+  });
+
   testWidgets('Sensor Test returns to the existing Mars scenario', (
     tester,
   ) async {

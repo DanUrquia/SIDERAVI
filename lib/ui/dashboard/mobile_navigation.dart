@@ -311,7 +311,7 @@ class _MobileNavigationState extends State<MobileNavigation>
                   ),
                   _CameraButton(
                     label: 'Follow astronaut',
-                    icon: Icons.gps_fixed,
+                    icon: Icons.navigation_outlined,
                     active: widget.tracking.follow,
                     onPressed: () =>
                         widget.tracking.setFollow(!widget.tracking.follow),

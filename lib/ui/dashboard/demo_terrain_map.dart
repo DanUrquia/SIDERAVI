@@ -220,7 +220,10 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             key: ValueKey(widget.teammateId),
                             heading: peer?.pose.heading,
                             animate: peer != null,
-                            nearby: _project(world, navigation.position),
+                            nearby: [
+                              _project(world, navigation.position),
+                              _project(world, config.base),
+                            ],
                             description: 'Select ${widget.teammateName} on map',
                             onTap: () =>
                                 widget.onSelect(peerPoint, widget.teammateName),
@@ -373,7 +376,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     double? heading,
     ValueNotifier<double?>? liveHeading,
     bool animate = false,
-    Offset? nearby,
+    List<Offset> nearby = const [],
     Offset shift = Offset.zero,
     String? description,
     VoidCallback? onTap,
@@ -412,16 +415,28 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
         valueListenable: view,
         builder: (context, transform, child) {
           final scale = transform.getMaxScaleOnAxis();
-          final overlap =
-              nearby != null && (anchor - nearby).distance * scale < 34;
-          final separation = overlap ? const Offset(25, 20) : Offset.zero;
+          Offset? collision;
+          var nearest = 34.0;
+          for (final point in nearby) {
+            final distance = (anchor - point).distance * scale;
+            if (distance < nearest) {
+              nearest = distance;
+              collision = point;
+            }
+          }
+          final separation = collision == null
+              ? Offset.zero
+              : Offset(
+                  anchor.dx < collision.dx ? -48 : 48,
+                  anchor.dy < collision.dy ? -24 : 24,
+                );
           final at = center + shift + separation;
           return Transform.scale(
             scale: 1 / scale,
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                if (overlap)
+                if (collision != null)
                   Positioned(
                     left: center.dx,
                     top: center.dy,
