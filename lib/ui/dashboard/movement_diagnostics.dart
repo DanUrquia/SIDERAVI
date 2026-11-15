@@ -101,6 +101,7 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
                   Text(tracking.stepStatus),
                   Text('Source · ${tracking.stepSource}'),
                   Text('Detected steps · ${tracking.measuredSteps ?? 0}'),
+                  Text('Steps applied to position · ${tracking.appliedSteps}'),
                   Text(
                     'Estimated Mars travel · ${tracking.distanceTraveled.toStringAsFixed(1)} m',
                   ),

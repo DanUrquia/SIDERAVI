@@ -10,6 +10,7 @@ import 'package:sidera_vi/sensors/walking/walking_capture.dart';
 import 'package:sidera_vi/sensors/walking/walking_detector.dart';
 import 'package:sidera_vi/sensors/walking/walking_lab_controller.dart';
 import 'package:sidera_vi/ui/dashboard/walking_detection_lab.dart';
+import 'package:sidera_vi/tracking/android_walking_fallback.dart';
 
 /// Synthetic testing signals. These rows supply no evidence about physical accuracy.
 List<double> _syntheticRow(
@@ -61,6 +62,102 @@ List<List<double>> _syntheticGait({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  Map<String, Object?> android({
+    List<List<double>> acceleration = const [],
+    List<Map<String, Object?>> samples = const [],
+    int stream = 1,
+  }) => {
+    'accelerationFallback': true,
+    'authorization': 'authorized',
+    'stream': stream,
+    'started': 100.0,
+    'accelerationSamples': acceleration,
+    'samples': samples,
+  };
+
+  test(
+    'Android uses confirmed rhythm if hardware stays silent, once per step',
+    () {
+      final fallback = AndroidWalkingFallback();
+      final gait = _syntheticGait(periods: List.filled(10, .54), from: 100);
+      final began = fallback.read(
+        android(acceleration: gait.where((row) => row.first < 104).toList()),
+        104,
+      )!;
+      expect(began['samples'], isEmpty);
+      final detected = fallback.read(
+        android(acceleration: gait.where((row) => row.first >= 104).toList()),
+        107,
+      )!;
+      expect(detected['source'], AndroidWalkingFallback.source);
+      final samples = (detected['samples'] as List).cast<Map>();
+      expect(
+        samples.map((sample) => sample['steps']),
+        List.generate(10, (i) => i + 1),
+      );
+      expect(samples.map((sample) => sample['end']).toSet(), hasLength(10));
+      expect(
+        fallback.read(
+          android(
+            samples: [
+              {'steps': 10},
+            ],
+          ),
+          108,
+        )!['samples'],
+        isEmpty,
+      );
+      final newStream = fallback.read(
+        android(
+          stream: 2,
+          samples: [
+            {'steps': 3},
+          ],
+        ),
+        109,
+      )!;
+      expect(newStream['samples'], [
+        {'steps': 3},
+      ]);
+    },
+  );
+
+  test(
+    'Android hardware wins when available and irregular shaking stays quiet',
+    () {
+      final gait = _syntheticGait(periods: List.filled(10, .54), from: 100);
+      final hardware = android(
+        acceleration: gait,
+        samples: [
+          {'steps': 7},
+        ],
+      );
+      final fallback = AndroidWalkingFallback();
+      expect(fallback.read(hardware, 107), same(hardware));
+      expect(
+        fallback.read(android(acceleration: gait), 108)!['samples'],
+        isEmpty,
+      );
+      final handling = _syntheticGait(
+        periods: List.filled(10, .54),
+        from: 100,
+        rotation: 3,
+      );
+      final stationary = [
+        for (var i = 0; i < 350; i++) _syntheticRow(100 + i / 50),
+      ];
+      for (final rows in [handling, stationary]) {
+        expect(
+          AndroidWalkingFallback().read(
+            android(acceleration: rows),
+            107,
+          )!['samples'],
+          isEmpty,
+        );
+      }
+    },
+  );
+
   test('Synthetic table and held still traces stay quiet', () {
     for (final drift in [0, .006]) {
       final detector = WalkingDetector();

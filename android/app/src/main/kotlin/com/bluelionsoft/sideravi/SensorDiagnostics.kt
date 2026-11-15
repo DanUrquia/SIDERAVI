@@ -39,7 +39,10 @@ internal class SensorDiagnostics(private val activity: Activity) :
         ?: sensors.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     private val stepCounter = sensors.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
     private val stepDetector = sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
-    private val stepSupported = stepCounter != null || stepDetector != null
+    private val gravitySensor = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY)
+    private val linearSensor = sensors.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+    private val stepSupported = stepCounter != null || stepDetector != null ||
+        (gravitySensor != null && linearSensor != null && gyro != null)
     private val compassPossible = accelerometer != null && magnetometer != null
     private val orientations = mutableListOf<Map<String, Any>>()
     private val fixes = mutableListOf<Map<String, Any>>()
@@ -61,6 +64,11 @@ internal class SensorDiagnostics(private val activity: Activity) :
     private var stepStartedAt = 0L
     private var steps = StepFeed(false)
     private var stepSource: String? = null
+    private var accelerationActive = false
+    private var gravity: FloatArray? = null
+    private var gravityTime = 0L
+    private var rotationRate = FloatArray(3)
+    private val accelerationSamples = mutableListOf<List<Double>>()
     private var export: String? = null
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -244,9 +252,18 @@ internal class SensorDiagnostics(private val activity: Activity) :
             val detectorRegistered = stepDetector?.let {
                 sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, 0)
             } ?: false
+            if (linearSensor != null && gravitySensor != null && motionActive && gyro != null) {
+                val gravityRegistered = sensors.registerListener(this, gravitySensor, 20_000, 0)
+                val linearRegistered = sensors.registerListener(this, linearSensor, 20_000, 0)
+                accelerationActive = gravityRegistered && linearRegistered
+                if (!accelerationActive) {
+                    sensors.unregisterListener(this, gravitySensor)
+                    sensors.unregisterListener(this, linearSensor)
+                }
+            }
             steps = StepFeed(counterRegistered, stepStartedAt)
             generation++
-            stepsActive = counterRegistered || detectorRegistered
+            stepsActive = counterRegistered || detectorRegistered || accelerationActive
         }
     }
 
@@ -261,6 +278,14 @@ internal class SensorDiagnostics(private val activity: Activity) :
             stepCounter?.let { sensors.unregisterListener(this, it) }
             stepDetector?.let { sensors.unregisterListener(this, it) }
         }
+        if (accelerationActive) {
+            gravitySensor?.let { sensors.unregisterListener(this, it) }
+            linearSensor?.let { sensors.unregisterListener(this, it) }
+        }
+        accelerationActive = false
+        gravity = null
+        gravityTime = 0L
+        accelerationSamples.clear()
         stepsActive = false
         stepSamples.clear()
         stepSource = null
@@ -271,9 +296,15 @@ internal class SensorDiagnostics(private val activity: Activity) :
         when (event.sensor.type) {
             Sensor.TYPE_GYROSCOPE -> {
                 val (x, y, z) = event.values
+                rotationRate = event.values.copyOf(3)
                 angularRate = Math.toDegrees(sqrt(x * x + y * y + z * z).toDouble())
             }
             Sensor.TYPE_STEP_COUNTER, Sensor.TYPE_STEP_DETECTOR -> recordSteps(event)
+            Sensor.TYPE_GRAVITY -> {
+                gravity = event.values.copyOf(3)
+                gravityTime = event.timestamp
+            }
+            Sensor.TYPE_LINEAR_ACCELERATION -> recordAcceleration(event)
             Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> recordAttitude(event)
         }
     }
@@ -306,6 +337,22 @@ internal class SensorDiagnostics(private val activity: Activity) :
         screenTopAzimuth(east, north)?.let { sample["yaw"] = it }
         angularRate?.let { sample["rotationRate"] = it }
         append(orientations, sample, 48)
+    }
+
+    private fun recordAcceleration(event: SensorEvent) {
+        val g = gravity ?: return
+        if (!accelerationActive || event.timestamp < stepStartedAt ||
+            kotlin.math.abs(event.timestamp - gravityTime) > 150_000_000) return
+        val (x, y, z) = event.values
+        val (rx, ry, rz) = rotationRate
+        val earthGravity = SensorManager.GRAVITY_EARTH.toDouble()
+        // The shared rhythm detector expects acceleration in g and gravity pointing down.
+        append(accelerationSamples, listOf(
+            wallTime(event.timestamp), x / earthGravity, y / earthGravity, z / earthGravity,
+            -g[0] / earthGravity, -g[1] / earthGravity, -g[2] / earthGravity,
+            rx.toDouble(), ry.toDouble(), rz.toDouble(),
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ), 160)
     }
 
     private fun recordSteps(event: SensorEvent) {
@@ -373,6 +420,8 @@ internal class SensorDiagnostics(private val activity: Activity) :
             "stepCounting" to (stepSupported), "distance" to false, "cadence" to false,
             "authorization" to stepAuth, "stream" to generation,
             "samples" to drain(stepSamples),
+            "accelerationFallback" to accelerationActive,
+            "accelerationSamples" to drain(accelerationSamples),
         )
         if (stepsActive) steps["started"] = stepEpoch
         stepSource?.let { steps["source"] = it }

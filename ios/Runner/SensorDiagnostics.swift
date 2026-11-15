@@ -385,6 +385,12 @@ private final class DiagnosticPedometer {
   private var error: [String: Any]?
   private var captureQuery: [String: Any]?
   private var started: Date?
+  private var lastCount = 0
+  private var lastEnd: Date?
+  private var lastProgress: Date?
+  private var lastQuery: Date?
+  private var querying = false
+  private var source = "coreMotionPedometer"
 
   /// Stops older callbacks and starts an independent count from the current time.
   func start() {
@@ -403,22 +409,59 @@ private final class DiagnosticPedometer {
           self.error = ["domain": failure.domain, "code": failure.code]
           self.pedometer.stopUpdates()
           self.running = false
-          return
+        } else if let data {
+          self.accept(data, source: "coreMotionPedometer")
         }
-        guard let data else { return }
-        var sample: [String: Any] = [
-          "start": data.startDate.timeIntervalSince1970,
-          "end": data.endDate.timeIntervalSince1970,
-          "received": Date().timeIntervalSince1970,
-          "steps": data.numberOfSteps.intValue,
-          "source": "coreMotionPedometer"
-        ]
-        if let distance = data.distance { sample["distance"] = distance.doubleValue }
-        if let cadence = data.currentCadence { sample["cadence"] = cadence.doubleValue }
-        self.samples.append(sample)
-        if self.samples.count > 32 { self.samples.removeFirst(self.samples.count - 32) }
       }
     }
+  }
+
+  /// Reads the same foreground window if live callbacks are lagging.
+  private func refreshDelayedSteps() {
+    let now = Date()
+    guard let start = started, !querying,
+          UIApplication.shared.applicationState == .active,
+          CMPedometer.authorizationStatus() == .authorized,
+          now.timeIntervalSince(lastProgress ?? start) >= 3,
+          lastQuery.map({ now.timeIntervalSince($0) >= 2 }) ?? true
+    else { return }
+    let current = generation
+    querying = true
+    lastQuery = now
+    pedometer.queryPedometerData(from: start, to: now) { [weak self] data, _ in
+      DispatchQueue.main.async {
+        guard let self, self.generation == current else { return }
+        self.querying = false
+        if let data, data.numberOfSteps.intValue > self.lastCount {
+          self.accept(data, source: "coreMotionPedometerQuery")
+        }
+      }
+    }
+  }
+
+  /// Both feeds report the same cumulative window. Publish only increasing evidence.
+  private func accept(_ data: CMPedometerData, source: String) {
+    let steps = data.numberOfSteps.intValue
+    guard let start = started, data.startDate.timeIntervalSince(start) >= -1,
+          data.endDate >= start, steps >= lastCount,
+          lastEnd.map({ data.endDate > $0 && steps > lastCount }) ?? true
+    else { return }
+    if steps > lastCount { lastProgress = Date() }
+    lastEnd = data.endDate
+    lastCount = steps
+    self.source = source
+    error = nil
+    var sample: [String: Any] = [
+      "start": data.startDate.timeIntervalSince1970,
+      "end": data.endDate.timeIntervalSince1970,
+      "received": Date().timeIntervalSince1970,
+      "steps": steps,
+      "source": source
+    ]
+    if let distance = data.distance { sample["distance"] = distance.doubleValue }
+    if let cadence = data.currentCadence { sample["cadence"] = cadence.doubleValue }
+    samples.append(sample)
+    if samples.count > 32 { samples.removeFirst(samples.count - 32) }
   }
 
   /// Clears the buffer and invalidates callbacks racing a mode or scene change.
@@ -429,6 +472,12 @@ private final class DiagnosticPedometer {
     started = nil
     error = nil
     captureQuery = nil
+    lastCount = 0
+    lastEnd = nil
+    lastProgress = nil
+    lastQuery = nil
+    querying = false
+    source = "coreMotionPedometer"
     samples.removeAll(keepingCapacity: true)
   }
 
@@ -474,6 +523,7 @@ private final class DiagnosticPedometer {
 
   /// Delivers new samples once, with hardware flags and authorization.
   func snapshot() -> [String: Any] {
+    refreshDelayedSteps()
     let authorization = CMPedometer.authorizationStatus()
     let state: String
     switch authorization {
@@ -485,7 +535,7 @@ private final class DiagnosticPedometer {
     }
     var data: [String: Any] = [
       "stream": generation,
-      "source": "coreMotionPedometer",
+      "source": source,
       "running": running,
       "stepCounting": CMPedometer.isStepCountingAvailable(),
       "distance": CMPedometer.isDistanceAvailable(),

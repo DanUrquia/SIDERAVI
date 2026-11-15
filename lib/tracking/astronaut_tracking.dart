@@ -8,6 +8,7 @@ import '../dashboard/demo_navigation.dart';
 import '../sensors/earth_fix.dart';
 import '../sensors/sensor_measurements.dart';
 import '../sensors/sensor_service.dart';
+import 'android_walking_fallback.dart';
 import 'live_movement.dart';
 import 'mission_presence.dart';
 import 'movement_telemetry.dart';
@@ -42,6 +43,7 @@ final class AstronautTracking extends ChangeNotifier {
   static const _interval = Duration(milliseconds: 100);
   final _movement = LiveMovement();
   final _steps = StepNavigation();
+  final _androidWalking = AndroidWalkingFallback();
   late Offset _lastPosition;
   late ({Offset? target, bool moving, NavigationState state, bool sos})
   _lastRoute;
@@ -55,6 +57,7 @@ final class AstronautTracking extends ChangeNotifier {
   late String _shownStepStatus = stepStatus;
   int _strideRevision = 0;
   int? measuredSteps;
+  int appliedSteps = 0;
   Timer? _timer;
   Future<void> _pending = Future.value();
   Future<void>? _finishingCapture;
@@ -124,6 +127,8 @@ final class AstronautTracking extends ChangeNotifier {
     'coreMotionPedometer' => 'Core Motion pedometer',
     'androidStepCounter' => 'Android step counter',
     'androidStepDetector' => 'Android step detector',
+    AndroidWalkingFallback.source => 'Android accelerometer · estimated',
+    'coreMotionPedometerQuery' => 'Core Motion pedometer · foreground query',
     _ => 'Awaiting a step reading',
   };
   double? get walkingBearing => _steps.bearingAt(_seconds);
@@ -447,13 +452,14 @@ final class AstronautTracking extends ChangeNotifier {
     _orientation(batch['orientations'] as List? ?? const [], now);
     final motion = batch['pedometer'];
     pedometer.ingest(
-      motion is Map ? motion : null,
+      _androidWalking.read(motion is Map ? motion : null, now),
       now,
       active: mode == TrackingMode.live,
       onSample: (sample) {
         measuredSteps = (measuredSteps ?? 0) + sample.incrementalSteps;
         final displacement = _paused ? null : _steps.displacement(sample);
         if (displacement != null) {
+          appliedSteps += sample.incrementalSteps;
           _lastAppliedStep = now;
           _setQuality(PositionQuality.accepted);
           navigation.applyStepPosition(
