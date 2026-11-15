@@ -33,6 +33,7 @@ class DemoTerrainMap extends StatefulWidget {
     required this.peerFresh,
     required this.teammateName,
     required this.onSelect,
+    this.onAstronaut,
     this.fullScreen = false,
     this.showMapHud = true,
     this.overlayInsets = EdgeInsets.zero,
@@ -50,6 +51,7 @@ class DemoTerrainMap extends StatefulWidget {
   final bool peerFresh;
   final String teammateName;
   final void Function(Offset point, String label) onSelect;
+  final VoidCallback? onAstronaut;
   final bool fullScreen;
   final bool showMapHud;
   final EdgeInsets overlayInsets;
@@ -272,6 +274,12 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           _follow(viewport, _project(world, navigation.position));
           final peerPoint = widget.peerPoint;
           final peer = widget.peer;
+          final pairOnPhone = widget.fullScreen && peerPoint != null;
+          final localAnchor = _project(world, navigation.position);
+          final baseAnchor = _project(world, config.base);
+          final peerAnchor = peerPoint == null
+              ? null
+              : _project(world, peerPoint);
           final scalePanel = _scalePanel(
             scene: scene,
             world: world,
@@ -343,6 +351,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             'Habitat base',
                             Icons.home_filled,
                             DashboardStyle.text,
+                            labelAvoidsMarker: pairOnPhone ? peerAnchor : null,
                             onTap: () =>
                                 widget.onSelect(config.base, 'Habitat base'),
                           ),
@@ -378,11 +387,17 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                                   : DashboardStyle.muted,
                               key: ValueKey(widget.teammateId),
                               heading: peer?.pose.heading,
-                              animate: peer != null,
+                              animate: peer != null && !pairOnPhone,
                               nearby: [
-                                _project(world, navigation.position),
-                                _project(world, config.base),
+                                if (!pairOnPhone) ...[localAnchor, baseAnchor],
                               ],
+                              clusterWith: pairOnPhone ? localAnchor : null,
+                              firstInCluster:
+                                  widget.teammateId.compareTo(
+                                    widget.astronautId,
+                                  ) <
+                                  0,
+                              labelAvoidsBase: pairOnPhone ? baseAnchor : null,
                               description:
                                   'Select ${widget.teammateName} on map',
                               onTap: () => widget.onSelect(
@@ -420,6 +435,13 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                                 !widget.fullScreen &&
                                 tracking.mode == TrackingMode.live,
                             emergency: navigation.sos,
+                            onTap: pairOnPhone ? widget.onAstronaut : null,
+                            clusterWith: pairOnPhone ? peerAnchor : null,
+                            firstInCluster:
+                                widget.astronautId.compareTo(
+                                  widget.teammateId,
+                                ) <
+                                0,
                           ),
                         ],
                       ),
@@ -603,6 +625,10 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
     ValueNotifier<double?>? liveHeading,
     bool animate = false,
     List<Offset> nearby = const [],
+    Offset? clusterWith,
+    bool firstInCluster = false,
+    Offset? labelAvoidsMarker,
+    Offset? labelAvoidsBase,
     Offset shift = Offset.zero,
     String? description,
     VoidCallback? onTap,
@@ -615,8 +641,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
         ? const Duration(milliseconds: 220)
         : Duration.zero;
     const width = 210.0;
-    final avoidPhoneLabels = widget.fullScreen && nearby.isNotEmpty;
-    final height = avoidPhoneLabels ? 264.0 : 138.0;
+    const height = 138.0;
     final center = Offset(width / 2, height / 2);
     final buttonSize = small && onTap == null ? 30.0 : 48.0;
     const labelWidth = 146.0;
@@ -644,29 +669,51 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           final scale = transform.getMaxScaleOnAxis();
           Offset? collision;
           var nearest = 34.0;
-          var lowestAnchor = anchor.dy;
           for (final point in nearby) {
             final distance = (anchor - point).distance * scale;
             if (distance < nearest) {
               nearest = distance;
               collision = point;
             }
-            if (avoidPhoneLabels && distance < 42) {
-              lowestAnchor = math.max(lowestAnchor, point.dy);
-            }
           }
-          // Give the Habitat base label room beneath its marker on phones.
           final separation = collision == null
               ? Offset.zero
               : Offset(
                   anchor.dx < collision.dx ? -48 : 48,
-                  avoidPhoneLabels
-                      ? 68 + (lowestAnchor - anchor.dy) * scale
-                      : anchor.dy < collision.dy
-                      ? -24
-                      : 24,
+                  anchor.dy < collision.dy ? -24 : 24,
                 );
-          final at = center + shift + separation;
+          final partnerDelta = clusterWith == null
+              ? null
+              : (clusterWith - anchor) * scale;
+          final clustered =
+              partnerDelta != null && partnerDelta.distance < buttonSize;
+          var clusterShift = 0.0;
+          if (clustered) {
+            // Share the space needed for both touch targets between the chips.
+            final needed = math.sqrt(
+              buttonSize * buttonSize - partnerDelta.dy * partnerDelta.dy,
+            );
+            final goesLeft =
+                partnerDelta.dx > 0 || (partnerDelta.dx == 0 && firstInCluster);
+            clusterShift = (needed - partnerDelta.dx.abs()) / 2;
+            if (goesLeft) clusterShift = -clusterShift;
+          }
+          // Reserve space for nearby labels without moving their markers.
+          final peer = labelAvoidsMarker == null
+              ? null
+              : (labelAvoidsMarker - anchor) * scale;
+          final base = labelAvoidsBase == null
+              ? null
+              : (labelAvoidsBase - anchor) * scale;
+          final labelAbove =
+              above ||
+              clustered ||
+              (peer != null &&
+                  peer.dx.abs() < labelWidth / 2 + 24 &&
+                  peer.dy > 0 &&
+                  peer.dy < 68) ||
+              (base != null && base.dy >= 0 && base.distance < 72);
+          final at = center + shift + separation + Offset(clusterShift, 0);
           return Transform.scale(
             scale: 1 / scale,
             child: Stack(
@@ -677,6 +724,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     left: center.dx,
                     top: center.dy,
                     child: IgnorePointer(
+                      key: const ValueKey('marker-collision-tether'),
                       child: Transform.rotate(
                         angle: separation.direction,
                         alignment: Alignment.centerLeft,
@@ -715,10 +763,25 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                 if (!small)
                   Positioned(
                     width: labelWidth,
-                    left: at.dx - labelWidth / 2,
-                    top: above ? at.dy - 51 : at.dy + 22,
+                    left: clustered
+                        ? clusterShift < 0
+                              ? at.dx - labelWidth + 18
+                              : at.dx - 18
+                        : at.dx - labelWidth / 2,
+                    top:
+                        at.dy +
+                        (labelAbove
+                            ? -51
+                            : labelAvoidsMarker != null
+                            ? 26
+                            : 22),
                     child: IgnorePointer(
                       child: Align(
+                        alignment: clustered
+                            ? clusterShift < 0
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft
+                            : Alignment.center,
                         child: _MapChip(
                           text: label,
                           color: color,

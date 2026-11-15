@@ -103,15 +103,27 @@ final class AstronautTracking extends ChangeNotifier {
     quality: quality,
   );
 
-  /// Restores a previously shared pose once, before the astronaut moves locally.
+  /// Lets the first crew update wait for the on-device position.
+  Future<void> get positionReady => _localState;
+
+  /// Preserves exact overlay anchors for shared base and coincident poses.
+  Offset gridPosition(Offset mars) {
+    if (mars == pose.mars) return navigation.position;
+    final base = navigation.map.base;
+    return mars == coordinates.toMars(base) ? base : coordinates.toGrid(mars);
+  }
+
+  /// Restores the previously shared pose for the legacy demo navigation mode.
   void restore(AstronautPose previous) {
     final before = pose.mars;
     final atInitialBase =
-        (mode == TrackingMode.demo || automaticPhysical) &&
+        mode == TrackingMode.demo &&
         navigation.atBase &&
         !_positionChanged &&
         !navigation.guiding;
-    final outcome = _restoreReviewed
+    final outcome = automaticPhysical
+        ? 'devicePositionInUse'
+        : _restoreReviewed
         ? 'alreadyReviewed'
         : !atInitialBase
         ? 'localPositionInUse'
@@ -133,9 +145,7 @@ final class AstronautTracking extends ChangeNotifier {
     navigation.setTrackedPosition(
       coordinates.toGrid(previous.mars),
       source: NavigationPositionSource.firebaseRestore,
-      allowLiveRestore: automaticPhysical,
     );
-    unawaited(_savePosition());
   }
 
   String? get _positionScope =>
@@ -154,9 +164,8 @@ final class AstronautTracking extends ChangeNotifier {
       }
       final mars = Offset(saved[0], saved[1]);
       if (!mars.isFinite || mars.dx.abs() > 180 || mars.dy.abs() > 90) return;
-      _restoreReviewed = true;
       navigation.setTrackedPosition(
-        coordinates.toGrid(mars),
+        gridPosition(mars),
         source: NavigationPositionSource.localPositionRestore,
       );
     } on PlatformException {
@@ -166,10 +175,35 @@ final class AstronautTracking extends ChangeNotifier {
     }
   }
 
-  Future<void> _savePosition() async {
+  /// Persists the base before resetting the local, shared exploration.
+  Future<bool> startNewExpedition() async {
+    if (_positionScope == null || _disposed || navigation.sos) return false;
+    await _localState;
+    var started = false;
+    await _queue(() async {
+      if (_disposed || navigation.sos) return;
+      final base = coordinates.toMars(navigation.map.base);
+      if (!await _storePosition(base) || _disposed) return;
+      _lastAppliedStep = null;
+      lastUnappliedSteps = null;
+      appliedSteps = 0;
+      measuredSteps = 0;
+      _stepDistance = 0;
+      if (_active && !_paused && _steps.calibrated) {
+        unawaited(_restartStepWindow(_seconds));
+      }
+      quality = PositionQuality.waiting;
+      navigation.startNewExpedition();
+      _resetEarth('expeditionStart');
+      notifyListeners();
+      started = true;
+    });
+    return started;
+  }
+
+  Future<bool> _storePosition(Offset mars) async {
     final scope = _positionScope;
-    if (scope == null) return;
-    final mars = pose.mars;
+    if (scope == null) return false;
     try {
       await sensorDiagnosticsChannel.invokeMethod<void>(
         'writeMissionPosition',
@@ -178,10 +212,11 @@ final class AstronautTracking extends ChangeNotifier {
           'mars': [mars.dx, mars.dy],
         },
       );
+      return true;
     } on PlatformException {
-      // Keep the latest estimate in memory.
+      return false;
     } on MissingPluginException {
-      // Local pose storage is optional on bridges that do not provide it.
+      return false;
     }
   }
 
@@ -634,7 +669,7 @@ final class AstronautTracking extends ChangeNotifier {
         );
       },
     );
-    if (appliedSteps != appliedBefore) unawaited(_savePosition());
+    if (appliedSteps != appliedBefore) unawaited(_storePosition(pose.mars));
     if (mode == TrackingMode.live && locationEpoch == _locationEpoch) {
       _recordLocation(batch, now);
     } else {

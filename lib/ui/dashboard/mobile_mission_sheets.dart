@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
 import '../../dashboard/mission_map_config.dart';
+import '../../maps/mars_projection.dart';
 import '../../missions/mission.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
 import '../../tracking/pedometer_monitor.dart';
+import '../../tracking/tracking_geometry.dart';
 import '../mission_theme.dart';
 import 'dashboard_panels.dart';
 import 'dashboard_style.dart';
@@ -249,6 +251,15 @@ class MobileAstronautContent extends StatelessWidget {
               icon: navigation.paused ? Icons.play_arrow : Icons.pause,
               onPressed: navigation.sos ? null : navigation.togglePause,
             ),
+            if (Theme.of(context).platform == TargetPlatform.iOS)
+              DashboardButton(
+                label: 'START NEW EXPEDITION',
+                height: 48,
+                icon: Icons.restart_alt,
+                onPressed: navigation.sos
+                    ? null
+                    : () => _confirmNewExpedition(context),
+              ),
           ],
         ),
         const TegucigalpaClock(),
@@ -308,6 +319,41 @@ class MobileAstronautContent extends StatelessWidget {
       ],
     );
   }
+
+  Future<void> _confirmNewExpedition(BuildContext context) async {
+    final start = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Start a new expedition?'),
+        content: const Text(
+          'Your position returns to Habitat Base and your route and walking '
+          'totals restart. Your teammate and mission checklist stay as they are.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Continue expedition'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Start at Habitat Base'),
+          ),
+        ],
+      ),
+    );
+    if (start != true || !context.mounted) return;
+    final started = await tracking.startNewExpedition();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          started
+              ? 'New expedition started at Habitat Base.'
+              : 'Could not save a new expedition. Your position was kept.',
+        ),
+      ),
+    );
+  }
 }
 
 /// Shows only the local astronaut's telemetry and the teammate's shared pose.
@@ -341,6 +387,15 @@ class MobileCrewContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = member;
     final point = peerPoint;
+    final separation = current != null
+        ? surfaceDistance(
+            tracking.pose.mars,
+            current.pose.mars,
+            MarsProjection.radiusMeters,
+          )
+        : point == null
+        ? null
+        : tracking.coordinates.distance(navigation.position, point);
     final peerStatus = fresh
         ? 'In session'
         : current != null
@@ -404,13 +459,14 @@ class MobileCrewContent extends StatelessWidget {
                   : formatMarsPosition(tracking.coordinates.toMars(point)),
             ),
             const DashboardReadout(label: 'Steps', value: 'Unavailable'),
-            if (point != null) ...[
+            if (point != null && separation != null) ...[
               DashboardReadout(
                 label: current != null && !fresh
                     ? 'To last known position'
                     : 'Estimated separation',
-                value: formatDemoDistance(
-                  tracking.coordinates.distance(navigation.position, point),
+                value: formatNavigationDistance(
+                  separation,
+                  live: separation < 100,
                 ),
               ),
               DashboardReadout(

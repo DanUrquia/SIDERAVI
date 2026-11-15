@@ -226,7 +226,9 @@ class _MissionDashboardState extends State<MissionDashboard>
       return;
     }
     final connect = await showCrewSignIn(context, setup, _presence.key);
-    if (!mounted || connect == null) return;
+    if (connect == null) return;
+    await _tracking.positionReady;
+    if (!mounted) return;
     _connect = connect;
     if (_foreground) _presence.open(connect);
   }
@@ -282,7 +284,7 @@ class _MissionDashboardState extends State<MissionDashboard>
             _presence.status == ConnectionStatus.offline &&
             _tracking.mode == TrackingMode.demo;
         final peerPoint = member != null
-            ? _tracking.coordinates.toGrid(member.pose.mars)
+            ? _tracking.gridPosition(member.pose.mars)
             : demoPeer
             ? _map.teammate
             : null;
@@ -308,30 +310,32 @@ class _MissionDashboardState extends State<MissionDashboard>
         void movementLog() =>
             showMovementDiagnostics(context, _tracking, mission.id);
         final insets = MediaQuery.viewPaddingOf(context);
-        Widget terrain(bool showMapHud) => DemoTerrainMap(
-          navigation: _navigation,
-          view: _view,
-          mission: mission,
-          tileSource: widget.tileSource,
-          tracking: _tracking,
-          astronautId: astronaut.id,
-          teammateId: _teammate.id,
-          peerPoint: peerPoint,
-          peer: member,
-          peerFresh: fresh,
-          teammateName: _teammate.fullName,
-          onSelect: _selectDestination,
-          fullScreen: mobile,
-          showMapHud: showMapHud,
-          overlayInsets: mobile
-              ? EdgeInsets.fromLTRB(
-                  insets.left,
-                  0,
-                  insets.right,
-                  MobileNavigation.chromeBottom(context),
-                )
-              : EdgeInsets.zero,
-        );
+        Widget terrain(bool showMapHud, [VoidCallback? onAstronaut]) =>
+            DemoTerrainMap(
+              navigation: _navigation,
+              view: _view,
+              mission: mission,
+              tileSource: widget.tileSource,
+              tracking: _tracking,
+              astronautId: astronaut.id,
+              teammateId: _teammate.id,
+              peerPoint: peerPoint,
+              peer: member,
+              peerFresh: fresh,
+              teammateName: _teammate.fullName,
+              onSelect: _selectDestination,
+              onAstronaut: onAstronaut,
+              fullScreen: mobile,
+              showMapHud: showMapHud,
+              overlayInsets: mobile
+                  ? EdgeInsets.fromLTRB(
+                      insets.left,
+                      0,
+                      insets.right,
+                      MobileNavigation.chromeBottom(context),
+                    )
+                  : EdgeInsets.zero,
+            );
         if (mobile) {
           return MobileNavigation(
             mapBuilder: terrain,

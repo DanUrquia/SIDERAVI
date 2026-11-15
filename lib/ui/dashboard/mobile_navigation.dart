@@ -51,7 +51,7 @@ class MobileNavigation extends StatefulWidget {
     required this.onSos,
   });
 
-  final Widget Function(bool showMapHud) mapBuilder;
+  final Widget Function(bool showMapHud, VoidCallback? onAstronaut) mapBuilder;
   final TerrainViewController view;
   final Astronaut astronaut;
   final Astronaut teammate;
@@ -315,7 +315,7 @@ class _MobileNavigationState extends State<MobileNavigation>
         builder: (context, constraints) => Stack(
           fit: StackFit.expand,
           children: [
-            widget.mapBuilder(sheet == null),
+            widget.mapBuilder(sheet == null, () => _open(_Sheet.astronaut)),
             Positioned(
               left: insets.left + 12,
               right: insets.right + 12,

@@ -10,6 +10,12 @@ Opening a smartphone mission starts foreground attitude and step collection. The
 
 The phone's mission position and personal stride are restored locally. Live tracking works offline. Start Navigation provides guidance to a selected target, while Return to Base switches the target after the estimated distance from base exceeds 100 m. Arrival ends guidance within 8 m and preserves the estimated position.
 
+## Starting or resuming a shared Jezero expedition
+
+Open Jezero on both iPhones as ARES-01 and ARES-02, then join the same session from **Crew → Join Crew**. Reopening a mission resumes the Mars position saved for that mission and astronaut on the iPhone. A new local exploration starts at the mission's Habitat Base. Firebase shares the current estimates with crew members.
+
+To begin together, have each astronaut choose **Astronaut → Start New Expedition → Start at Habitat Base** while both phones are stationary. The action clears each phone's own route and walking totals and keeps its mission checklist. When both phones publish the shared base coordinates, **Crew** should show **0 m** and the map should show two adjacent astronaut chips. To verify movement, have one astronaut walk while the other phone stays still, then swap roles. Compare the two phones' Crew readouts after each walk.
+
 ## Step windows and heading
 
 Core Motion supplies timestamped relative attitude and cumulative pedometer readings. At calibration the app requests a new native window from the attitude's timestamp. It ignores callbacks from the prior window for movement and counts increases in the active window once. A delayed live callback or a same-window query can supply a higher cumulative count. Native distance replaces the stride estimate for the same eligible interval when it falls within 0.25–1.50 m per step. The starting stride estimate is 0.70 m.

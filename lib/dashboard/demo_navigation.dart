@@ -30,6 +30,7 @@ enum NavigationPositionSource {
   demoMovement,
   firebaseRestore,
   localPositionRestore,
+  expeditionStart,
   localNavigation,
 }
 
@@ -174,11 +175,8 @@ final class DemoNavigation extends ChangeNotifier {
   void setTrackedPosition(
     Offset point, {
     NavigationPositionSource source = NavigationPositionSource.localNavigation,
-    bool allowLiveRestore = false,
   }) {
-    if (live &&
-        source == NavigationPositionSource.firebaseRestore &&
-        !allowLiveRestore) {
+    if (live && source == NavigationPositionSource.firebaseRestore) {
       return;
     }
     if (_position == point) return;
@@ -196,6 +194,18 @@ final class DemoNavigation extends ChangeNotifier {
       _liveArrivalCount++;
       _started = false;
     }
+    notifyListeners();
+  }
+
+  /// Starts a new exploration from the mission's shared Habitat Base.
+  void startNewExpedition() {
+    _updatePosition(map.base, NavigationPositionSource.expeditionStart);
+    _target = null;
+    _targetLabel = null;
+    _heading = null;
+    _started = false;
+    _paused = false;
+    _liveArrived = false;
     notifyListeners();
   }
 

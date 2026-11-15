@@ -18,6 +18,7 @@ import 'package:sidera_vi/tracking/tracking_geometry.dart';
 import 'package:sidera_vi/sensors/sensor_service.dart';
 import 'package:sidera_vi/ui/dashboard/demo_terrain_map.dart';
 import 'package:sidera_vi/ui/dashboard/dashboard_style.dart';
+import 'package:sidera_vi/ui/dashboard/dashboard_panels.dart';
 import 'package:sidera_vi/ui/dashboard/mission_dashboard.dart';
 import 'package:sidera_vi/ui/dashboard/mobile_navigation.dart';
 import 'package:sidera_vi/ui/mission_theme.dart';
@@ -809,6 +810,247 @@ void main() {
     expect(map.navigation.target, isNull);
     expect(tester.takeException(), isNull);
   });
+
+  for (final astronaut in DemoCrew.roster) {
+    testWidgets('${astronaut.id} opens at base and writes only its own steps', (
+      tester,
+    ) async {
+      final motion = _PhoneMotion();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        sensorDiagnosticsChannel,
+        motion.handle,
+      );
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+      );
+
+      final map = await _launch(
+        tester,
+        size: const Size(390, 844),
+        astronaut: astronaut,
+        clock: () => motion.now,
+      );
+      final nav = map.navigation;
+      final tracking = map.tracking;
+      final base = tracking.coordinates.toMars(nav.map.base);
+      final stale = displaceOnMars(base, const Offset(20, 30));
+      final session = await _connectPhoneCrew(
+        tester,
+        map,
+        peerMars: base,
+        oldOwnMars: stale,
+      );
+      final currentMap = tester.widget<DemoTerrainMap>(
+        find.byType(DemoTerrainMap),
+      );
+      expect(currentMap.peerPoint, nav.map.base);
+      expect(tracking.pose.mars, base);
+      expect(session.key.astronaut, astronaut.id);
+      expect(session.writes.single.mars, base);
+
+      await motion.poll(tester, 1, yaw: 42);
+      await motion.poll(tester, 2, yaw: 42, steps: 11);
+      expect(tracking.appliedSteps, 11);
+      expect(
+        nav.positionSource,
+        NavigationPositionSource.pedestrianDeadReckoning,
+      );
+      expect(nav.baseDistanceMeters, closeTo(7.7, .01));
+      expect(session.writes.last.mars, tracking.pose.mars);
+      expect(
+        tester
+            .widget<DemoTerrainMap>(find.byType(DemoTerrainMap))
+            .peer!
+            .pose
+            .mars,
+        base,
+      );
+      expect(motion.positions.keys, ['jezero/${astronaut.id}']);
+      expect(await tracking.startNewExpedition(), isTrue);
+      await tester.pumpAndSettle();
+      expect(tracking.pose.mars, base);
+      expect(motion.positions['jezero/${astronaut.id}'], base);
+      expect(session.writes.last.mars, base);
+    });
+  }
+
+  testWidgets('An iPhone can resume a saved walk or explicitly reset to base', (
+    tester,
+  ) async {
+    final config = missionMaps['jezero']!;
+    final base = config.coordinates.toMars(config.base);
+    final saved = displaceOnMars(base, const Offset(45, 0));
+    final motion = _PhoneMotion(savedPosition: saved);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, motion.handle);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+    );
+
+    final map = await _launch(
+      tester,
+      size: const Size(390, 844),
+      platform: TargetPlatform.iOS,
+      clock: () => motion.now,
+    );
+    final session = await _connectPhoneCrew(
+      tester,
+      map,
+      peerMars: base,
+      oldOwnMars: displaceOnMars(base, const Offset(80, 0)),
+    );
+    final nav = map.navigation;
+    final tracking = map.tracking;
+    expect(tracking.pose.mars, saved);
+    expect(session.writes.last.mars, saved);
+    await motion.poll(tester, 1, yaw: 42);
+    await motion.poll(tester, 2, yaw: 42, steps: 10);
+    nav.select(config.landmarks.first.position, 'Survey waypoint');
+    nav.togglePause();
+    await tester.pumpAndSettle();
+    final walked = tracking.pose.mars;
+    final beforeReset = motion.started;
+    expect(tracking.appliedSteps, 10);
+
+    await _mobileTab(tester, 'astronaut');
+    final start = find.text('START NEW EXPEDITION');
+    await _tapPhoneAction(tester, start);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue expedition'));
+    await tester.pumpAndSettle();
+    expect(tracking.pose.mars, walked);
+
+    motion.failPositionWrite = true;
+    await _tapPhoneAction(tester, start);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start at Habitat Base'));
+    await tester.pumpAndSettle();
+    expect(tracking.pose.mars, walked);
+    expect(nav.paused, isTrue);
+    expect(session.writes.last.mars, walked);
+    expect(
+      find.text('Could not save a new expedition. Your position was kept.'),
+      findsOneWidget,
+    );
+
+    motion.failPositionWrite = false;
+    await _tapPhoneAction(tester, start);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start at Habitat Base'));
+    await tester.pumpAndSettle();
+    expect(nav.position, config.base);
+    expect(nav.target, isNull);
+    expect(nav.paused, isFalse);
+    expect(tracking.pose.mars, base);
+    expect(tracking.appliedSteps, 0);
+    expect(tracking.distanceTraveled, 0);
+    expect(session.writes.last.mars, base);
+    expect(motion.positions['jezero/ARES-01'], base);
+
+    expect(motion.started, greaterThan(beforeReset));
+    await motion.poll(
+      tester,
+      3,
+      yaw: 42,
+      steps: 50,
+      measuredThrough: 1.9,
+      streamStart: beforeReset,
+    );
+    expect(tracking.pose.mars, base);
+    expect(tracking.appliedSteps, 0);
+    await motion.poll(tester, 4, yaw: 42, steps: 6);
+    expect(tracking.appliedSteps, 6);
+    expect(nav.baseDistanceMeters, closeTo(4.2, .01));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    final reopened = await _launch(tester, size: const Size(390, 844));
+    expect(reopened.navigation.baseDistanceMeters, closeTo(4.2, .01));
+  });
+
+  testWidgets(
+    'Overlapping crew keeps separate chips and zero Mars separation',
+    (tester) async {
+      final map = await _launch(tester, size: const Size(390, 844));
+      final base = map.tracking.pose.mars;
+      final session = await _connectPhoneCrew(tester, map, peerMars: base);
+      final self = find.byTooltip('ARES-01 · YOU');
+      final peer = find.byTooltip('Select Adrian Flores on map');
+      final anchor = map.navigation.position;
+      final viewport = find.byKey(const ValueKey('demo-map-viewport'));
+      final lowScale = map.view.value.getMaxScaleOnAxis();
+
+      void expectCluster() {
+        final current = tester.widget<DemoTerrainMap>(
+          find.byType(DemoTerrainMap),
+        );
+        expect(current.peerPoint, anchor);
+        expect(current.navigation.position, anchor);
+        expect(current.peer!.pose.mars, base);
+        final a = tester.getRect(self);
+        final b = tester.getRect(peer);
+        expect(a.width, closeTo(48, .001));
+        expect(b.width, closeTo(48, .001));
+        expect(b.center.dx - a.center.dx, closeTo(48, .001));
+        expect(b.center.dy, closeTo(a.center.dy, .001));
+        expect(
+          find.byKey(const ValueKey('marker-collision-tether')),
+          findsNothing,
+        );
+        expect(
+          tester
+              .getRect(find.text('ARES-01 · YOU'))
+              .overlaps(tester.getRect(find.text('ARES-02'))),
+          isFalse,
+        );
+      }
+
+      expectCluster();
+      map.view.zoomBy(3, tester.getSize(viewport));
+      await tester.pumpAndSettle();
+      expect(map.view.value.getMaxScaleOnAxis(), greaterThan(lowScale));
+      expectCluster();
+      await tester.tap(self);
+      await tester.pumpAndSettle();
+      expect(find.text('Position status'), findsOneWidget);
+      await _tapTooltip(tester, 'Close Astronaut');
+      await tester.tap(peer);
+      await tester.pumpAndSettle();
+      expect(map.navigation.target, anchor);
+      expect(map.navigation.targetLabel, 'Adrian Flores');
+
+      await _mobileTab(tester, 'crew');
+      final readout = find.ancestor(
+        of: find.text('Estimated separation'),
+        matching: find.byType(DashboardReadout),
+      );
+      expect(tester.widget<DashboardReadout>(readout).value, '0 m');
+      expect(find.text('Same position'), findsOneWidget);
+      expect(session.writes.last.mars, base);
+
+      for (final (meters, display) in [
+        (.4, '0 m'),
+        (7.2, '7 m'),
+        (19.7, '20 m'),
+        (1240.0, '1.24 km'),
+      ]) {
+        final other = displaceOnMars(base, Offset(meters, 0));
+        session.update({map.teammateId: other});
+        await tester.pumpAndSettle();
+        expect(tester.widget<DashboardReadout>(readout).value, display);
+        final current = tester.widget<DemoTerrainMap>(
+          find.byType(DemoTerrainMap),
+        );
+        expect(current.peer!.pose.mars, other);
+        expect(current.navigation.position, anchor);
+        expect(session.writes.last.mars, base);
+      }
+    },
+  );
 
   testWidgets('Landscape tablet retains its separate simulation controls', (
     tester,
@@ -1755,6 +1997,7 @@ Future<DemoTerrainMap> _launch(
   Astronaut astronaut = DemoCrew.dan,
   FakeTrekTiles? tiles,
   DateTime Function()? clock,
+  TargetPlatform? platform,
   double textScale = 1,
   bool settle = true,
 }) async {
@@ -1764,7 +2007,7 @@ Future<DemoTerrainMap> _launch(
   addTearDown(tester.view.resetPhysicalSize);
   await tester.pumpWidget(
     MaterialApp(
-      theme: MissionTheme.dark,
+      theme: MissionTheme.dark.copyWith(platform: platform),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(
           context,
@@ -1878,6 +2121,8 @@ final class _PhoneMotion {
 
   final Offset? savedPosition;
   final double? savedStride;
+  final positions = <String, Offset>{};
+  bool failPositionWrite = false;
   final origin = DateTime.utc(2026, 11, 15, 14);
   final calls = <MethodCall>[];
   final starts = <double>[];
@@ -1912,9 +2157,14 @@ final class _PhoneMotion {
       case 'readStrideLength':
         return savedStride;
       case 'readMissionPosition':
-        return savedPosition == null
-            ? null
-            : [savedPosition!.dx, savedPosition!.dy];
+        final pose = positions[call.arguments] ?? savedPosition;
+        return pose == null ? null : [pose.dx, pose.dy];
+      case 'writeMissionPosition':
+        if (failPositionWrite) throw PlatformException(code: 'storageError');
+        final args = call.arguments as Map;
+        final mars = (args['mars'] as List).cast<double>();
+        positions[args['scope'] as String] = Offset(mars[0], mars[1]);
+        return null;
       case 'readMissionChecklist':
         return <String>[];
       case 'snapshot':
@@ -1971,25 +2221,24 @@ final class _PhoneMotion {
 
 Future<_PhonePresence> _connectPhoneCrew(
   WidgetTester tester,
-  DemoTerrainMap map,
-) async {
+  DemoTerrainMap map, {
+  Offset? peerMars,
+  Offset? oldOwnMars,
+}) async {
   final dashboard = tester.widget<MobileNavigation>(
     find.byType(MobileNavigation),
   );
-  final session = _PhonePresence();
-  dashboard.presence.open((_) async => session);
+  final session = _PhonePresence(dashboard.presence.clock);
+  dashboard.presence.open((key) async {
+    session.key = key;
+    return session;
+  });
   await tester.pump();
-  session.crew.add({
-    'ARES-02': (
-      pose: (
-        mars: map.tracking.coordinates.toMars(map.navigation.map.teammate),
-        heading: 12,
-        mode: TrackingMode.live,
-        quality: PositionQuality.accepted,
-      ),
-      updated: dashboard.presence.clock(),
-      online: true,
-    ),
+  session.update({
+    map.teammateId:
+        peerMars ??
+        map.tracking.coordinates.toMars(map.navigation.map.teammate),
+    if (oldOwnMars != null) map.astronautId: oldOwnMars,
   });
   await tester.pumpAndSettle();
   expect(dashboard.presence.status, ConnectionStatus.connected);
@@ -1998,8 +2247,28 @@ Future<_PhonePresence> _connectPhoneCrew(
 
 /// Keeps the existing presence publisher active without a Firebase connection.
 final class _PhonePresence implements PresenceConnection {
+  _PhonePresence(this.clock);
+
+  final DateTime Function() clock;
+  late SessionKey key;
   final crew = StreamController<PresenceSnapshot>();
   final writes = <AstronautPose>[];
+
+  void update(Map<String, Offset> positions) {
+    crew.add({
+      for (final entry in positions.entries)
+        entry.key: (
+          pose: (
+            mars: entry.value,
+            heading: 12,
+            mode: TrackingMode.live,
+            quality: PositionQuality.accepted,
+          ),
+          updated: clock(),
+          online: true,
+        ),
+    });
+  }
 
   @override
   Stream<PresenceSnapshot> get snapshots => crew.stream;
