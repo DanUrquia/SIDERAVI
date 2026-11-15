@@ -4,6 +4,7 @@ import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
 import '../../tracking/pedometer_monitor.dart';
 import 'dashboard_style.dart';
+import 'walking_detection_lab.dart';
 
 /// Opens a local diagnostic overlay while dashboard tracking stays active.
 Future<void> showMovementDiagnostics(
@@ -150,6 +151,10 @@ class _MovementDiagnosticsState extends State<_MovementDiagnostics> {
             ),
           ),
           actions: [
+            TextButton(
+              onPressed: () => showWalkingDetectionLab(context),
+              child: const Text('Walking Detection Lab'),
+            ),
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Close'),

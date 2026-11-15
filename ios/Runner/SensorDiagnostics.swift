@@ -139,38 +139,98 @@ private final class DiagnosticMotion {
   private var samples: [[String: Any]] = []
   private var presentation: UIInterfaceOrientation = .unknown
   private var bootEpoch = 0.0
+  private var wantsHeading = false
+  private var lastHeadingTime: Double?
+  private var generation = 0
+  private var walking: WalkingMotionCapture?
+  private var walkingID: String?
+
+  private var available: Bool {
+    manager.isDeviceMotionAvailable &&
+      CMMotionManager.availableAttitudeReferenceFrames().contains(.xArbitraryZVertical)
+  }
 
   /// Starts relative device motion in the arbitrary north-free frame.
   func start(orientation: UIInterfaceOrientation) {
     presentation = orientation
+    wantsHeading = true
     clear()
-    guard manager.isDeviceMotionAvailable,
-          CMMotionManager.availableAttitudeReferenceFrames().contains(.xArbitraryZVertical)
-    else { return }
-    bootEpoch = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
-    manager.deviceMotionUpdateInterval = 0.1
-    manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] motion, _ in
-      if let motion { self?.record(motion) }
-    }
+    updateStream()
   }
 
-  /// Ends delivery and discards unconsumed native motion samples.
+  /// Stops heading and any Lab capture when the owning route suspends.
   func stop() {
-    manager.stopDeviceMotionUpdates()
+    wantsHeading = false
+    walking?.finish(reason: "motionStopped")
+    updateStream()
     clear()
   }
 
   func clear() { samples.removeAll(keepingCapacity: true) }
 
-  /// Drains bounded samples and reports the availability of the underlying sensors.
+  func beginWalking(id: String, orientation: UIInterfaceOrientation) -> [String: Any] {
+    if walkingID != id, available, manager.isAccelerometerAvailable, manager.isGyroAvailable {
+      presentation = orientation
+      walking = WalkingMotionCapture()
+      walkingID = id
+      updateStream()
+    }
+    return walkingSnapshot(id: id)
+  }
+
+  func finishWalking(reason: String, id: String? = nil) {
+    guard id == nil || walkingID == id else { return }
+    walking?.finish(reason: reason)
+    updateStream()
+  }
+
+  /// Only the initiating Lab can read or stop its batch.
+  func walkingSnapshot(id: String?) -> [String: Any] {
+    var result: [String: Any] = [:]
+    if let id {
+      result = walkingID == id ? (walking?.drain() ?? [:]) : [
+        "active": false, "reason": "captureUnavailable"
+      ]
+    }
+    result["motion"] = available
+    result["accelerometer"] = manager.isAccelerometerAvailable
+    result["gyro"] = manager.isGyroAvailable
+    return result
+  }
+
+  /// Keeps a single device-motion subscription and preserves the attitude reference.
+  private func updateStream() {
+    let labActive = walking?.active == true
+    guard available, wantsHeading || labActive else {
+      generation += 1
+      manager.stopDeviceMotionUpdates()
+      lastHeadingTime = nil
+      return
+    }
+    manager.deviceMotionUpdateInterval = labActive ? WalkingMotionCapture.interval : 0.1
+    guard !manager.isDeviceMotionActive else { return }
+    generation += 1
+    let current = generation
+    bootEpoch = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
+    manager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] sample, error in
+      guard let self, self.generation == current else { return }
+      if let sample { self.record(sample) }
+      if let error = error as NSError?, self.walking?.active == true {
+        self.walking?.finish(reason: "coreMotionError", error: error)
+        self.updateStream()
+      }
+    }
+  }
+
+  /// Drains heading samples and reports the availability of the underlying sensors.
   func snapshot(orientation: UIInterfaceOrientation) -> [String: Any] {
     if presentation != orientation {
       presentation = orientation
       clear()
+      lastHeadingTime = nil
     }
     let data: [String: Any] = [
-      "motion": manager.isDeviceMotionAvailable &&
-        CMMotionManager.availableAttitudeReferenceFrames().contains(.xArbitraryZVertical),
+      "motion": available,
       "gyro": manager.isGyroAvailable,
       "accelerometer": manager.isAccelerometerAvailable,
       "magnetometer": manager.isMagnetometerAvailable,
@@ -183,6 +243,15 @@ private final class DiagnosticMotion {
   /// Converts device axes to the screen top vector using the attitude matrix.
   private func record(_ motion: CMDeviceMotion) {
     guard manager.isDeviceMotionActive else { return }
+    if let walking, walking.active {
+      walking.append(motion, orientation: presentation)
+      if !walking.active { updateStream() }
+    }
+    guard wantsHeading else { return }
+    if walking?.active == true, let lastHeadingTime, motion.timestamp - lastHeadingTime < 0.09 {
+      return
+    }
+    lastHeadingTime = motion.timestamp
     guard let screen = ScreenTopAttitude.project(
       motion.attitude.rotationMatrix, orientation: presentation
     ) else { return }
@@ -200,6 +269,87 @@ private final class DiagnosticMotion {
     if let yaw = screen.yaw { sample["yaw"] = yaw }
     samples.append(sample)
     if samples.count > 48 { samples.removeFirst(samples.count - 48) }
+  }
+}
+
+/// Owns one foreground Lab window and a bounded queue of raw device-motion rows.
+final class WalkingMotionCapture {
+  static let interval = 0.02
+  static let limit = 90.0
+  private let capacity: Int
+  private let started: Double
+  private let startUptime: Double
+  private var previousTime: Double?
+  private var rows: [[Double]] = []
+  private var dropped = 0
+  private var ended: Double?
+  private var endUptime: Double?
+  private var reason: String?
+  private var failure: NSError?
+
+  init(capacity: Int = 500, started: Double = Date().timeIntervalSince1970,
+       uptime: Double = ProcessInfo.processInfo.systemUptime) {
+    self.capacity = capacity
+    self.started = started
+    self.startUptime = uptime
+  }
+
+  var active: Bool { ended == nil }
+
+  func append(_ motion: CMDeviceMotion, orientation: UIInterfaceOrientation) {
+    let a = motion.userAcceleration
+    let g = motion.gravity
+    let w = motion.rotationRate
+    let q = motion.attitude.quaternion
+    append(at: motion.timestamp, values: [
+      a.x, a.y, a.z, g.x, g.y, g.z, w.x, w.y, w.z, q.x, q.y, q.z, q.w
+    ], orientation: orientation)
+  }
+
+  func append(at time: Double, values: [Double], orientation: UIInterfaceOrientation) {
+    guard active, time.isFinite, time >= startUptime,
+          values.allSatisfy({ $0.isFinite }) else { return }
+    guard time - startUptime < Self.limit else {
+      finish(reason: "timeLimit")
+      return
+    }
+    let interval = previousTime.map { time - $0 } ?? 0
+    guard previousTime == nil || interval > 0 else { return }
+    previousTime = time
+    rows.append([time] + values + [interval, Double(orientation.rawValue)])
+    if rows.count > capacity {
+      let overflow = rows.count - capacity
+      dropped += overflow
+      rows.removeFirst(overflow)
+    }
+  }
+
+  func finish(reason: String, error: NSError? = nil,
+              ended: Double = Date().timeIntervalSince1970,
+              uptime: Double = ProcessInfo.processInfo.systemUptime) {
+    guard active else { return }
+    self.ended = ended
+    self.endUptime = uptime
+    self.reason = reason
+    self.failure = error
+  }
+
+  func drain() -> [String: Any] {
+    var result: [String: Any] = [
+      "active": active,
+      "started": started,
+      "startUptime": startUptime,
+      "elapsed": (endUptime ?? ProcessInfo.processInfo.systemUptime) - startUptime,
+      "requestedHz": 1 / Self.interval,
+      "nativeDropped": dropped,
+      "samples": rows
+    ]
+    if let ended { result["ended"] = ended }
+    if let endUptime { result["endUptime"] = endUptime }
+    if let reason { result["reason"] = reason }
+    if let failure { result["error"] = ["domain": failure.domain, "code": failure.code] }
+    rows.removeAll(keepingCapacity: true)
+    return result
   }
 }
 
@@ -365,6 +515,10 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
     NotificationCenter.default.addObserver(
       bridge, selector: #selector(stop), name: UIApplication.didEnterBackgroundNotification, object: nil
     )
+    NotificationCenter.default.addObserver(
+      bridge, selector: #selector(interruptWalking),
+      name: UIApplication.willResignActiveNotification, object: nil
+    )
   }
 
   /// Dispatches explicit test actions and reads samples without streaming in the background.
@@ -428,16 +582,52 @@ final class SensorDiagnostics: NSObject, FlutterPlugin {
         "pedometerAuthorization": CMPedometer.authorizationStatus().rawValue,
         "pedometer": pedometer.snapshot()
       ]) { _, latest in latest })
-    case "export", "exportMovement":
+    case "startWalking":
+      guard UIApplication.shared.applicationState == .active,
+            let id = call.arguments as? String else {
+        result(FlutterError(code: "inactive", message: "Open the Lab in the foreground.", details: nil))
+        return
+      }
+      result(walkingBatch(motion.beginWalking(id: id, orientation: orientation)))
+    case "walkingSnapshot":
+      result(walkingBatch(motion.walkingSnapshot(id: call.arguments as? String)))
+    case "stopWalking":
+      guard let args = call.arguments as? [String: String], let id = args["id"] else {
+        result(FlutterError(code: "invalid_capture", message: "Capture reference is unavailable.", details: nil))
+        return
+      }
+      motion.finishWalking(reason: args["reason"] ?? "operator", id: id)
+      result(walkingBatch(motion.walkingSnapshot(id: id)))
+    case "export", "exportMovement", "exportWalking":
       guard let content = call.arguments as? String else {
         result(FlutterError(code: "invalid_report", message: "Report is unavailable.", details: nil))
         return
       }
-      let kind = call.method == "exportMovement" ? "movement" : "sensor"
+      let kind: String
+      switch call.method {
+      case "exportWalking": kind = "walking"
+      case "exportMovement": kind = "movement"
+      default: kind = "sensor"
+      }
       shareReport(content, kind: kind, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func walkingBatch(_ data: [String: Any]) -> [String: Any] {
+    #if targetEnvironment(simulator)
+      let source = "simulator"
+    #else
+      let source = "physicalDevice"
+    #endif
+    return data.merging([
+      "model": modelIdentifier, "os": UIDevice.current.systemVersion, "source": source
+    ]) { _, latest in latest }
+  }
+
+  @objc private func interruptWalking() {
+    motion.finishWalking(reason: "appInactive")
   }
 
   /// Stops all foreground sensor streams when the app enters the background.

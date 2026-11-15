@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+const sensorDiagnosticsChannel = MethodChannel('sidera_vi/sensor_diagnostics');
+
 /// Transport for foreground diagnostic commands and sensor batches.
 abstract interface class SensorService {
   /// Sends one command to the local sensor bridge.
@@ -14,13 +16,14 @@ final class IpadSensorService implements SensorService {
   /// Creates the channel client without starting either sensor.
   const IpadSensorService();
 
-  static const _channel = MethodChannel('sidera_vi/sensor_diagnostics');
-
   @override
   Future<void> command(String name, [String? argument]) =>
-      _channel.invokeMethod<void>(name, argument);
+      sensorDiagnosticsChannel.invokeMethod<void>(name, argument);
 
   @override
   Future<Map<String, Object?>> snapshot() async =>
-      await _channel.invokeMapMethod<String, Object?>('snapshot') ?? {};
+      await sensorDiagnosticsChannel.invokeMapMethod<String, Object?>(
+        'snapshot',
+      ) ??
+      {};
 }

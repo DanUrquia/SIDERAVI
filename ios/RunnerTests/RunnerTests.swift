@@ -23,6 +23,44 @@ final class RunnerTests: XCTestCase {
     XCTAssertEqual(abs(opposite), 180, accuracy: 0.0001)
   }
 
+  func testWalkingCaptureKeepsBoundedRowsAndDrainsWithoutLosingTiming() throws {
+    let capture = WalkingMotionCapture(capacity: 2, started: 100, uptime: 20)
+    let values = Array(repeating: 0.0, count: 13)
+    capture.append(at: 19, values: values, orientation: .portrait)
+    capture.append(at: 20.02, values: values, orientation: .landscapeLeft)
+    capture.append(at: 20.04, values: values, orientation: .landscapeLeft)
+    capture.append(at: 20.04, values: values, orientation: .landscapeLeft)
+    capture.append(at: 20.16, values: values, orientation: .landscapeRight)
+    let batch = capture.drain()
+    let rows = try XCTUnwrap(batch["samples"] as? [[Double]])
+    XCTAssertEqual(rows.count, 2)
+    XCTAssertEqual(rows[0].count, 16)
+    XCTAssertEqual(rows[0][0], 20.04, accuracy: 0.0001)
+    XCTAssertEqual(rows[1][14], 0.12, accuracy: 0.0001)
+    XCTAssertEqual(rows[1][15], Double(UIInterfaceOrientation.landscapeRight.rawValue))
+    XCTAssertEqual(batch["nativeDropped"] as? Int, 1)
+    XCTAssertEqual((capture.drain()["samples"] as? [[Double]])?.count, 0)
+
+    capture.append(at: 20.18, values: values, orientation: .landscapeRight)
+    capture.finish(reason: "appInactive", ended: 101, uptime: 20.2)
+    capture.finish(reason: "operator", ended: 103, uptime: 20.5)
+    capture.append(at: 20.3, values: values, orientation: .landscapeRight)
+    let stopped = capture.drain()
+    XCTAssertEqual(stopped["active"] as? Bool, false)
+    XCTAssertEqual(stopped["reason"] as? String, "appInactive")
+    XCTAssertEqual((stopped["samples"] as? [[Double]])?.count, 1)
+    XCTAssertEqual(stopped["endUptime"] as? Double, 20.2)
+  }
+
+  func testWalkingCaptureClosesAtTimeLimit() {
+    let capture = WalkingMotionCapture(started: 100, uptime: 10)
+    capture.append(at: 100.1, values: Array(repeating: 0.0, count: 13), orientation: .landscapeLeft)
+    let batch = capture.drain()
+    XCTAssertEqual(batch["active"] as? Bool, false)
+    XCTAssertEqual(batch["reason"] as? String, "timeLimit")
+    XCTAssertEqual((batch["samples"] as? [[Double]])?.count, 0)
+  }
+
   /// A vertical forward edge has no horizontal bearing.
   func testVerticalTopHasNoYaw() {
     let vertical = CMRotationMatrix(
