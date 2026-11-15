@@ -16,9 +16,9 @@ final class TerrainViewController extends TransformationController {
       EdgeInsets.all(viewport.shortestSide * 2);
 
   /// Zooms around the visible center, using the same limits as pinch gestures.
-  void zoomBy(double factor, Size viewport) {
+  void zoomBy(double factor, Size viewport, {double limit = maxZoom}) {
     final scale = value.getMaxScaleOnAxis();
-    final next = (scale * factor).clamp(1.0, maxZoom);
+    final next = (scale * factor).clamp(1.0, limit);
     final center = viewport.center(Offset.zero);
     final scene = toScene(center);
     final margin = panMargin(viewport).left * next;
@@ -42,6 +42,13 @@ final class TerrainViewController extends TransformationController {
     final scale = value.getMaxScaleOnAxis();
     final position = viewport.center(Offset.zero) - scenePoint * scale;
     value = Matrix4.copy(value)..setTranslationRaw(position.dx, position.dy, 0);
+  }
+
+  /// Centers a local exploration window without changing the map projection.
+  void fitArea(Offset sceneCenter, double scale, Size viewport) {
+    final position = viewport.center(Offset.zero) - sceneCenter * scale;
+    value = Matrix4.diagonal3Values(scale, scale, scale)
+      ..setTranslationRaw(position.dx, position.dy, 0);
   }
 
   /// Restores the mission center and initial zoom.

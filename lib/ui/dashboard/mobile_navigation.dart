@@ -85,10 +85,6 @@ class _MobileNavigationState extends State<MobileNavigation>
     with SingleTickerProviderStateMixin {
   late final AnimationController _slide;
   final _scrollPositions = PageStorageBucket();
-  late final _objectives = missionObjectives(
-    widget.mission,
-    widget.navigation.map,
-  );
   late final _storage = MissionChecklistStore(
     '${widget.astronaut.id}/${widget.mission.id}',
   );
@@ -223,7 +219,7 @@ class _MobileNavigationState extends State<MobileNavigation>
   Widget _content(_Sheet sheet) => switch (sheet) {
     _Sheet.missions => MobileMissionsContent(
       mission: widget.mission,
-      objectives: _objectives,
+      landmarks: widget.navigation.map.landmarks,
       completed: _completed,
       loading: _loading,
       storageWarning: _storageWarning,

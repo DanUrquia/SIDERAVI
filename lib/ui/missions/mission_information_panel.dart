@@ -128,20 +128,35 @@ class MissionInformationPanel extends StatelessWidget {
                 ),
                 Flexible(
                   child: Text(
-                    'MISSION OBJECTIVE',
+                    'MISSION OBJECTIVES',
                     style: MissionTheme.display(13, tracking: 1.15),
                   ),
                 ),
               ],
             ),
-            Text(
-              mission.objective,
-              style: const TextStyle(
-                color: MissionTheme.muted,
-                fontSize: 14,
-                height: 1.45,
+            for (final (index, objective) in mission.objectives.indexed)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 8,
+                children: [
+                  Text(
+                    '${index + 1}.',
+                    style: MissionTheme.display(
+                      14,
+                    ).copyWith(color: MissionTheme.warmOrange),
+                  ),
+                  Expanded(
+                    child: Text(
+                      objective.label,
+                      style: const TextStyle(
+                        color: MissionTheme.muted,
+                        fontSize: 14,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
           ],
         ),
       ),
@@ -154,15 +169,28 @@ class MissionInformationPanel extends StatelessWidget {
             ),
             _MissionFact(
               label: 'SIMULATED RADIUS',
-              child: Text('${mission.radiusKm.toStringAsFixed(1)} km'),
+              child: Text(mission.radiusLabel),
             ),
             _MissionFact(
               label: 'ELEVATION / RELIEF',
-              child: Text(mission.elevation ?? 'Elevation data pending'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 4,
+                children: [
+                  Text(mission.elevationLabel),
+                  if (mission.elevation != null)
+                    const Text(
+                      'MOLA base estimate',
+                      style: TextStyle(fontSize: 11, color: MissionTheme.muted),
+                    ),
+                ],
+              ),
             ),
             _MissionFact(label: 'MISSION TYPE', child: Text(mission.type)),
           ];
-          if (constraints.maxWidth < 250) {
+          if (constraints.maxWidth < 215 ||
+              (constraints.maxWidth < 290 &&
+                  MediaQuery.textScalerOf(context).scale(14) > 21)) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               spacing: 10,

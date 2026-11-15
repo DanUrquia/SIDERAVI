@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../auth/astronaut.dart';
 import '../../dashboard/demo_navigation.dart';
-import '../../dashboard/mission_checklist.dart';
+import '../../dashboard/mission_map_config.dart';
 import '../../missions/mission.dart';
 import '../../tracking/astronaut_tracking.dart';
 import '../../tracking/mission_presence.dart';
@@ -15,7 +15,7 @@ class MobileMissionsContent extends StatelessWidget {
   const MobileMissionsContent({
     super.key,
     required this.mission,
-    required this.objectives,
+    required this.landmarks,
     required this.completed,
     required this.loading,
     required this.onChange,
@@ -24,7 +24,7 @@ class MobileMissionsContent extends StatelessWidget {
   });
 
   final MarsMission mission;
-  final List<MissionObjective> objectives;
+  final List<DemoLandmark> landmarks;
   final Set<String> completed;
   final bool loading;
   final void Function(String id, bool completed) onChange;
@@ -33,6 +33,10 @@ class MobileMissionsContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final objectives = mission.objectives;
+    final waypoints = {
+      for (final landmark in landmarks) landmark.name: landmark.position,
+    };
     final done = objectives.where((item) => completed.contains(item.id)).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -86,7 +90,7 @@ class MobileMissionsContent extends StatelessWidget {
                       ? null
                       : (value) => onChange(item.id, value == true),
                 ),
-                if (item.position case final position?)
+                if (waypoints[item.waypoint] case final position?)
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(

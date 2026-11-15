@@ -554,13 +554,14 @@ class _DashboardSidebar extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         DashboardPanel(
-          title: 'MISSION OBJECTIVE',
+          title: 'MISSION OBJECTIVES',
           icon: Icons.flag_outlined,
           children: [
-            Text(
-              mission.objective,
-              style: const TextStyle(color: DashboardStyle.muted),
-            ),
+            for (final (index, objective) in mission.objectives.indexed)
+              Text(
+                '${index + 1}. ${objective.label}',
+                style: const TextStyle(color: DashboardStyle.muted),
+              ),
           ],
         ),
       ],

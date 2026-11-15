@@ -78,11 +78,8 @@ class NavigationPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final target = navigation.target;
     final live = tracking.mode == TrackingMode.live;
-    String distance(Offset point) => formatDemoDistance(
-      live
-          ? tracking.coordinates.distance(navigation.position, point)
-          : navigation.distanceTo(point),
-    );
+    String distance(Offset point) =>
+        formatDemoDistance(navigation.distanceTo(point));
     final start = DashboardButton(
       label: 'START NAVIGATION',
       icon: Icons.navigation_outlined,
@@ -146,7 +143,7 @@ class NavigationPanel extends StatelessWidget {
 
 /// Pairs three reference conditions with the current Tegucigalpa clock.
 class PlanetaryConditionsPanel extends StatelessWidget {
-  /// Uses elevation only where the mission has a sourced relief value.
+  /// Shows the sourced base-point elevation when available.
   const PlanetaryConditionsPanel({
     super.key,
     required this.mission,
@@ -189,10 +186,8 @@ class PlanetaryConditionsPanel extends StatelessWidget {
           Expanded(
             child: _Condition(
               label: 'ELEVATION / RELIEF',
-              value: mission.elevation ?? 'Data pending',
-              note: mission.elevation == null
-                  ? null
-                  : 'Published regional relief',
+              value: mission.elevationLabel,
+              note: mission.elevation == null ? null : 'MOLA base estimate',
             ),
           ),
         ],

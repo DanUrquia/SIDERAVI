@@ -418,7 +418,12 @@ Future<void> _signIn(WidgetTester tester, String pin) async {
 void _expectMission(int index) {
   final mission = marsMissions[index];
   expect(find.text(mission.title), findsOneWidget);
-  expect(find.text(mission.objective), findsOneWidget);
+  for (final objective in mission.objectives) {
+    expect(find.text(objective.label), findsOneWidget);
+  }
+  expect(find.text(mission.radiusLabel), findsOneWidget);
+  expect(find.text(mission.type), findsOneWidget);
+  expect(find.text(mission.elevationLabel), findsOneWidget);
   expect(find.text(mission.imagery.credit), findsOneWidget);
   expect(find.byKey(ValueKey(mission.imagery.asset)), findsOneWidget);
   expect(find.text('0${index + 1} / 05'), findsOneWidget);

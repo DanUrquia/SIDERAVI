@@ -42,6 +42,27 @@ final class MissionImagery {
   final String sourceUrl;
 }
 
+/// A stable checklist entry with an optional simulated waypoint.
+final class MissionObjective {
+  const MissionObjective(this.id, this.label, {this.waypoint});
+
+  final String id;
+  final String label;
+  final String? waypoint;
+}
+
+/// A NASA MOLA MEGDR grid estimate at the specified simulated Habitat Base.
+final class MarsBaseElevation {
+  const MarsBaseElevation(this.meters, this.location);
+
+  static const datum = 'GMM3 Martian areoid';
+  static const source = 'MOLA MEGDR';
+  final int meters;
+  final MarsCoordinates location;
+
+  String get label => '${meters < 0 ? '−' : ''}${meters.abs()} m';
+}
+
 /// A local briefing for a simulated expedition in a real Martian region.
 final class MarsMission {
   /// Combines the simulation parameters with sourced geographic context.
@@ -51,10 +72,10 @@ final class MarsMission {
     required this.region,
     required this.subtitle,
     required this.description,
-    required this.objective,
+    required this.objectives,
     required this.difficulty,
     required this.coordinates,
-    required this.radiusKm,
+    required this.radiusMeters,
     required this.type,
     required this.imagery,
     required this.geographySourceUrl,
@@ -66,12 +87,18 @@ final class MarsMission {
   final String region;
   final String subtitle;
   final String description;
-  final String objective;
+  final List<MissionObjective> objectives;
   final MissionDifficulty difficulty;
   final MarsCoordinates coordinates;
-  final double radiusKm;
+  final int radiusMeters;
+
+  String get radiusLabel => radiusMeters >= 1000
+      ? '${(radiusMeters / 1000).toStringAsFixed(1)} km'
+      : '$radiusMeters m';
   final String type;
   final MissionImagery imagery;
   final String geographySourceUrl;
-  final String? elevation;
+  final MarsBaseElevation? elevation;
+
+  String get elevationLabel => elevation?.label ?? 'Elevation unavailable';
 }

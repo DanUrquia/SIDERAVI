@@ -5,7 +5,9 @@ import 'package:sidera_vi/auth/astronaut.dart';
 import 'package:sidera_vi/dashboard/demo_navigation.dart';
 import 'package:sidera_vi/dashboard/mission_map_config.dart';
 import 'package:sidera_vi/dashboard/terrain_view_controller.dart';
+import 'package:sidera_vi/missions/mission.dart';
 import 'package:sidera_vi/missions/mission_catalog.dart';
+import 'package:sidera_vi/maps/mars_projection.dart';
 import 'package:sidera_vi/tracking/mission_presence.dart';
 import 'package:sidera_vi/tracking/astronaut_tracking.dart';
 import 'package:sidera_vi/tracking/tracking_geometry.dart';
@@ -41,19 +43,72 @@ void main() {
     }
   });
 
+  test(
+    'Scientific catalog and spherical map agree at all five Habitat Bases',
+    () {
+      final ids = <String>{};
+      const radii = [500, 650, 750, 850, 1000];
+      const heights = [-2652, -2606, -1783, -1934, -3874];
+      for (final (index, mission) in marsMissions.indexed) {
+        expect(mission.objectives, hasLength(3));
+        for (final objective in mission.objectives) {
+          expect(objective.id, matches(r'^[a-z]+(?:-[a-z]+)*$'));
+          expect(ids.add(objective.id), isTrue);
+        }
+        final map = missionMaps[mission.id]!;
+        expect(map.radiusMeters, radii[index]);
+        expect(map.radiusMeters, mission.radiusMeters);
+        expect(mission.elevation?.meters, heights[index]);
+        expect(mission.elevationLabel, '−${heights[index].abs()} m');
+        final center = map.coordinates.toMars(map.base);
+        expect(
+          mission.elevation!.location.latitude,
+          closeTo(center.dy, .0000001),
+        );
+        expect(
+          MarsProjection.signedLongitude(
+            mission.elevation!.location.eastLongitude,
+          ),
+          closeTo(center.dx, .0000001),
+        );
+        for (final point in map.boundary) {
+          expect(
+            map.coordinates.distance(map.base, point),
+            closeTo(radii[index], .0001),
+          );
+          expect(map.contains(point), isTrue);
+        }
+        for (final offset in [
+          Offset(radii[index] + 1.0, 0),
+          Offset(0, -radii[index] - 1.0),
+        ]) {
+          expect(
+            map.contains(
+              map.coordinates.toGrid(displaceOnMars(center, offset)),
+            ),
+            isFalse,
+          );
+        }
+      }
+    },
+  );
+
   test('The local grid measures distance and heading consistently', () {
     final config = missionMaps['jezero']!;
     final nav = DemoNavigation(config);
     addTearDown(nav.dispose);
     expect(nav.select(Offset.zero, 'Outside'), isFalse);
     expect(nav.target, isNull);
-    final north = config.start + const Offset(0, -.1);
+    Offset fromStart(Offset meters) => config.coordinates.toGrid(
+      displaceOnMars(config.coordinates.toMars(config.start), meters),
+    );
+    final north = fromStart(const Offset(0, 120));
     expect(nav.select(north, 'North test'), isTrue);
-    expect(nav.distanceTo(north), closeTo(270, .001));
-    expect(nav.heading, 0);
-    final east = config.start + const Offset(.1, 0);
+    expect(nav.distanceTo(north), closeTo(120, .001));
+    expect(nav.heading, closeTo(0, .001));
+    final east = fromStart(const Offset(140, 0));
     expect(nav.select(east, 'East test'), isTrue);
-    expect(nav.heading, 90);
+    expect(nav.heading, closeTo(90, .01));
     nav.start(instant: true);
     expect(nav.arrived, isTrue);
     expect(nav.position, east);
@@ -78,7 +133,17 @@ void main() {
       width: side,
       height: side,
     );
-    final valid = map.navigation.map.base + const Offset(.1, .04);
+    await _tapTooltip(tester, 'Zoom out');
+    expect(map.view.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    await tester.tap(find.text('Fit area · 500 m radius'));
+    await tester.pumpAndSettle();
+    final config = map.navigation.map;
+    final valid = config.coordinates.toGrid(
+      displaceOnMars(
+        config.coordinates.toMars(config.base),
+        const Offset(-290, -270),
+      ),
+    );
     final scene = world.topLeft + valid * side;
     await tester.tapAt(
       rect.topLeft + MatrixUtils.transformPoint(map.view.value, scene),
@@ -86,8 +151,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(map.navigation.target?.dx, closeTo(valid.dx, .01));
     expect(map.navigation.target?.dy, closeTo(valid.dy, .01));
-    await _tapTooltip(tester, 'Zoom out');
-    expect(map.view.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    await tester.tap(find.text('View region · 500 m radius'));
+    await tester.pumpAndSettle();
+    expect(map.view.value.isIdentity(), isTrue);
 
     final first = await tester.startGesture(
       rect.center - const Offset(65, 0),
@@ -130,7 +196,7 @@ void main() {
       tester.view.physicalSize = const Size(1180, 820);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
-      final peer = navigation.map.base + const Offset(.09, -.03);
+      final peer = navigation.map.teammate;
       final teammate = (
         pose: (
           mars: tracking.coordinates.toMars(peer),
@@ -185,7 +251,15 @@ void main() {
       );
       final focal = world.topLeft + navigation.position * world.width;
 
-      for (final zoom in [1.0, 1.4, 2.7, TerrainViewController.maxZoom, 1.0]) {
+      final areaScale = .52 / navigation.map.boundaryBounds.longestSide;
+      for (final factor in [
+        1.0,
+        1.4,
+        2.7,
+        TerrainViewController.maxZoom,
+        1.0,
+      ]) {
+        final zoom = areaScale * factor;
         final offset = focal * (1 - zoom) + const Offset(-18, 16);
         view.value = Matrix4.identity()
           ..setEntry(0, 0, zoom)
@@ -635,11 +709,11 @@ void main() {
     final map = await _launch(tester, size: const Size(390, 844));
     await _mobileTab(tester, 'missions');
     await _tapTooltip(tester, 'Expand or collapse Missions');
-    final survey = find.byKey(const ValueKey('objective-survey-delta-margin'));
+    final survey = find.byKey(const ValueKey('objective-ancient-liquid-water'));
     expect(tester.widget<CheckboxListTile>(survey).value, isFalse);
     await tester.tap(survey);
     await tester.pumpAndSettle();
-    expect(completed, ['survey-delta-margin']);
+    expect(completed, ['ancient-liquid-water']);
     final sheet = find.byKey(const ValueKey('mobile-mission-sheet'));
     await tester.tap(
       find.descendant(of: sheet, matching: find.text('Delta outcrop')),
@@ -654,6 +728,72 @@ void main() {
     await _mobileTab(tester, 'missions');
     expect(tester.widget<CheckboxListTile>(survey).value, isTrue);
   });
+
+  testWidgets(
+    'All phone checklists show the catalog objectives and load only their own saved IDs',
+    (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final saved = <String, List<String>>{};
+      messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, (
+        call,
+      ) async {
+        if (call.method == 'readMissionChecklist') {
+          return saved[call.arguments] ?? <String>[];
+        }
+        if (call.method == 'writeMissionChecklist') {
+          final args = call.arguments as Map;
+          saved[args['scope'] as String] = (args['completed'] as List)
+              .cast<String>();
+        }
+        if (call.method == 'snapshot') return <String, Object?>{};
+        return null;
+      });
+      addTearDown(
+        () =>
+            messenger.setMockMethodCallHandler(sensorDiagnosticsChannel, null),
+      );
+      for (final astronaut in DemoCrew.roster) {
+        for (final mission in marsMissions) {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          await _launch(
+            tester,
+            size: const Size(390, 844),
+            mission: mission,
+            astronaut: astronaut,
+          );
+          expect(
+            find.text('Fit area · ${mission.radiusLabel} radius'),
+            findsOneWidget,
+          );
+          await _mobileTab(tester, 'missions');
+          await _tapTooltip(tester, 'Expand or collapse Missions');
+          expect(find.text('0 of 3 complete · On this device'), findsOneWidget);
+          for (final objective in mission.objectives) {
+            final tile = find.byKey(ValueKey('objective-${objective.id}'));
+            expect(tester.widget<CheckboxListTile>(tile).value, isFalse);
+            expect(
+              find.descendant(of: tile, matching: find.text(objective.label)),
+              findsOneWidget,
+            );
+          }
+          if (astronaut == DemoCrew.dan) {
+            final tile = find.byKey(
+              ValueKey('objective-${mission.objectives.first.id}'),
+            );
+            await tester.tap(tile);
+            await tester.pumpAndSettle();
+            expect(saved['${astronaut.id}/${mission.id}'], [
+              mission.objectives.first.id,
+            ]);
+          }
+          expect(tester.takeException(), isNull);
+        }
+      }
+      expect(saved.keys, hasLength(5));
+    },
+  );
 
   testWidgets('Compact phone keeps pause, return and crew emergency actions', (
     tester,
@@ -710,6 +850,8 @@ void main() {
 Future<DemoTerrainMap> _launch(
   WidgetTester tester, {
   Size size = const Size(1366, 1024),
+  MarsMission? mission,
+  Astronaut astronaut = DemoCrew.dan,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -719,9 +861,9 @@ Future<DemoTerrainMap> _launch(
     MaterialApp(
       theme: MissionTheme.dark,
       home: MissionDashboard(
-        astronaut: DemoCrew.dan,
+        astronaut: astronaut,
         tileSource: FakeTrekTiles(),
-        mission: marsMissions.first,
+        mission: mission ?? marsMissions.first,
       ),
     ),
   );

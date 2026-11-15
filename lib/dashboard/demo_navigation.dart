@@ -79,21 +79,8 @@ final class DemoNavigation extends ChangeNotifier {
     return _target == null ? 'Awaiting destination' : 'Destination selected';
   }
 
-  /// Formats offsets relative to base, with north increasing upward.
-  String get gridPosition {
-    final delta = (position - map.base) * map.demoMetersPerUnit;
-    return '${_gridAxis(delta.dx, 'E', 'W')} · ${_gridAxis(-delta.dy, 'N', 'S')}';
-  }
-
-  /// Formats an axis without implying sub-meter precision.
-  String _gridAxis(double meters, String positive, String negative) {
-    final rounded = (meters / 10).round() * 10;
-    return '${rounded.abs()} m ${rounded < 0 ? negative : positive}';
-  }
-
-  /// Calculates a straight-line distance within the demo grid.
-  double distanceTo(Offset point) =>
-      (point - position).distance * map.demoMetersPerUnit;
+  /// Calculates the straight-line surface distance on the Mars sphere.
+  double distanceTo(Offset point) => map.coordinates.distance(position, point);
 
   /// Selects a valid destination and stops the previous route.
   bool select(Offset point, String label) {
@@ -169,13 +156,17 @@ final class DemoNavigation extends ChangeNotifier {
     if (!moving || elapsed <= Duration.zero) return;
     final target = _target!;
     final delta = target - position;
-    final step = elapsed.inMicroseconds / Duration.microsecondsPerSecond * .13;
-    if (delta.distance <= step) {
+    final step =
+        elapsed.inMicroseconds /
+        Duration.microsecondsPerSecond *
+        map.demoMetersPerSecond;
+    final remaining = distanceTo(target);
+    if (remaining <= step) {
       _updatePosition(target, NavigationPositionSource.demoMovement);
       _started = false;
     } else {
       _updatePosition(
-        position + delta * (step / delta.distance),
+        position + delta * (step / remaining),
         NavigationPositionSource.demoMovement,
       );
     }

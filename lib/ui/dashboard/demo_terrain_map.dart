@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../dashboard/demo_navigation.dart';
@@ -126,6 +128,11 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
           final side = viewport.shortestSide;
           final world = missionWorld(viewport);
           final config = navigation.map;
+          final areaScale = .52 / config.boundaryBounds.longestSide;
+          final maxZoom = math.max(
+            TerrainViewController.maxZoom,
+            areaScale * 4,
+          );
           final palette = Theme.of(context).textTheme;
           final mission = widget.mission;
           final trek = missionTrekMaps[mission.id]!;
@@ -139,7 +146,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
             source: widget.tileSource,
             detail: trek.detail,
             statusBottom:
-                widget.overlayInsets.bottom + (widget.fullScreen ? 55 : 79),
+                widget.overlayInsets.bottom + (widget.fullScreen ? 89 : 113),
             statusLeft: widget.overlayInsets.left + 15,
             child: Stack(
               fit: StackFit.expand,
@@ -156,7 +163,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                     transformationController: view,
                     minScale: 1,
                     boundaryMargin: view.panMargin(viewport),
-                    maxScale: TerrainViewController.maxZoom,
+                    maxScale: maxZoom,
                     onInteractionStart: (_) {
                       if (tracking.follow && _camera.isAnimating) {
                         _camera.stop();
@@ -176,6 +183,7 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                           painter: _DemoGrid(
                             world: world,
                             navigation: navigation,
+                            view: view,
                           ),
                         ),
                         _marker(
@@ -294,15 +302,23 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                             _mapButton(
                               'Zoom in',
                               Icons.add,
-                              zoom < TerrainViewController.maxZoom
-                                  ? () => view.zoomBy(1.4, viewport)
+                              zoom < maxZoom
+                                  ? () => view.zoomBy(
+                                      1.4,
+                                      viewport,
+                                      limit: maxZoom,
+                                    )
                                   : null,
                             ),
                             _mapButton(
                               'Zoom out',
                               Icons.remove,
                               zoom > 1
-                                  ? () => view.zoomBy(1 / 1.4, viewport)
+                                  ? () => view.zoomBy(
+                                      1 / 1.4,
+                                      viewport,
+                                      limit: maxZoom,
+                                    )
                                   : null,
                             ),
                             _mapButton(
@@ -339,6 +355,39 @@ class _DemoTerrainMapState extends State<DemoTerrainMap>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           spacing: 4,
                           children: [
+                            ValueListenableBuilder(
+                              valueListenable: view,
+                              builder: (context, transform, _) {
+                                final local =
+                                    transform.getMaxScaleOnAxis() >=
+                                    areaScale - .001;
+                                return TextButton(
+                                  onPressed: () {
+                                    tracking.setFollow(false);
+                                    if (local) {
+                                      view.reset();
+                                    } else {
+                                      view.fitArea(
+                                        _project(world, config.base),
+                                        areaScale,
+                                        viewport,
+                                      );
+                                    }
+                                  },
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: DashboardStyle.warm,
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(0, 36),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: Text(
+                                    '${local ? 'View region' : 'Fit area'} · ${mission.radiusLabel} radius',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                );
+                              },
+                            ),
                             _MarsScaleBar(scene: scene, view: view),
                             Text(
                               widget.fullScreen
@@ -557,16 +606,19 @@ Offset _project(Rect world, Offset point) =>
 
 /// Renders the boundary, route line and local emergency highlight in scene space.
 class _DemoGrid extends CustomPainter {
-  _DemoGrid({required this.world, required DemoNavigation navigation})
-    : base = navigation.map.base,
-      radius = navigation.map.radius,
-      position = navigation.position,
-      target = navigation.target,
-      emergency = navigation.sos;
+  _DemoGrid({
+    required this.world,
+    required DemoNavigation navigation,
+    required this.view,
+  }) : boundary = navigation.map.boundary,
+       position = navigation.position,
+       target = navigation.target,
+       emergency = navigation.sos,
+       super(repaint: view);
 
   final Rect world;
-  final Offset base;
-  final double radius;
+  final TerrainViewController view;
+  final List<Offset> boundary;
   final Offset position;
   final Offset? target;
   final bool emergency;
@@ -581,15 +633,18 @@ class _DemoGrid extends CustomPainter {
     for (var y = world.top % step; y < size.height; y += step) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
-    final center = _project(world, base);
-    final extent = radius * world.width;
-    canvas.drawCircle(center, extent, Paint()..color = const Color(0x22FF632E));
-    canvas.drawCircle(
-      center,
-      extent,
+    final scale = view.value.getMaxScaleOnAxis();
+    final rim = Path()
+      ..addPolygon(
+        boundary.map((point) => _project(world, point)).toList(),
+        true,
+      );
+    canvas.drawPath(rim, Paint()..color = const Color(0x22FF632E));
+    canvas.drawPath(
+      rim,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
+        ..strokeWidth = 1.6 / scale
         ..color = const Color(0xA5FFB179),
     );
 
@@ -600,13 +655,15 @@ class _DemoGrid extends CustomPainter {
       final line = Paint()
         ..color = emergency ? DashboardStyle.danger : DashboardStyle.warm
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = 3;
+        ..strokeWidth = 3 / scale;
       if (length > 0) {
         final unit = vector / length;
-        for (double segment = 0; segment < length; segment += 16) {
+        final stride = math.max(16 / scale, length / 300);
+        for (double segment = 0; segment < length; segment += stride) {
           canvas.drawLine(
             from + unit * segment,
-            from + unit * (segment + 9).clamp(0, length).toDouble(),
+            from +
+                unit * (segment + stride * 9 / 16).clamp(0, length).toDouble(),
             line,
           );
         }
@@ -617,6 +674,7 @@ class _DemoGrid extends CustomPainter {
   @override
   bool shouldRepaint(_DemoGrid oldDelegate) =>
       world != oldDelegate.world ||
+      boundary != oldDelegate.boundary ||
       position != oldDelegate.position ||
       target != oldDelegate.target ||
       emergency != oldDelegate.emergency;
